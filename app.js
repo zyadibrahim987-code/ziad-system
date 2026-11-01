@@ -946,7 +946,38 @@ function start(){
   sb = window.supabase.createClient(SB_URL, SB_KEY, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
   sb.auth.onAuthStateChange((ev) => { if (ev === "PASSWORD_RECOVERY") { needPass = true; authScreen("setpass"); } if (ev === "SIGNED_OUT") { me = null; authScreen("login"); } if (ev === "SIGNED_IN" && !me && !needPass && document.body.classList.contains("auth")) setTimeout(boot, 0); });
   boot();
+  checkVersion(); setInterval(checkVersion, 60000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) checkVersion(); });
+  window.addEventListener("focus", checkVersion);
 }
+
+/* ================= Auto update (beats GitHub Pages cache) ================= */
+let pendingVersion = null;
+async function checkVersion(){
+  const cur = window.__APP_VERSION; if (!cur || cur === "dev") return;
+  try {
+    const r = await fetch("version.json?t=" + Date.now(), { cache: "no-store" }); if (!r.ok) return;
+    const j = await r.json(); if (!j.v || j.v === cur) return;
+    applyUpdate(j.v);
+  } catch(e){}
+}
+function applyUpdate(v){
+  let tried = ""; try { tried = sessionStorage.getItem("upd_" + v) || ""; } catch(e){}
+  if (tried) return; // already reloaded once for this version; CDN may still be catching up
+  const busy = $("#modalBg") && $("#modalBg").classList.contains("show");
+  if (busy) { pendingVersion = v; showUpdateBar(); return; }
+  try { sessionStorage.setItem("upd_" + v, "1"); } catch(e){}
+  location.replace(location.pathname + "?v=" + encodeURIComponent(v) + location.hash);
+}
+function showUpdateBar(){
+  if (document.getElementById("updBar")) return;
+  const d = document.createElement("div"); d.id = "updBar";
+  d.style.cssText = "position:fixed;bottom:16px;left:50%;transform:translateX(-50%);z-index:9999;background:var(--accent);color:#fff;padding:10px 16px;border-radius:var(--radius);display:flex;gap:12px;align-items:center;box-shadow:0 6px 24px rgba(0,0,0,.25);font-size:14px";
+  d.innerHTML = `فيه نسخة جديدة من السيستم <button class="btn xs" onclick="applyUpdate(pendingVersion)">حدّث دلوقتي</button>`;
+  document.body.appendChild(d);
+}
+const _closeModal0 = closeModal;
+closeModal = function(){ _closeModal0(); if (pendingVersion) setTimeout(() => applyUpdate(pendingVersion), 300); };
 
 /* ================= Platform comparison (best platform) ================= */
 function platformRank(c, rows){
