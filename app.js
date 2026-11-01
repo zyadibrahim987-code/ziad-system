@@ -316,7 +316,18 @@ const canFiles = cid => isAdmin() || !!(myMembership(cid) || {}).see_files;
 const canSeeNumbers = cid => isAdmin() || !!(myMembership(cid) || {}).see_numbers;
 const myPlatforms = c => isAdmin() ? plats(c).map(p => p.name) : ((myMembership(c.id) || {}).platforms || []);
 function plats(c){ return (c.platforms||[]).map(p => typeof p === "string" ? { name:p, cur:c.currency||"SAR" } : p); }
-const leadStats = () => null; const leadSheetBlock = () => "";
+let LS = {}, LSload = {};
+async function loadLeadStats(cid, force){
+  if (LSload[cid] && !force) return LSload[cid];
+  LSload[cid] = (async () => { try { LS[cid] = await q(sb.from("lead_stats").select("d,tab,p,dep,leads,booked").eq("client_id", cid).order("d"), "ls"); } catch(e){ LS[cid] = []; } render(); })();
+  return LSload[cid];
+}
+function leadStats(c, from, to){
+  if (!(c.id in LS)) { LS[c.id] = null; loadLeadStats(c.id); return null; }
+  const L = (LS[c.id] || []).filter(r => r.d >= from && r.d <= to);
+  if (!L.length) return { n:0, b:0, rows:[], empty:true };
+  return { n: L.reduce((a, r) => a + r.leads, 0), b: L.reduce((a, r) => a + r.booked, 0), rows: L };
+}
 const initials = n => { n = String(n||"?").trim(); const parts = n.split(/\s+/); return (parts.length > 1 ? parts[0][0] + parts[1][0] : n.slice(0,2)); };
 function avatar(pid, size){ const p = profileById(pid); const nm = p ? (p.name || p.email) : "؟"; let h = 0; for (const ch of String(pid||"")) h = (h*31 + ch.charCodeAt(0)) >>> 0; const hues = ["var(--accent-soft)","var(--ok-cell)","var(--amb-cell)","var(--bad-cell)","var(--grey-chip)"]; const ink = ["var(--accent)","var(--ok-ink)","var(--amb-ink)","var(--bad-ink)","var(--muted)"]; const i = h % 5; return `<span class="av" title="${esc(nm)}" style="${size?`width:${size}px;height:${size}px;font-size:${Math.round(size*.42)}px;`:""}background:${hues[i]};color:${ink[i]}">${esc(initials(nm))}</span>`; }
 const personName = pid => { if (!pid || (me && pid === me.id && isAdmin())) return "انت"; const p = profileById(pid); return p ? (p.name || p.email) : "—"; };
@@ -337,6 +348,7 @@ async function loadAll(){
     q(sb.from("tasks").select("*"), "tasks"),
     q(sb.from("task_status").select("*").gte("day", since), "status"),
   ]);
+  c.forEach(x => { x.leadSheet = x.lead_sheet && x.lead_sheet.url ? x.lead_sheet : null; });
   profiles = p; clients = c; members = m; tasks = t.map(mapTask);
   ST = {}; for (const r of s) ST[r.task_id + "|" + r.day] = r;
   me = profiles.find(x => x.id === me.id) || me;
@@ -1278,12 +1290,13 @@ function clientTeamLine(c){
     <a href="#" class="tiny" onclick="go('settings');ui.stab='clients';ui.sClient='${c.id}';render();return false">الصلاحيات ←</a></div>`;
 }
 function viewSettings(){
-  const tabs = isAdmin() ? [["team","Team & Permissions"],["clients","Clients"],["account","Account"]] : [["account","Account"]];
+  const tabs = isAdmin() ? [["team","Team & Permissions"],["clients","Clients"],["sync","Backup & Sheets"],["account","Account"]] : [["account","Account"]];
   if (!tabs.some(t => t[0] === ui.stab)) ui.stab = tabs[0][0];
   let h = pageHead("Settings", isAdmin() ? "الفريق والصلاحيات، وإعدادات كل عميل، وحسابك" : "حسابك") +
     `<div class="stabs">${tabs.map(([k,l]) => `<button class="${ui.stab === k ? "on" : ""}" onclick="ui.stab='${k}';saveUi();render()">${l}</button>`).join("")}</div>`;
   if (ui.stab === "team") h += viewTeam();
   else if (ui.stab === "clients") h += settingsClients();
+  else if (ui.stab === "sync") h += settingsSync();
   else h += settingsAccount();
   return h;
 }
@@ -1307,6 +1320,7 @@ function settingsClients(){
           ${c.type === "store" ? `<div><span>التارجت</span><b>${[c.targets?.sales ? "مبيعات " + fmt(c.targets.sales) : "", c.targets?.minRoas ? "ROAS " + fmt2(c.targets.minRoas) : "", c.targets?.maxCpp ? "CPP " + fmt2(c.targets.maxCpp) : ""].filter(Boolean).join(" · ") || "—"}</b></div>` : `<div><span>الأقسام</span><b>${(c.depts||[]).map(esc).join("، ") || "—"}</b></div><div><span>التارجت</span><b>${c.targets?.cpl ? "CPA " + fmt2(c.targets.cpl) : "—"}</b></div>`}
         </div>
         <div class="row" style="margin:10px 0 4px"><button class="btn sm primary" onclick="openSettings('${c.id}')">✏️ عدّل العميل (العملة، المنصات، التارجت…)</button><button class="btn sm" onclick="go('client','${c.id}')">افتح الداشبورد</button></div>
+        ${c.type === "leads" ? leadSheetEditor(c) : ""}
         ${clientTeamCard(c)}
       </div>` : ""}
     </div>`; }).join("");
@@ -1494,7 +1508,7 @@ function money(unit, v, cu, dec){
   const n = dec === 0 ? fmt(v) : fmt2(v);
   return `<bdi class="money" dir="rtl">${unit ? `<bdi class="mu">${unit}</bdi> ` : ""}<bdi><b class="num">${n}</b></bdi> <bdi class="mc">${cu}</bdi></bdi>`;
 }
-const LATIN_RUN = /[A-Za-z0-9$€£][A-Za-z0-9.,%×:+\-\/_@#&$€£]*(?:[  ]+[A-Za-z0-9$€£][A-Za-z0-9.,%×:+\-\/_@#&$€£]*)*/g;
+const LATIN_RUN = /[A-Za-z0-9$€£][A-Za-z0-9.,%×:+\-\/_@#&$€£]*(?:[  ]+(?:[&+\-–|][  ]+)?[A-Za-z0-9$€£][A-Za-z0-9.,%×:+\-\/_@#&$€£]*)*/g;
 const BIDI_SKIP = new Set(["SCRIPT","STYLE","TEXTAREA","INPUT","SELECT","OPTION","BDI","SVG","CODE","PRE"]);
 function isolateLatin(root){
   if (!root) return;
@@ -1516,6 +1530,73 @@ const _render0 = render;
 render = function(){ _render0(); try { isolateLatin(document.getElementById("view")); isolateLatin(document.getElementById("tabs")); } catch(e){} };
 const _openModal0 = openModal;
 openModal = function(html, wide){ _openModal0(html, wide); try { isolateLatin(document.getElementById("modal")); } catch(e){} };
+
+
+/* ================= Lead sheet block on leads dashboards ================= */
+function leadSheetBlock(c, ls){
+  if (!c.leadSheet) return "";
+  const meta = c.lead_meta || {}, cu = cur(c);
+  const sync = meta.last_sync ? `آخر قراية للشيت: ${fmtDate(new Date(meta.last_sync))} ${new Date(meta.last_sync).toLocaleTimeString("ar-EG", { hour:"numeric", minute:"2-digit" })}` : "الشيت لسه ماتقراش";
+  let h = `<div class="section-title"><h3>من شيت الليدز</h3><span class="tiny muted">${sync}${meta.partial ? " · قراية تجريبية لحد ما السكريبت يشتغل" : ""}</span><span class="spacer"></span><a class="btn xs" href="${esc(normUrl(c.leadSheet.url))}" target="_blank" rel="noopener">افتح الشيت ↗</a></div>`;
+  if (!ls) return h + `<div class="card empty">بيحمّل…</div>`;
+  if (ls.empty) return h + `<div class="card small muted">مفيش ليدز في الشيت في الشهر ده.</div>`;
+  const ym = ls.rows[0].d.slice(0,7), M0 = adRows(monthRows(c.id, ym)), A = agg(M0);
+  const n = ls.n, b = ls.b, rate = n ? b / n * 100 : 0;
+  h += `<div class="stats">
+    <div class="stat"><div class="l">ليدز في الشيت</div><div class="n">${fmt(n)}</div>${A.conv ? `<div class="d muted">المنصات قالت ${fmt(A.conv)} تحويل</div>` : ""}</div>
+    <div class="stat"><div class="l">حجوزات (من حالة الاتصال)</div><div class="n">${fmt(b)}</div><div class="d muted">${fmt(rate,1)}% من الليدز</div></div>
+    <div class="stat"><div class="l">تكلفة الليد الحقيقية</div><div class="n">${A.s && n ? `${fmt2(A.s / n)} <span class="small muted">${cu}</span>` : "—"}</div><div class="d muted">الصرف ÷ ليدز الشيت</div></div>
+    <div class="stat"><div class="l">تكلفة الحجز</div><div class="n">${A.s && b ? `${fmt2(A.s / b)} <span class="small muted">${cu}</span>` : "—"}</div><div class="d muted">الصرف ÷ الحجوزات</div></div></div>`;
+  const grp = (key, list) => { const m = new Map(); for (const r of ls.rows) { const k = r[key] || "—"; const x = m.get(k) || { k, n:0, b:0 }; x.n += r.leads; x.b += r.booked; m.set(k, x); } return [...m.values()].sort((a2, b2) => b2.n - a2.n); };
+  const spendOf = (key, k) => agg(M0.filter(r => (key === "p" ? r.p : r.dep) === k)).s;
+  const table = (key, title) => { const G = grp(key); if (G.length < 1) return "";
+    return `<div class="small muted" style="margin:14px 0 6px">${title}</div><div class="tscroll"><table class="t"><thead><tr><th>${key === "p" ? "المنصة" : "القسم"}</th><th>ليدز الشيت</th><th>حجوزات</th><th>نسبة الحجز</th><th>الصرف</th><th>تكلفة الليد</th><th>تكلفة الحجز</th></tr></thead><tbody>${G.map(x => { const sp = x.k === "—" ? 0 : spendOf(key, x.k);
+      return `<tr><td>${key === "p" && x.k !== "—" ? pname(x.k) : esc(x.k === "—" ? "مش معروف" : x.k)}</td><td>${fmt(x.n)}</td><td>${fmt(x.b)}</td><td>${x.n ? fmt(x.b / x.n * 100, 1) + "%" : "—"}</td><td>${sp ? fmt(sp) : "—"}</td><td>${sp && x.n ? fmt2(sp / x.n) : "—"}</td><td>${sp && x.b ? fmt2(sp / x.b) : "—"}</td></tr>`; }).join("")}</tbody></table></div>`; };
+  h += `<div class="card">${table("p", "حسب المنصة")}${table("dep", "حسب القسم")}<div class="tiny muted" style="margin-top:10px">الحجز = أي ليد مكتوب في حالة الاتصال بتاعته «حجز». الصرف من الأرقام المتسجلة في السيستم.</div></div>`;
+  return h;
+}
+
+
+/* ================= Lead sheet settings + sync status ================= */
+const BACKUP_SHEET = "https://docs.google.com/spreadsheets/d/14RWLxzTDLvRGDl-I94iph64yBl2OS39N74M8LVYzaf8/edit";
+function leadSheetEditor(c){
+  const ls = c.lead_sheet || {}, meta = c.lead_meta || {}, over = ls.tabs || {}, P = plats(c).map(p => p.name), D = c.depts || [];
+  const tabs = meta.tabs || [];
+  let h = `<div class="lsh"><div class="row" style="margin-bottom:6px"><h4 style="margin:0">شيت الليدز</h4><span class="tiny muted">السيستم بيقراه كل ساعة ويحسب الليدز والحجوزات لكل يوم</span></div>
+    <div class="row" style="gap:8px"><input class="inp" id="lsUrl_${c.id}" dir="ltr" style="flex:1;min-width:240px" value="${esc(ls.url || "")}" placeholder="https://docs.google.com/spreadsheets/d/..."><button class="btn sm primary" onclick="saveLeadUrl('${c.id}')">حفظ اللينك</button>${ls.url ? `<a class="btn sm" href="${esc(normUrl(ls.url))}" target="_blank" rel="noopener">افتح ↗</a>` : ""}</div>`;
+  if (!ls.url) return h + `</div>`;
+  if (!tabs.length) return h + `<div class="small muted" style="margin-top:8px">لسه ماتقراش. هيتقري أول ما السكريبت يشتغل (شوف Backup & Sheets).</div></div>`;
+  h += `<div class="small muted" style="margin:12px 0 6px">التابات اللي في الشيت: السيستم بيخمّن المنصة والقسم من اسم التاب واسم الكامبين. لو غلط عدّله هنا، وهيتطبق في القراية الجاية.</div>
+    <div class="tscroll"><table class="t lsh-t"><thead><tr><th>التاب</th><th>المنصة</th><th>القسم</th><th>ليدز</th><th>حجوزات</th><th>اتجاهله</th></tr></thead><tbody>${tabs.map(t => { const o = over[t.name] || {}, n = jsq(t.name);
+      return `<tr class="${o.skip ? "off" : ""}"><td><b>${esc(t.name)}</b></td>
+        <td><select class="inp sm" onchange="saveLeadTab('${c.id}','${n}','p',this.value)"><option value="">تلقائي${t.p && !o.p ? ` (${esc(t.p)})` : ""}</option>${P.map(p => `<option ${o.p === p ? "selected" : ""}>${esc(p)}</option>`).join("")}</select></td>
+        <td><select class="inp sm" onchange="saveLeadTab('${c.id}','${n}','dep',this.value)"><option value="">تلقائي (من الكامبين)</option>${D.map(d => `<option ${o.dep === d ? "selected" : ""}>${esc(d)}</option>`).join("")}</select></td>
+        <td class="num">${fmt(t.leads || 0)}</td><td class="num">${fmt(t.booked || 0)}</td>
+        <td><input type="checkbox" ${o.skip ? "checked" : ""} onchange="saveLeadTab('${c.id}','${n}','skip',this.checked)"></td></tr>`; }).join("")}</tbody></table></div></div>`;
+  return h;
+}
+async function saveLeadUrl(cid){
+  const c = clientById(cid), url = $("#lsUrl_" + cid).value.trim();
+  if (url && !/docs\.google\.com\/spreadsheets\/d\//.test(url)) return toast("ده مش لينك جوجل شيت");
+  const ls = Object.assign({}, c.lead_sheet || {}, { url, tabs: (c.lead_sheet && c.lead_sheet.tabs) || {} });
+  try { await q(sb.from("clients").update({ lead_sheet: url ? ls : null }).eq("id", cid), "lsurl"); c.lead_sheet = url ? ls : null; c.leadSheet = url ? ls : null; toast("اتحفظ ✓ — هيتقري في خلال ساعة"); render(); }
+  catch(e){ toast("ماتحفظش: " + (e.message || e)); }
+}
+async function saveLeadTab(cid, tab, field, val){
+  const c = clientById(cid), ls = JSON.parse(JSON.stringify(c.lead_sheet || {})); ls.tabs = ls.tabs || {};
+  const o = ls.tabs[tab] = ls.tabs[tab] || {}; if (val === "" || val === false) delete o[field]; else o[field] = val;
+  if (!Object.keys(o).length) delete ls.tabs[tab];
+  try { await q(sb.from("clients").update({ lead_sheet: ls }).eq("id", cid), "lstab"); c.lead_sheet = ls; c.leadSheet = ls; toast("اتحفظ ✓ — هيتطبق في القراية الجاية"); render(); }
+  catch(e){ toast("ماتحفظش: " + (e.message || e)); }
+}
+function settingsSync(){
+  const L = clients.filter(c => c.type === "leads");
+  return `<div class="card" style="margin-bottom:14px"><div class="row"><h2 style="font-size:17px">النسخة الاحتياطية</h2><span class="spacer"></span><a class="btn sm primary" href="${BACKUP_SHEET}" target="_blank" rel="noopener">افتح الشيت ↗</a></div>
+      <p class="small muted" style="margin:8px 0 0">كل الأرقام اللي بتتسجل في السيستم بتنزل كل ساعة في شيت «Zyad System — Backup» على الدرايف بتاعك: تاب «الأرقام» فيه كل رقم، وتاب «ملخص يومي» فيه توتال كل عميل في كل يوم، وتاب «حالة المزامنة» فيه آخر مرة اتحدّث.</p></div>
+    <div class="card"><h2 style="font-size:17px;margin-bottom:8px">شيتات الليدز</h2>
+      ${L.map(c => { const m = c.lead_meta || {}; return `<div class="trow"><span class="cdot leads"></span><div style="flex:1"><b>${esc(c.name)}</b><div class="tiny muted">${c.leadSheet ? (m.last_sync ? `آخر قراية: ${fmtDate(new Date(m.last_sync))} · ${(m.tabs||[]).length} تاب · ${fmt((m.tabs||[]).reduce((a,t) => a + (t.leads||0), 0))} ليد${m.partial ? " (تجريبي)" : ""}` : "لسه ماتقراش") : "مفيش شيت ليدز متحدد"}</div></div><button class="btn sm" onclick="ui.stab='clients';ui.sClient='${c.id}';render()">${c.leadSheet ? "التابات والإعدادات" : "حط لينك الشيت"}</button></div>`; }).join("") || `<div class="small muted">مفيش عملاء ليدز.</div>`}
+    </div>`;
+}
 
 const APP_SHELL = "<div class=\"wrap\"><header class=\"top\"><span class=\"brand\" aria-label=\"\u0632\u064a\u0627\u062f \u0625\u0628\u0631\u0627\u0647\u064a\u0645\"><svg width=\"28\" height=\"28\" viewBox=\"0 0 48 48\" aria-hidden=\"true\"><rect class=\"zm-ink\" x=\"0\" y=\"28\" width=\"12\" height=\"20\" rx=\"2\"/><rect class=\"zm-brand\" x=\"18\" y=\"16\" width=\"12\" height=\"32\" rx=\"2\"/><rect class=\"zm-signal\" x=\"36\" y=\"0\" width=\"12\" height=\"12\" rx=\"2\"/><rect class=\"zm-brand\" x=\"36\" y=\"15\" width=\"12\" height=\"33\" rx=\"2\"/></svg><span class=\"nm\">\u0632\u064a\u0627\u062f \u0625\u0628\u0631\u0627\u0647\u064a\u0645</span><span class=\"sub\">\u00b7 \u0633\u064a\u0633\u062a\u0645 \u0627\u0644\u0634\u063a\u0644</span></span><nav class=\"tabs\" id=\"tabs\"></nav><span class=\"spacer\"></span><div id=\"who\"></div></header><main id=\"view\"><div class=\"card empty\">\u0628\u064a\u062d\u0645\u0651\u0644\u2026</div></main></div>";
 start();
