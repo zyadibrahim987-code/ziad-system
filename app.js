@@ -571,7 +571,7 @@ function viewReview(){
 function timeAgo(iso){ const m = Math.round((Date.now() - new Date(iso)) / 60000); if (m < 1) return "دلوقتي"; if (m < 60) return `من ${m} دقيقة`; const hh = Math.round(m/60); if (hh < 24) return `من ${hh} ساعة`; return `من ${Math.round(hh/24)} يوم`; }
 async function openFile(path){ try { const { data, error } = await sb.storage.from("deliveries").createSignedUrl(path, 3600); if (error) throw error; window.open(data.signedUrl, "_blank", "noopener"); } catch(e){ toast("مقدرش يفتح الملف"); } }
 function openReviewItem(tid, dk){ go("review"); closeModal(); }
-async function approve(tid, dk){ const key = tid + "|" + dk; try { await q(sb.from("task_status").update({ state:"approved", updated_at:new Date().toISOString() }).eq("task_id", tid).eq("day", dk), "approve"); ST[key] = { ...ST[key], state:"approved" }; toast("اتوافق عليه ✓"); } catch(e){ toast("ماتحفظش"); } render(); }
+async function approve(tid, dk){ const key = tid + "|" + dk; try { await q(sb.from("task_status").update({ state:"approved", updated_at:new Date().toISOString() }).eq("task_id", tid).eq("day", dk), "approve"); ST[key] = { ...ST[key], state:"approved" }; toast("اتوافق عليه ✓ — اتحفظ في Deliveries بتاعة العميل"); DELIV = {}; } catch(e){ toast("ماتحفظش"); } render(); }
 function openReturn(tid, dk){ const t = tasks.find(x => x.id === tid);
   openModal(`<h2>رجّع "${esc(t.title)}"</h2><label class="f">التعليق اللي هيوصله</label><textarea class="inp" id="rtNote" autofocus placeholder="مثلاً: خلّي الخط أكبر والسعر واضح"></textarea>
     <div class="actions"><span class="spacer"></span><button class="btn" onclick="closeModal()">إلغاء</button><button class="btn primary" onclick="doReturn('${tid}','${dk}')">رجّعه</button></div>`); }
@@ -1144,7 +1144,7 @@ function filesBlock(c){
       <span class="fl-ic">${f.url ? "🔗" : fileIcon(f.name)}</span>
       <input class="inp fl-name" value="${esc(f.name)}" placeholder="اسم الملف (مثلاً: لوجو المتجر)" onchange="editFile('${f.id}','name',this)">
       ${f.url != null || !f.path ? `<input class="inp fl-url" dir="ltr" value="${esc(f.url || "")}" placeholder="https://drive.google.com/..." onchange="editFile('${f.id}','url',this)">` : `<span class="fl-url tiny muted">ملف مرفوع</span>`}
-      ${f.url ? `<a class="btn xs" href="${esc(normUrl(f.url))}" target="_blank" rel="noopener">افتح ↗</a>` : f.path ? `<button class="btn xs" onclick="openFile('${f.id}')">⬇️ تحميل</button>` : ""}
+      ${f.url ? `<a class="btn xs" href="${esc(normUrl(f.url))}" target="_blank" rel="noopener">افتح ↗</a>` : f.path ? `<button class="btn xs" onclick="openClientFile('${f.id}')">⬇️ تحميل</button>` : ""}
       ${isAdmin() || f.uploaded_by === me.id ? `<button class="btn xs ghost" onclick="delFile('${f.id}')" aria-label="امسح">🗑</button>` : `<span style="width:30px"></span>`}
       <span class="fl-who tiny muted">${avatar(f.updated_by || f.uploaded_by, 16)} ${esc(personName(f.updated_by || f.uploaded_by))}${(f.updated_at || f.created_at) ? " · " + fmtDate(new Date(f.updated_at || f.created_at)) : ""}${f.updated_by ? " (آخر تعديل)" : ""}</span>
     </div>`;
@@ -1185,7 +1185,7 @@ async function uploadFiles(cid, input){
   input.value = ""; if (ok) toast(`اترفع ${ok} ${ok === 1 ? "ملف" : "ملفات"} ✓`);
   loadFiles(cid);
 }
-async function openFile(id){
+async function openClientFile(id){
   const f = Object.values(FILES).flat().find(x => x && x.id === id); if (!f) return;
   const { data, error } = await sb.storage.from("client-files").createSignedUrl(f.path, 120, { download: f.name });
   if (error) return toast("مش عارف أفتحه: " + error.message);
@@ -1306,6 +1306,7 @@ function clientViews(c, see, mp){
     if (see) R.push({ k:"total", l:"Total", sub:"العميل كله" });
   }
   if (canFiles(c.id)) O.push({ k:"files", l:"Files", sub:"لينكات وملفات العميل" });
+  O.push({ k:"deliv", l:"Deliveries", sub: isAdmin() ? "التسليمات اللي اتعملت" : "تسليماتك على العميل" });
   O.push({ k:"tasks", l:"Tasks", sub: isAdmin() ? "كل مهام العميل" : "تاسكاتك على العميل" });
   return { R, O };
 }
@@ -1321,7 +1322,7 @@ function clientBody(c, ym, see, mp){
   let k = ui.cv[c.id]; if (!all.some(v => v.k === k)) k = (R[0] || O[0]).k;
   const v = all.find(x => x.k === k);
   const item = x => `<button class="${x.k === k ? "on" : ""}" onclick="ui.cv=ui.cv||{};ui.cv['${c.id}']='${x.k}';ui.selDay=null;saveUi();render()">
-      ${x.av ? avatar(x.av, 22) : `<span class="cv-ic">${x.k === "total" ? "Σ" : x.k === "files" ? "⌗" : "✓"}</span>`}
+      ${x.av ? avatar(x.av, 22) : `<span class="cv-ic">${x.k === "total" ? "Σ" : x.k === "files" ? "⌗" : x.k === "deliv" ? "↗" : "✓"}</span>`}
       <span class="cv-t"><b>${esc(x.l)}</b><span>${esc(x.sub)}</span></span>
       ${R.includes(x) ? `<span class="cv-m">${sliceMetric(c, x.sl, ym)}</span>` : ""}</button>`;
   const nav = `<nav class="cnav">${R.length ? `<div class="cnav-l">Results</div>${R.map(item).join("")}` : ""}<div class="cnav-l">Client</div>${O.map(item).join("")}</nav>`;
@@ -1338,6 +1339,7 @@ function sliceAdvice(c, sl){
 function clientPanel(c, ym, v, see, mp){
   const head = (t, sub, av) => `<div class="cv-head">${av ? avatar(av, 30) : ""}<div><h2>${t}</h2>${sub ? `<div class="ph-sub">${sub}</div>` : ""}</div></div>`;
   if (v.k === "files") return head("Files", "لينكات درايف وملفات العميل، وأي حد على العميل يقدر يضيف ويعدّل") + filesBlock(c).replace(/^<div class="section-title">[\s\S]*?<\/div>/, "");
+  if (v.k === "deliv") return head("Deliveries", "كل اللي اتسلّم على العميل ده: اللينكات والملفات، مين سلّمها وإمتى") + delivBlock(c);
   if (v.k === "tasks") {
     const ct = isAdmin() ? tasks.filter(t => t.clientId === c.id) : tasks.filter(t => t.clientId === c.id && t.assigneeId === me.id);
     let h = head("Tasks", isAdmin() ? `${ct.length} مهمة على العميل ده` : "التاسكات المسنودة عليك") + (isAdmin() ? `<div class="row" style="margin-bottom:10px"><span class="spacer"></span><button class="btn sm primary" onclick="openTask(null,{clientId:'${c.id}'})">+ مهمة</button></div>` : "");
@@ -1376,6 +1378,37 @@ const _deltaHtml0 = deltaHtml;
 deltaHtml = function(cur, prev, goodUp){ if (cur == null || prev == null || !prev) return ""; return _deltaHtml0(cur, prev, goodUp); };
 
 const daysAr = n => n === 1 ? "يوم واحد" : n === 2 ? "يومين" : n <= 10 ? `${n} أيام` : `${n} يوم`;
+
+
+/* ================= Deliveries archive per client ================= */
+let DELIV = {};
+async function loadDeliv(cid){
+  const ids = tasks.filter(t => t.clientId === cid).map(t => t.id);
+  if (!ids.length) { DELIV[cid] = []; return render(); }
+  try { DELIV[cid] = await q(sb.from("task_status").select("*").in("task_id", ids).in("state", ["approved","submitted","returned"]).order("updated_at", { ascending:false }), "deliv"); }
+  catch(e){ DELIV[cid] = []; }
+  render();
+}
+function delivBlock(c){
+  if (!(c.id in DELIV)) { DELIV[c.id] = null; loadDeliv(c.id); }
+  const L = DELIV[c.id];
+  if (L === null) return `<div class="card empty">بيحمّل…</div>`;
+  const rows = L.filter(s => s.link || s.file_path || s.note);
+  if (!rows.length) return `<div class="card small muted">لسه مفيش تسليمات على العميل ده. لما حد يسلّم تاسك هتلاقيه هنا، ولما تعتمده بيفضل محفوظ.</div>`;
+  const ui2 = ui.dv = ui.dv || "all", f = ui2 === "all" ? rows : rows.filter(s => s.state === ui2);
+  const cnt = st => rows.filter(s => s.state === st).length;
+  const tag = st => st === "approved" ? `<span class="chip ok">اتعتمد</span>` : st === "submitted" ? `<span class="chip amb">مستني مراجعة</span>` : `<span class="chip warn">اترجع للتعديل</span>`;
+  let h = `<div class="seg" style="margin-bottom:12px">${[["all",`الكل (${rows.length})`],["approved",`اتعتمد (${cnt("approved")})`],["submitted",`مستني (${cnt("submitted")})`],["returned",`اترجع (${cnt("returned")})`]].map(([k,l]) => `<button class="${ui2===k?"on":""}" onclick="ui.dv='${k}';render()">${l}</button>`).join("")}</div>`;
+  h += `<div class="card" style="padding:4px 16px">${f.map(s => { const t = tasks.find(x => x.id === s.task_id) || {};
+    return `<div class="dlv">
+      <div class="row" style="gap:8px">${avatar(s.by_user, 24)}<b>${esc(t.title || "تاسك")}</b>${tag(s.state)}<span class="spacer"></span><span class="tiny muted">${esc(personName(s.by_user))} · ${fmtDate(fromKey(String(s.day).slice(0,10)))}</span></div>
+      ${s.note ? `<div class="small" style="margin:6px 0 0;white-space:pre-wrap">${esc(s.note)}</div>` : ""}
+      ${s.review_note && s.state === "returned" ? `<div class="small" style="margin-top:6px;color:var(--warn)">تعليقك: ${esc(s.review_note)}</div>` : ""}
+      <div class="row" style="margin-top:8px;gap:8px">${s.link ? `<a class="btn xs" href="${esc(normUrl(s.link))}" target="_blank" rel="noopener">🔗 افتح اللينك</a><span class="tiny muted dlv-url" dir="ltr">${esc(s.link)}</span>` : ""}${s.file_path ? `<button class="btn xs" onclick="openFile('${esc(s.file_path)}')">📎 ${esc(s.file_name || "الملف")}</button>` : ""}
+      ${isAdmin() && s.state === "submitted" ? `<span class="spacer"></span><button class="btn xs primary" onclick="approve('${s.task_id}','${String(s.day).slice(0,10)}')">✓ اعتمد</button>` : ""}</div>
+    </div>`; }).join("") || `<div class="small muted" style="padding:12px 0">مفيش حاجة هنا.</div>`}</div>`;
+  return h;
+}
 
 const APP_SHELL = "<div class=\"wrap\"><header class=\"top\"><span class=\"brand\" aria-label=\"\u0632\u064a\u0627\u062f \u0625\u0628\u0631\u0627\u0647\u064a\u0645\"><svg width=\"28\" height=\"28\" viewBox=\"0 0 48 48\" aria-hidden=\"true\"><rect class=\"zm-ink\" x=\"0\" y=\"28\" width=\"12\" height=\"20\" rx=\"2\"/><rect class=\"zm-brand\" x=\"18\" y=\"16\" width=\"12\" height=\"32\" rx=\"2\"/><rect class=\"zm-signal\" x=\"36\" y=\"0\" width=\"12\" height=\"12\" rx=\"2\"/><rect class=\"zm-brand\" x=\"36\" y=\"15\" width=\"12\" height=\"33\" rx=\"2\"/></svg><span class=\"nm\">\u0632\u064a\u0627\u062f \u0625\u0628\u0631\u0627\u0647\u064a\u0645</span><span class=\"sub\">\u00b7 \u0633\u064a\u0633\u062a\u0645 \u0627\u0644\u0634\u063a\u0644</span></span><nav class=\"tabs\" id=\"tabs\"></nav><span class=\"spacer\"></span><div id=\"who\"></div></header><main id=\"view\"><div class=\"card empty\">\u0628\u064a\u062d\u0645\u0651\u0644\u2026</div></main></div>";
 start();
