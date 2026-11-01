@@ -567,10 +567,12 @@ function viewTeam(){
   const team = profiles.filter(p => p.id !== me.id);
   let h = `<div class="row" style="margin-bottom:12px"><h2>الفريق</h2><span class="small muted">${team.length} من 6</span><span class="spacer"></span><button class="btn primary sm" onclick="openInvite()">+ ضيف عضو</button></div>`;
   if (!team.length) return h + `<div class="card empty">لسه مفيش حد في الفريق. دوس "ضيف عضو"، واعمله يوزر وباسورد تبعتهمله.</div>`;
-  h += `<div class="card" style="padding:4px 16px">${team.map(p => { const cs = members.filter(m => m.user_id === p.id); return `<div class="trow">${avatar(p.id, 34)}<div style="flex:1;min-width:0"><div><b>${esc(p.name || p.email)}</b> <span class="chip grey">${esc(p.job || "—")}</span>${!p.active ? ` <span class="chip warn">متوقف</span>` : ""}</div>
+  h += `<p class="small muted" style="margin:-4px 0 12px">تحت كل واحد: هو شغال على أنهي عملاء، وبيعمل إيه ويشوف إيه في كل عميل. أي علامة تغيّرها بتتحفظ على طول.</p>`;
+  h += `<div class="card" style="padding:4px 16px">${team.map(p => { const cs = members.filter(m => m.user_id === p.id); return `<div class="tm-block"><div class="trow" style="border:0">${avatar(p.id, 34)}<div style="flex:1;min-width:0"><div><b>${esc(p.name || p.email)}</b> <span class="chip grey">${esc(p.job || "—")}</span>${!p.active ? ` <span class="chip warn">متوقف</span>` : ""}</div>
       <div class="tiny muted" dir="ltr">${esc(p.email || "")}</div>
-      <div class="small" style="margin-top:4px">${cs.length ? cs.map(m => { const c = clientById(m.client_id); return c ? `<span class="chip grey">${esc(c.name)}${m.platforms.length ? " · " + m.platforms.map(esc).join("، ") : ""}${m.see_numbers ? " · 👁 الأرقام" : ""}</span>` : ""; }).join(" ") : `<span class="muted">مش مسنود على أي عميل</span>`}</div></div>
-      <button class="btn sm" onclick="openMember('${p.id}')">تعديل</button></div>`; }).join("")}</div>`;
+      </div><button class="btn sm" onclick="openMember('${p.id}')">✏️ الاسم والعملاء والباسورد</button></div>
+      <div class="perm-list">${cs.length ? cs.map(m => { const c = clientById(m.client_id); return c ? permRow(m, c, "client") : ""; }).join("") : `<div class="small muted" style="padding:6px 0 12px">مش مسنود على أي عميل. دوس «الاسم والعملاء» واختارله عملاء.</div>`}</div>`; }).join("")}</div>`;
+
   return h;
 }
 function genPass(){ const a = "abcdefghjkmnpqrstuvwxyz", A = "ABCDEFGHJKLMNPQRSTUVWXYZ", d = "23456789"; const pick = (set, n) => Array.from(crypto.getRandomValues(new Uint32Array(n)), x => set[x % set.length]).join(""); return pick(A,1) + pick(a,4) + pick(d,3); }
@@ -663,7 +665,7 @@ function viewClient(){
     ${isAdmin() ? `<button class="btn sm" onclick="openDataReceived('${c.id}')">📥 العميل بعت داتا</button><button class="btn sm" onclick="openSettings('${c.id}')">⚙️ الإعدادات</button>` : ""}</div>
   <div class="row" style="gap:6px;margin-bottom:10px">${plats(c).map(p => `<span class="chip grey pname" style="padding:3px 10px 3px 6px">${badge(p.name)} ${esc(p.name)}${p.cur !== c.currency ? ` <span class="tiny">(${p.cur})</span>` : ""}</span>`).join("")}${(c.depts||[]).length ? `<span class="tiny muted" style="margin-right:6px">الأقسام: ${c.depts.map(esc).join("، ")}</span>` : ""}</div>
   ${(c.links||[]).length && canFiles(c.id) ? `<div class="links" style="margin-bottom:10px">${linksHtml(c)}</div>` : ""}
-  ${isAdmin() ? `<div class="row small muted" style="gap:6px;margin-bottom:10px">الفريق على العميل ده: ${members.filter(m => m.client_id === c.id).map(m => `${avatar(m.user_id, 22)} ${esc(personName(m.user_id))}${m.platforms.length ? ` (${m.platforms.map(esc).join("، ")})` : ""}`).join(" · ") || "انت بس"} <button class="btn xs ghost" onclick="go('team')">تعديل</button></div>` : ""}`;
+  ${isAdmin() ? clientTeamCard(c) : ""}`;
   if (!isAdmin()) return h + memberClientView(c, ym, see, mp);
   h += clientAlerts(c).map(x => `<div class="alert">⚠️ ${x}</div>`).join("");
   h += `<div class="row" style="margin:6px 0 12px"><div class="monthnav"><button class="btn sm" onclick="ui.month=ymAdd(ui.month,1);ui.selDay=null;saveUi();render()" aria-label="الشهر اللي بعده">›</button><div class="m">${monthLabel(ym)}</div><button class="btn sm" onclick="ui.month=ymAdd(ui.month,-1);ui.selDay=null;saveUi();render()" aria-label="الشهر اللي قبله">‹</button></div><span class="spacer"></span><button class="btn xs" onclick="loadMetrics('${c.id}',true)">↻ تحديث</button></div>`;
@@ -1152,6 +1154,46 @@ function delFile(id){ const f = Object.values(FILES).flat().find(x => x && x.id 
   openModal(`<h2>تمسح «${esc(f.name)}»؟</h2><p class="small muted">هيتمسح من عند الكل.</p><div class="actions"><span class="spacer"></span><button class="btn" onclick="closeModal()">لا</button><button class="btn primary" style="background:var(--danger);border-color:var(--danger)" onclick="doDelFile('${id}')">امسح</button></div>`); }
 async function doDelFile(id){ const f = Object.values(FILES).flat().find(x => x && x.id === id); if (!f) return;
   try { await sb.storage.from("client-files").remove([f.path]); await q(sb.from("client_files").delete().eq("id", id), "filedel"); closeModal(); toast("اتمسح"); loadFiles(f.client_id); } catch(e){ toast("ماتمسحش: " + e.message); } }
+
+
+/* ================= Inline permissions ================= */
+const PERM_HELP = { plat:"المنصات اللي يسجّل أرقامها", nums:"يشوف نتايج العميل كلها (المبيعات والتوتال وكل المنصات)", files:"يشوف لينكات وملفات العميل ويرفع ملفات" };
+function permRow(m, c, label){
+  const head = label === "client" ? `<b>${esc(c.name)}</b>` : `${avatar(m.user_id, 22)} <b>${esc(personName(m.user_id))}</b> <span class="tiny muted">${esc((profileById(m.user_id)||{}).job || "")}</span>`;
+  const P = plats(c);
+  return `<div class="perm">
+    <div class="perm-h">${head}</div>
+    <div class="perm-o">
+      ${P.length ? `<span class="perm-g" title="${PERM_HELP.plat}"><span class="tiny muted">يسجّل أرقام:</span>${P.map(pp => { const on = (m.platforms||[]).includes(pp.name); return `<button class="ptog${on ? " on" : ""}" title="${esc(pp.name)}" onclick="togPerm('${c.id}','${m.user_id}','plat','${jsq(pp.name)}')">${badge(pp.name)}</button>`; }).join("")}</span>` : ""}
+      <label class="perm-c" title="${PERM_HELP.nums}"><input type="checkbox" ${m.see_numbers ? "checked" : ""} onchange="togPerm('${c.id}','${m.user_id}','see_numbers')"> يشوف نتايج العميل كلها</label>
+      <label class="perm-c" title="${PERM_HELP.files}"><input type="checkbox" ${m.see_files ? "checked" : ""} onchange="togPerm('${c.id}','${m.user_id}','see_files')"> الملفات</label>
+      ${label !== "client" ? `<button class="btn xs ghost" title="شيله من العميل ده" onclick="unassign('${c.id}','${m.user_id}')">✕</button>` : ""}
+    </div></div>`;
+}
+async function togPerm(cid, uid, what, val){
+  const m = members.find(x => x.client_id === cid && x.user_id === uid); if (!m) return;
+  const patch = {};
+  if (what === "plat") { const ps = (m.platforms||[]).includes(val) ? m.platforms.filter(x => x !== val) : [...(m.platforms||[]), val]; patch.platforms = ps; }
+  else patch[what] = !m[what];
+  const old = { ...m }; Object.assign(m, patch); render();
+  try { await q(sb.from("client_members").update(patch).eq("client_id", cid).eq("user_id", uid), "perm"); toast("اتحفظ ✓"); }
+  catch(e){ Object.assign(m, old); render(); toast("ماتحفظش: " + (e.message || e)); }
+}
+async function assign(cid, sel){
+  const uid = sel.value; if (!uid) return;
+  try { await q(sb.from("client_members").upsert({ client_id:cid, user_id:uid, platforms:[], see_numbers:false, see_files:false }), "assign"); await loadAll(); render(); toast("اتضاف ✓ — اختار هو يعمل إيه"); }
+  catch(e){ toast("ماتضافش: " + (e.message || e)); }
+}
+async function unassign(cid, uid){
+  try { await q(sb.from("client_members").delete().eq("client_id", cid).eq("user_id", uid), "unassign"); await loadAll(); render(); toast("اتشال من العميل"); }
+  catch(e){ toast("ماتشالش: " + (e.message || e)); }
+}
+function clientTeamCard(c){
+  const ms = members.filter(m => m.client_id === c.id), free = profiles.filter(p => p.id !== me.id && p.active && !ms.some(m => m.user_id === p.id));
+  return `<div class="card perm-card" style="margin-bottom:12px"><div class="row" style="margin-bottom:${ms.length ? 6 : 0}px"><h3 style="margin:0;font-size:15px">الفريق على العميل ده</h3><span class="tiny muted">مين شغال، وبيعمل إيه ويشوف إيه. التغيير بيتحفظ على طول.</span><span class="spacer"></span>
+    ${free.length ? `<select class="inp" style="width:auto;padding:4px 8px;font-size:13px" onchange="assign('${c.id}', this)"><option value="">+ ضيف حد من الفريق</option>${free.map(p => `<option value="${p.id}">${esc(p.name || p.email)} · ${esc(p.job || "")}</option>`).join("")}</select>` : ""}</div>
+    ${ms.length ? ms.map(m => permRow(m, c, "member")).join("") : `<div class="small muted" style="margin-top:6px">انت بس اللي شغال عليه.</div>`}</div>`;
+}
 
 const APP_SHELL = "<div class=\"wrap\"><header class=\"top\"><span class=\"brand\" aria-label=\"\u0632\u064a\u0627\u062f \u0625\u0628\u0631\u0627\u0647\u064a\u0645\"><svg width=\"28\" height=\"28\" viewBox=\"0 0 48 48\" aria-hidden=\"true\"><rect class=\"zm-ink\" x=\"0\" y=\"28\" width=\"12\" height=\"20\" rx=\"2\"/><rect class=\"zm-brand\" x=\"18\" y=\"16\" width=\"12\" height=\"32\" rx=\"2\"/><rect class=\"zm-signal\" x=\"36\" y=\"0\" width=\"12\" height=\"12\" rx=\"2\"/><rect class=\"zm-brand\" x=\"36\" y=\"15\" width=\"12\" height=\"33\" rx=\"2\"/></svg><span class=\"nm\">\u0632\u064a\u0627\u062f \u0625\u0628\u0631\u0627\u0647\u064a\u0645</span><span class=\"sub\">\u00b7 \u0633\u064a\u0633\u062a\u0645 \u0627\u0644\u0634\u063a\u0644</span></span><nav class=\"tabs\" id=\"tabs\"></nav><span class=\"spacer\"></span><div id=\"who\"></div></header><main id=\"view\"><div class=\"card empty\">\u0628\u064a\u062d\u0645\u0651\u0644\u2026</div></main></div>";
 start();

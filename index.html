@@ -288,6 +288,17 @@ nav.tabs button.active .nb{background:var(--on-accent);color:var(--accent)}
 .advice.big{margin:0 0 14px}
 .advice b{font-weight:700}
 .tc-best{font-size:12.5px;background:var(--ok-cell);color:var(--ok-ink);border-radius:var(--radius-sm);padding:3px 8px;align-self:flex-start}
+
+.tm-block{border-bottom:1px solid var(--line);padding-bottom:6px}.tm-block:last-child{border-bottom:0}
+.perm-list{padding:0 0 6px 0;margin-inline-start:44px}
+.perm{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;padding:8px 0;border-top:1px dashed var(--line)}
+.perm-h{min-width:150px;display:flex;align-items:center;gap:6px}
+.perm-o{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;flex:1}
+.perm-g{display:inline-flex;align-items:center;gap:4px}
+.perm-c{display:inline-flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;margin:0}
+.ptog{border:1px solid var(--line);background:transparent;border-radius:var(--radius);padding:3px;cursor:pointer;opacity:.35;filter:grayscale(1);line-height:0}
+.ptog.on{opacity:1;filter:none;border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+.perm-card .perm:first-of-type{border-top:0}
 </style>
 </head>
 <body>
@@ -295,7 +306,7 @@ nav.tabs button.active .nb{background:var(--on-accent);color:var(--accent)}
 <div class="modal-bg" id="modalBg" onmousedown="if(event.target.id==='modalBg')closeModal()"><div class="modal" id="modal"></div></div>
 <div class="toast" id="toast"></div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script>window.__APP_VERSION="20261101202415"</script>
-<script src="app.js?v=20261101202415"></script>
+<script>window.__APP_VERSION="20261101203124"</script>
+<script src="app.js?v=20261101203124"></script>
 </body>
 </html>
