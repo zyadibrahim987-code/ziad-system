@@ -387,6 +387,34 @@ nav.tabs button.active .nb{background:var(--on-accent);color:var(--accent)}
 
 .dlv{padding:12px 0;border-bottom:1px solid var(--line)}.dlv:last-child{border-bottom:0}
 .dlv-url{max-width:420px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* ===== slim strip + My Tasks ===== */
+.strip,.mt-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:16px}
+.st-prog{display:inline-flex;align-items:center;gap:6px;font-size:13.5px}
+.st-prog b{font-size:16px}
+.st-bar{display:inline-block;width:90px;height:5px;border-radius:3px;background:var(--line);overflow:hidden;margin-inline-start:4px}
+.st-bar i{display:block;height:100%;background:var(--accent)}
+.st-chip{font-size:12.5px;padding:3px 10px;border-radius:999px;text-decoration:none}
+.st-chip.amb{background:var(--amb-cell);color:var(--amb-ink)} .st-chip.bad{background:var(--bad-cell);color:var(--bad-ink)}
+.daynav{display:flex;align-items:center;gap:8px}.daynav b{font-size:15px;font-weight:600}
+.mt-sec{margin-bottom:20px}
+.mt-h{font-size:13px;font-weight:600;color:var(--muted);margin:0 2px 8px;letter-spacing:.01em}
+.mt{display:flex;gap:14px;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:12px 14px;margin-bottom:8px}
+.mt:hover{border-color:var(--line-strong)}
+.mt.done{opacity:.6}.mt.done .mt-title{text-decoration:line-through;text-decoration-color:var(--muted)}
+.mt.ret{border-inline-start:3px solid var(--danger)}
+.mt-main{flex:1;min-width:0}
+.mt-top{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:3px}
+.mt-client{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)}
+.mt-title{font-size:15.5px;font-weight:600;line-height:1.4}
+.mt-brief{font-size:13px;color:var(--muted);margin-top:4px;white-space:pre-wrap}
+.mt-note{font-size:13px;color:var(--bad-ink);background:var(--bad-cell);border-radius:var(--radius);padding:6px 10px;margin-top:6px}
+.mt-act{flex:none}
+.mt-empty{background:var(--card);border:1px dashed var(--line);border-radius:var(--radius);padding:22px;text-align:center;color:var(--muted);margin-bottom:20px}
+.up-row{display:flex;align-items:center;gap:12px;padding:9px 0;border-bottom:1px solid var(--line);font-size:14px}.up-row:last-child{border-bottom:0}
+.up-d{width:92px;flex:none;color:var(--muted);font-size:12.5px}
+.up-t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media (max-width:600px){.mt{flex-direction:column;align-items:stretch}.mt-act .btn{width:100%}}
 </style>
 </head>
 <body>
@@ -394,7 +422,7 @@ nav.tabs button.active .nb{background:var(--on-accent);color:var(--accent)}
 <div class="modal-bg" id="modalBg" onmousedown="if(event.target.id==='modalBg')closeModal()"><div class="modal" id="modal"></div></div>
 <div class="toast" id="toast"></div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script>window.__APP_VERSION="20261101221012"</script>
-<script src="app.js?v=20261101221012"></script>
+<script>window.__APP_VERSION="20261101221318"</script>
+<script src="app.js?v=20261101221318"></script>
 </body>
 </html>

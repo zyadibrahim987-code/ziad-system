@@ -426,6 +426,7 @@ document.addEventListener("click", e => { const b = e.target.closest("#tabs butt
 
 /* ================= Today ================= */
 function viewToday(){
+  if (!isAdmin()) return viewMyTasks();
   const tk = todayK(), dk = ui.date, d = fromKey(dk), VT = visibleTasks();
   const due = VT.filter(t => isDueOn(t, dk));
   const overdue = dk === tk ? overdueOnce(tk).filter(t => VT.includes(t)) : [];
@@ -440,10 +441,9 @@ function viewToday(){
     <button class="btn sm" onclick="ui.date=addDaysK(ui.date,-1);render()" aria-label="اليوم اللي قبله">‹</button>
     ${dk !== tk ? `<button class="btn sm" onclick="ui.date=todayK();render()">ارجع للنهارده</button>` : ""}
     <span class="spacer"></span>${isAdmin() ? `<button class="btn primary sm" onclick="openTask(null,{date:'${dk}',repeat:'once'})">+ مهمة</button>` : ""}</div>
-  <div class="stats k3">
-    <div class="stat"><div class="l">${isAdmin() ? "مهام خلصت (كل الفريق)" : "تاسكات خلصت"}</div><div class="n">${doneN}/${due.length}</div><div class="progress"><i style="width:${pct}%"></i></div></div>
-    ${isAdmin() ? `<div class="stat"><div class="l">مستني مراجعتك</div><div class="n">${reviewCount()}</div>${reviewCount() ? `<div class="d"><a href="#" onclick="go('review');return false">افتح المراجعة ←</a></div>` : ""}</div>` : `<div class="stat"><div class="l">اترجعتلك للتعديل</div><div class="n">${returned.length}</div></div>`}
-    <div class="stat"><div class="l">${isAdmin() ? "عملاء شغالين" : "عملاء معاك"}</div><div class="n">${clients.filter(c => c.status !== "paused").length}</div></div></div>`;
+  <div class="strip"><span class="st-prog"><b class="num">${doneN}</b><span class="muted">/${due.length}</span> خلصت<span class="st-bar"><i style="width:${pct}%"></i></span></span>
+    ${reviewCount() ? `<a href="#" class="st-chip amb" onclick="go('review');return false">${reviewCount()} مستني مراجعتك ←</a>` : ""}
+    ${overdue.length ? `<span class="st-chip bad">${overdue.length} متأخرة</span>` : ""}</div>`;
   if (returned.length) h += `<div class="remind" style="border-inline-start-color:var(--danger)"><span class="rm-ic">↩︎</span><div><div class="rm-t">زياد رجّعلك ${returned.length} ${returned.length === 1 ? "تاسك" : "تاسكات"} للتعديل</div><div class="small">${returned.map(t => `<a href="#" onclick="openSubmit('${t.id}','${returnedDay(t)}');return false">${esc(t.title)}</a>`).join("، ")}</div></div></div>`;
   if (!clients.length && isAdmin()) return h + `<div class="card empty">مفيش عملاء لسه. روح على Clients وضيف أول عميل.</div>`;
   if (!groups.size) return h + `<div class="card empty">${isAdmin() ? "مفيش مهام في اليوم ده 🎉" : "مفيش تاسكات عليك في اليوم ده 🎉"}</div>`;
@@ -1407,6 +1407,58 @@ function delivBlock(c){
       <div class="row" style="margin-top:8px;gap:8px">${s.link ? `<a class="btn xs" href="${esc(normUrl(s.link))}" target="_blank" rel="noopener">🔗 افتح اللينك</a><span class="tiny muted dlv-url" dir="ltr">${esc(s.link)}</span>` : ""}${s.file_path ? `<button class="btn xs" onclick="openFile('${esc(s.file_path)}')">📎 ${esc(s.file_name || "الملف")}</button>` : ""}
       ${isAdmin() && s.state === "submitted" ? `<span class="spacer"></span><button class="btn xs primary" onclick="approve('${s.task_id}','${String(s.day).slice(0,10)}')">✓ اعتمد</button>` : ""}</div>
     </div>`; }).join("") || `<div class="small muted" style="padding:12px 0">مفيش حاجة هنا.</div>`}</div>`;
+  return h;
+}
+
+
+/* ================= My Tasks (team members) ================= */
+function myTaskCard(t, dk, extra){
+  const st = stOf(t, dk), state = st ? st.state : null, c = t.clientId ? clientById(t.clientId) : null;
+  const closed = state === "done" || state === "approved";
+  let action = "";
+  if (t.kind === "metrics" && c && !closed) action = `<button class="btn sm primary" onclick="openEntry('${c.id}','${addDaysK(dk,-1)}','${t.id}','${dk}')">✍️ سجّل الأرقام</button>`;
+  else if (t.needsReview && !closed && state !== "submitted") action = `<button class="btn sm primary" onclick="openSubmit('${t.id}','${dk}')">${state === "returned" ? "↩︎ سلّم تاني" : "سلّم ↑"}</button>`;
+  else if (!t.needsReview) action = `<button class="btn sm ${closed ? "" : "primary"}" onclick="toggleDone('${t.id}','${dk}')">${closed ? "↺ رجّعها" : "✓ خلصت"}</button>`;
+  const tag = state === "submitted" ? `<span class="chip amb">مستني مراجعة زياد</span>` : state === "approved" ? `<span class="chip ok">اتعتمد ✓</span>` : state === "done" ? `<span class="chip ok">خلصت ✓</span>` : state === "returned" ? `<span class="chip warn">اترجعتلك</span>` : "";
+  return `<div class="mt${closed ? " done" : ""}${state === "returned" ? " ret" : ""}">
+    <div class="mt-main">
+      <div class="mt-top">${c ? `<span class="mt-client"><span class="cdot ${c.type}"></span>${esc(c.name)}</span>` : `<span class="mt-client">عام</span>`}${extra ? `<span class="tiny muted">${extra}</span>` : ""}${tag}</div>
+      <div class="mt-title">${esc(t.title)}</div>
+      ${t.brief ? `<div class="mt-brief">${esc(t.brief)}</div>` : ""}
+      ${state === "returned" && st.review_note ? `<div class="mt-note">↩︎ تعليق زياد: ${esc(st.review_note)}</div>` : ""}
+      ${(t.time || t.note) ? `<div class="tiny muted" style="margin-top:4px">${[t.time, t.note].filter(Boolean).map(esc).join(" · ")}</div>` : ""}
+    </div>
+    <div class="mt-act">${action}</div></div>`;
+}
+function viewMyTasks(){
+  const tk = todayK(), dk = ui.date, VT = visibleTasks();
+  const due = VT.filter(t => isDueOn(t, dk));
+  const overdue = dk === tk ? overdueOnce(tk).filter(t => VT.includes(t)) : [];
+  const returned = VT.filter(t => Object.values(ST).some(s => s.task_id === t.id && s.state === "returned"));
+  const stateIn = t => stateOf(t, dk);
+  const todo = due.filter(t => !isDone(t.id, dk) && stateIn(t) !== "returned" && !returned.includes(t));
+  const waiting = due.filter(t => stateIn(t) === "submitted");
+  const done = due.filter(t => stateIn(t) === "done" || stateIn(t) === "approved");
+  const doneN = due.filter(t => isDone(t.id, dk)).length, pct = due.length ? Math.round(doneN / due.length * 100) : 0;
+  const rel = dk === tk ? "النهارده" : dk === addDaysK(tk,1) ? "بكرة" : dk === addDaysK(tk,-1) ? "امبارح" : "";
+  let h = pageHead("My Tasks", `أهلاً ${esc(String(me.name || "").split(" ")[0])} 👋`);
+  h += `<div class="mt-bar">
+    <div class="daynav"><button class="btn xs" onclick="ui.date=addDaysK(ui.date,1);render()" aria-label="اليوم اللي بعده">›</button><b>${rel ? rel + " · " : ""}${fmtDate(fromKey(dk))}</b><button class="btn xs" onclick="ui.date=addDaysK(ui.date,-1);render()" aria-label="اليوم اللي قبله">‹</button>${dk !== tk ? `<button class="btn xs ghost" onclick="ui.date=todayK();render()">النهارده</button>` : ""}</div>
+    <span class="spacer"></span>
+    ${due.length ? `<span class="st-prog"><b class="num">${doneN}</b><span class="muted">/${due.length}</span> خلصت<span class="st-bar"><i style="width:${pct}%"></i></span></span>` : ""}</div>`;
+  const sec = (title, list, opt) => list.length ? `<div class="mt-sec"><div class="mt-h">${title} <span class="muted num">${list.length}</span></div>${list.map(t => myTaskCard(t, opt && opt.day ? opt.day(t) : dk, opt && opt.extra ? opt.extra(t) : "")).join("")}</div>` : "";
+  h += sec("↩︎ اترجعتلك للتعديل", returned, { day: t => returnedDay(t) });
+  h += sec("⚠️ متأخرة", overdue.filter(t => !returned.includes(t)), { day: t => t.date, extra: t => `كانت يوم ${fmtDate(fromKey(t.date))}` });
+  h += sec(dk === tk ? "المطلوب النهارده" : "المطلوب في اليوم ده", todo);
+  if (!todo.length && !returned.length && !overdue.length) h += `<div class="mt-empty">${due.length ? "خلّصت كل اللي عليك في اليوم ده 🎉" : "مفيش تاسكات عليك في اليوم ده"}</div>`;
+  h += sec("مستني مراجعة زياد", waiting);
+  h += sec("خلصت", done);
+  // upcoming 7 days
+  if (dk === tk) {
+    const up = [];
+    for (let i = 1; i <= 7; i++) { const d2 = addDaysK(tk, i); for (const t of VT) if (isDueOn(t, d2) && t.repeat !== "daily") up.push({ t, d2 }); }
+    if (up.length) h += `<div class="mt-sec"><div class="mt-h">الجاي في الأسبوع ده <span class="muted num">${up.length}</span></div><div class="card" style="padding:4px 14px">${up.slice(0, 12).map(({ t, d2 }) => { const c = clientById(t.clientId); return `<div class="up-row"><span class="up-d">${d2 === addDaysK(tk,1) ? "بكرة" : fmtDate(fromKey(d2)).replace(/^\S+\s/, "")}</span><span class="up-t">${esc(t.title)}</span>${c ? `<span class="mt-client"><span class="cdot ${c.type}"></span>${esc(c.name)}</span>` : ""}</div>`; }).join("")}</div></div>`;
+  }
   return h;
 }
 
