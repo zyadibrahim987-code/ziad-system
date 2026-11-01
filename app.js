@@ -451,6 +451,7 @@ function viewToday(){
       <div class="tc-bar"><i style="width:${p}%"></i></div>
       <div class="row" style="gap:4px">${x.c ? `<span class="tc-plats">${plats(x.c).map(pp => badge(pp.name)).join("")}</span>` : ""}<span class="spacer"></span>${x.team.map(pid => avatar(pid, 22)).join("")}</div>
       ${x.c && quickKpi(x.c) ? `<div class="tc-kpi">${quickKpi(x.c)}</div>` : ""}
+      ${x.c && bestYesterday(x.c) ? `<div class="tc-best">🏆 <b>${esc(bestYesterday(x.c).best.name)}</b> أرخص منصة امبارح · ${bestYesterday(x.c).R.unit} <span class="num">${fmt2(bestYesterday(x.c).best.cost)}</span></div>` : ""}
       <div class="tc-flags">${x.pending.some(t => t.kind === "monthlyReport") ? `<span class="chip rp">📄 الريبورت الشهري</span>` : ""}${x.pending.some(t => t.kind === "weeklyReport") ? `<span class="chip rp">📄 الريبورت الأسبوعي</span>` : ""}${x.waiting ? `<span class="chip amb">${isAdmin() ? `${x.waiting} مستني مراجعتك` : `${x.waiting} عند زياد للمراجعة`}</span>` : ""}${x.od.length ? `<span class="chip warn">${x.od.length} متأخرة</span>` : ""}${x.al.length ? `<span class="chip warn">⚠️ ${x.al.length} تنبيه</span>` : ""}</div>
       <div class="tc-next">${next ? `<span class="muted">الجاي:</span> ${esc(next.title)}${isAdmin() && next.assigneeId && next.assigneeId !== me.id ? ` <span class="muted">· ${esc(personName(next.assigneeId))}</span>` : ""}` : `<span class="muted">مفيش حاجة فاضلة</span>`}</div>
     </button>`;
@@ -489,6 +490,7 @@ function openDayCard(cid){
     <div class="small muted" style="margin-bottom:10px">${fmtDate(fromKey(dk))}</div>
     ${c && (c.links||[]).length ? `<div class="links" style="margin-bottom:10px">${linksHtml(c)}</div>` : ""}
     ${al.map(a => `<div class="alert">⚠️ ${a}</div>`).join("")}
+    ${c && bestYesterday(c) ? `<div class="advice"><span>💡</span><div>${bestYesterday(c).html}</div></div>` : ""}
     ${od.length ? `<div class="small" style="color:var(--danger);font-weight:700;margin:8px 0 2px">متأخرة من أيام فاتت</div>${od.map(t => taskRow(t, t.date, cid)).join("")}` : ""}
     ${ts.length ? `<div class="small muted" style="font-weight:700;margin:10px 0 2px">مهام اليوم</div>${mineFirst(ts).map(t => taskRow(t, dk, cid)).join("")}` : ""}
     <div class="actions">${c && isAdmin() ? `<button class="btn sm" onclick="openDataReceived('${c.id}')">📥 العميل بعت داتا</button>` : ""}${c ? `<button class="btn sm" onclick="closeModal();go('client','${c.id}')">صفحة العميل ←</button>` : ""}${isAdmin() ? `<button class="btn sm" onclick="openTask(null,{date:'${dk}',repeat:'once'${c ? `,clientId:'${c.id}'` : ""}})">+ مهمة</button>` : ""}<span class="spacer"></span><button class="btn" onclick="closeModal()">قفل</button></div>`);
@@ -672,6 +674,7 @@ function viewClient(){
   if (!M[c.id]) return h + `<div class="card empty">بيحمّل الأرقام…</div>`;
   const rows = monthRows(c.id, ym), prev = monthRows(c.id, ymAdd(ym,-1)), a = agg(rows);
   if (!ui.selDay || !ui.selDay.startsWith(ym)) { const dd = rows.map(r => r.d).sort(); ui.selDay = dd.length ? dd[dd.length-1] : null; }
+  if (ym === ymOf(addDaysK(todayK(), -1))) h += weekAdvice(c);
   h += c.type === "store" ? storeDash2(c, ym, rows, a, agg(prev)) : leadsDash2(c, ym, rows, agg(adRows(rows)), agg(adRows(prev)));
   if (isAdmin()) { const ct = tasks.filter(t => t.clientId === c.id);
     h += `<div class="section-title"><h3>كل مهام العميل (${ct.length})</h3><span class="spacer"></span><button class="btn xs primary" onclick="openTask(null,{clientId:'${c.id}'})">+ مهمة</button></div><div class="card">${ct.map(t => `<div class="task"><div class="t"><div class="title">${esc(t.title)} ${t.paused ? `<span class="chip grey">متوقفة</span>` : ""}</div><div class="meta">${t.assigneeId && t.assigneeId !== me.id ? `${avatar(t.assigneeId, 16)} ${esc(personName(t.assigneeId))} · ` : "انت · "}${esc(repeatText(t))}${t.needsReview ? " · محتاجة مراجعة" : ""}</div></div><button class="btn ghost sm" onclick="openTask('${t.id}')">تعديل</button></div>`).join("") || `<div class="small muted">مفيش مهام.</div>`}</div>`; }
@@ -938,6 +941,56 @@ function start(){
   sb = window.supabase.createClient(SB_URL, SB_KEY, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
   sb.auth.onAuthStateChange((ev) => { if (ev === "PASSWORD_RECOVERY") { needPass = true; authScreen("setpass"); } if (ev === "SIGNED_OUT") { me = null; authScreen("login"); } });
   boot();
+}
+
+/* ================= Platform comparison (best platform) ================= */
+function platformRank(c, rows){
+  const ad = adRows(rows), isStore = c.type === "store";
+  const list = platformsInUse(c, ad).map(n => { const a = agg(ad.filter(r => r.p === n)); const res = isStore ? a.po : a.conv; return { name:n, s:a.s, res, cost: res ? a.s / res : null, a }; }).filter(x => x.s > 0 || x.res > 0);
+  const ranked = list.filter(x => x.cost != null && x.s > 0).sort((a,b) => a.cost - b.cost);
+  const total = list.reduce((t,x) => t + x.s, 0);
+  return { list, ranked, total, best: ranked[0] || null, worst: ranked.length > 1 ? ranked[ranked.length-1] : null, unit: isStore ? "CPP" : "CPA", resName: isStore ? "أوردر" : "تحويل" };
+}
+function platformAdvice(c, rows, when){
+  const R = platformRank(c, rows); if (!R.best) return null;
+  const cu = cur(c), b = R.best, w = R.worst, zero = R.list.filter(x => x.s > 0 && !x.res);
+  let t = `<b>${esc(b.name)}</b> أرخص منصة ${when}: ${R.unit} <b class="num">${fmt2(b.cost)}</b> ${cu} (${fmt(b.res)} ${R.resName})`;
+  if (w && w.cost > b.cost * 1.3) {
+    const x = w.cost / b.cost;
+    t += ` · <b>${esc(w.name)}</b> الأغلى ${R.unit} <b class="num">${fmt2(w.cost)}</b> (${x >= 2 ? `أغلى ${fmt(x,1)} مرة` : `أغلى بـ ${fmt((x-1)*100)}%`})`;
+    if (w.s / R.total >= 0.15) t += `. فكّر تنقل جزء من ميزانية ${esc(w.name)} لـ ${esc(b.name)}.`;
+  }
+  if (zero.length) t += ` · ${zero.map(z => `<b>${esc(z.name)}</b>`).join(" و ")} صرفت ${fmt(zero.reduce((s,z) => s + z.s, 0))} ${cu} من غير ${R.resName === "أوردر" ? "أوردرات" : "تحويلات"}.`;
+  return { html: t, best: b, worst: w, R };
+}
+function bestYesterday(c){ if (!M[c.id] || !canSeeNumbers(c.id)) return null; const y = addDaysK(todayK(), -1); return platformAdvice(c, M[c.id].filter(r => r.d === y), "امبارح"); }
+function platformCards(c, rows){
+  const R = platformRank(c, rows); if (!R.list.length) return "";
+  const cu = cur(c), order = R.list.slice().sort((a,b) => (a.cost == null) - (b.cost == null) || (a.cost ?? 0) - (b.cost ?? 0) || b.s - a.s);
+  return `<div class="pgrid">${order.map(x => { const isB = R.best && x.name === R.best.name && R.ranked.length > 1, isW = R.worst && x.name === R.worst.name;
+    return `<div class="pcard${isB ? " best" : ""}${isW ? " worst" : ""}">
+      <div class="pc-top">${badge(x.name)}<b>${esc(x.name)}</b><span class="spacer"></span>${isB ? `<span class="chip ok">🏆 الأرخص</span>` : isW ? `<span class="chip warn">الأغلى</span>` : ""}</div>
+      <div class="pc-main"><span class="pc-l">${R.unit}</span><span class="pc-v num">${x.cost != null ? fmt2(x.cost) : x.s ? "مفيش " + R.resName : "—"}</span>${x.cost != null ? `<span class="pc-u">${cu}</span>` : ""}</div>
+      <div class="pc-kv"><div><span>الصرف</span><b class="num">${fmt(x.s)}</b></div><div><span>${R.resName === "أوردر" ? "أوردرات" : "تحويلات"}</span><b class="num">${fmt(x.res)}</b></div><div><span>من الصرف</span><b class="num">${R.total ? fmt(x.s/R.total*100) : 0}%</b></div></div>
+    </div>`; }).join("")}</div>`;
+}
+function dayDetail(c, d, dr){
+  const date = fmtDate(fromKey(d));
+  if (!dr.length) return `<div class="det"><div class="row"><h3>${date}</h3></div><div class="small muted" style="margin-top:4px">لسه مفيش أرقام لليوم ده.</div><button class="btn primary sm" style="margin-top:10px" onclick="openEntry('${c.id}','${d}')">✍️ سجّل أرقام اليوم ده</button></div>`;
+  const ad = adRows(dr), a = agg(c.type === "store" ? dr : ad), adv = platformAdvice(c, dr, "في اليوم ده");
+  let h = `<div class="det"><div class="row"><h3>تفاصيل ${date}</h3><span class="spacer"></span><button class="btn sm" onclick="openEntry('${c.id}','${d}')">✏️ تعديل الأرقام</button></div>`;
+  if (c.type === "store") h += `<div class="kv"><div>الصرف<b>${fmt(a.s)} ${cur(c)}</b></div><div>المبيعات<b>${fmt(a.sl)} ${cur(c)}</b></div><div>ROAS<b>${a.sl ? fmt2(a.roas) : "—"}</b></div><div>الأوردرات<b>${fmt(a.o)}</b></div><div>CPP<b>${a.cpp != null ? fmt2(a.cpp) + " " + cur(c) : "—"}</b></div><div>AOV<b>${a.aov != null ? fmt(a.aov) + " " + cur(c) : "—"}</b></div></div>`;
+  else { const bk = agg(dr.filter(r => r.p === "_bk")); h += `<div class="kv"><div>الصرف<b>${fmt(a.s)} ${cur(c)}</b></div><div>التحويلات<b>${fmt(a.conv)}</b></div><div>تكلفة التحويل<b>${a.cpl != null ? fmt2(a.cpl) + " " + cur(c) : "—"}</b></div><div>ليدز / رسائل / مكالمات<b>${fmt(a.ld)} / ${fmt(a.ms)} / ${fmt(a.ca)}</b></div>${bk.bk ? `<div>حجوزات فعلية<b>${fmt(bk.bk)}</b></div>` : ""}</div>`; }
+  if (adv) h += `<div class="advice"><span>💡</span><div>${adv.html}</div></div>`;
+  h += `<div class="small muted" style="margin:14px 0 8px">المنصات في اليوم ده</div>` + platformCards(c, dr);
+  if (c.type !== "store") { const D = deptsInUse(c, ad); if (D.length) { const DS = D.map(dp => ({ name:dp, color:"var(--accent)", ...agg(ad.filter(r => r.dep === dp)) })).filter(x => x.s > 0 || x.conv > 0); if (DS.length) h += `<div class="small muted" style="margin-top:14px">حسب القسم</div>` + bars(DS.sort((x,y) => y.s - x.s), a.s, c, x => ` · <b>${fmt(x.conv)}</b> تحويل · CPA <b>${x.cpl != null ? fmt2(x.cpl) : "—"}</b>`); } }
+  return h + `</div>`;
+}
+function weekAdvice(c){
+  if (!M[c.id]) return ""; const t = todayK(), rows = M[c.id].filter(r => r.d >= addDaysK(t,-7) && r.d <= addDaysK(t,-1));
+  const adv = platformAdvice(c, rows, "آخر 7 أيام"), y = bestYesterday(c);
+  if (!adv && !y) return "";
+  return `<div class="advice big"><span>💡</span><div>${y ? `<div><span class="muted small">امبارح:</span> ${y.html}</div>` : ""}${adv ? `<div style="margin-top:${y ? 6 : 0}px"><span class="muted small">آخر 7 أيام:</span> ${adv.html}</div>` : ""}</div></div>`;
 }
 
 const APP_SHELL = "<div class=\"wrap\"><header class=\"top\"><span class=\"brand\" aria-label=\"\u0632\u064a\u0627\u062f \u0625\u0628\u0631\u0627\u0647\u064a\u0645\"><svg width=\"28\" height=\"28\" viewBox=\"0 0 48 48\" aria-hidden=\"true\"><rect class=\"zm-ink\" x=\"0\" y=\"28\" width=\"12\" height=\"20\" rx=\"2\"/><rect class=\"zm-brand\" x=\"18\" y=\"16\" width=\"12\" height=\"32\" rx=\"2\"/><rect class=\"zm-signal\" x=\"36\" y=\"0\" width=\"12\" height=\"12\" rx=\"2\"/><rect class=\"zm-brand\" x=\"36\" y=\"15\" width=\"12\" height=\"33\" rx=\"2\"/></svg><span class=\"nm\">\u0632\u064a\u0627\u062f \u0625\u0628\u0631\u0627\u0647\u064a\u0645</span><span class=\"sub\">\u00b7 \u0633\u064a\u0633\u062a\u0645 \u0627\u0644\u0634\u063a\u0644</span></span><nav class=\"tabs\" id=\"tabs\"></nav><span class=\"spacer\"></span><div id=\"who\"></div></header><main id=\"view\"><div class=\"card empty\">\u0628\u064a\u062d\u0645\u0651\u0644\u2026</div></main></div>";
