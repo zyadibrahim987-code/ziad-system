@@ -460,6 +460,22 @@ bdi{unicode-bidi:isolate}
 .cd.g .cl.mn b,.cd.g .cl.mn span{color:var(--ok-ink)} .cd.a .cl.mn b,.cd.a .cl.mn span{color:var(--amb-ink)} .cd.r .cl.mn b,.cd.r .cl.mn span{color:var(--bad-ink)}
 .alert.lv-bad{background:var(--bad-cell);color:var(--bad-ink)} .alert.lv-good{background:var(--ok-cell);color:var(--ok-ink)}
 @media (max-width:700px){.cd .cl:not(.mn){display:none}.cal2 .cd.c2{min-height:64px}}
+
+/* photos & logos */
+img.av.avimg{object-fit:cover;padding:0;background:var(--grey-chip)}
+.clogo{display:inline-flex;align-items:center;justify-content:center;border-radius:var(--radius);overflow:hidden;flex:none;background:#fff;border:1px solid var(--line);vertical-align:middle}
+.clogo img{width:100%;height:100%;object-fit:contain;display:block}
+.clogo.ph{background:var(--accent-soft);color:var(--accent);font-weight:700;font-size:.9em;border-style:dashed}
+.clogo.ph.leads{background:var(--amb-cell);color:var(--amb-ink)}
+.clogo-add{font-size:10px;font-weight:600;line-height:1.1;text-align:center}
+.snav-sub .clogo{border-radius:4px}
+.photo-btn{position:relative;border:0;background:transparent;padding:0;cursor:pointer;border-radius:50%}
+.photo-btn>span{position:absolute;bottom:0;inset-inline-start:0;background:var(--card);border:1px solid var(--line);border-radius:50%;width:26px;height:26px;display:flex;align-items:center;justify-content:center;font-size:13px}
+.crop-wrap{display:flex;justify-content:center;background:var(--bg);border-radius:var(--radius);padding:16px}
+.crop-cv{touch-action:none;cursor:grab;box-shadow:0 0 0 1px var(--line)}
+.crop-cv.circ{border-radius:50%}
+.crop-cv.sq{border-radius:12px}
+.crop-cv:active{cursor:grabbing}
 </style>
 </head>
 <body>
@@ -467,7 +483,7 @@ bdi{unicode-bidi:isolate}
 <div class="modal-bg" id="modalBg" onmousedown="if(event.target.id==='modalBg')closeModal()"><div class="modal" id="modal"></div></div>
 <div class="toast" id="toast"></div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script>window.__APP_VERSION="20261101224434"</script>
-<script src="app.js?v=20261101224434"></script>
+<script>window.__APP_VERSION="20261101224827"</script>
+<script src="app.js?v=20261101224827"></script>
 </body>
 </html>

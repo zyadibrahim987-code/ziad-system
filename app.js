@@ -424,7 +424,7 @@ function render(){
   const cur = ui.tab === "client" ? "clients" : ui.tab;
   const act = clients.filter(c => c.status !== "paused").sort((a,b) => (a.is_test - b.is_test) || a.name.localeCompare(b.name, "ar"));
   $("#tabs").innerHTML = tabs.map(([k,l]) => `<button data-tab="${k}" class="${cur === k ? "active" : ""}">${ico(k === "today" ? "today" : k)}<span>${l}</span>${k === "review" && pending ? `<span class="nb">${pending}</span>` : ""}</button>` +
-    (k === "clients" && act.length ? `<div class="snav-sub">${act.map(c => `<a href="#" class="${ui.tab === "client" && ui.clientId === c.id ? "on" : ""}" onclick="go('client','${c.id}');return false"><span class="cdot ${c.type}"></span>${esc(c.name)}</a>`).join("")}</div>` : "")).join("");
+    (k === "clients" && act.length ? `<div class="snav-sub">${act.map(c => `<a href="#" class="${ui.tab === "client" && ui.clientId === c.id ? "on" : ""}" onclick="go('client','${c.id}');return false">${c.logo_url ? clientLogo(c, 18) : `<span class="cdot ${c.type}"></span>`}${esc(c.name)}</a>`).join("")}</div>` : "")).join("");
   $("#who").innerHTML = `<button class="whob" onclick="go('settings');ui.stab='account';render()">${avatar(me.id, 30)}<span><b>${esc(me.name || me.email)}</b><span class="tiny muted">${isAdmin() ? "Admin" : esc(me.job || "Team")}</span></span></button>`;
   const v = $("#view");
   if (ui.tab === "client") v.innerHTML = viewClient();
@@ -476,7 +476,7 @@ function viewToday(){
   h += `<div class="tgrid">${info.map(x => {
     const total = x.ts.length, p = total ? Math.round(x.dn/total*100) : 100, next = x.od[0] || x.pending[0];
     return `<button class="tcard${x.all ? " done" : ""}" onclick="openDayCard('${x.cid}')">
-      <div class="tc-top"><span class="tc-name">${x.c ? esc(x.c.name) : "مهام عامة"}</span>${x.c ? `<span class="chip grey">${x.c.type === "store" ? "متجر" : "ليدز"}</span>` : ""}<span class="spacer"></span>
+      <div class="tc-top">${x.c ? clientLogo(x.c, 28) : ""}<span class="tc-name">${x.c ? esc(x.c.name) : "مهام عامة"}</span>${x.c ? `<span class="chip grey">${x.c.type === "store" ? "متجر" : "ليدز"}</span>` : ""}<span class="spacer"></span>
         ${x.all ? `<span class="chip ok">خلص ✓</span>` : `<span class="tc-count num">${x.dn}<span class="muted">/${total}</span></span>`}</div>
       <div class="tc-bar"><i style="width:${p}%"></i></div>
       <div class="row" style="gap:4px">${x.c ? `<span class="tc-plats">${plats(x.c).map(pp => badge(pp.name)).join("")}</span>` : ""}<span class="spacer"></span>${x.team.map(pid => avatar(pid, 22)).join("")}</div>
@@ -679,7 +679,7 @@ function viewClients(){
   for (const c of list) if (canSeeNumbers(c.id) && !Mload[c.id]) loadMetrics(c.id);
   h += `<div class="grid">${list.map(c => { const a = M[c.id] && canSeeNumbers(c.id) ? agg(monthRows(c.id, ym)) : null, al = clientAlerts(c).length, team = members.filter(m => m.client_id === c.id).map(m => m.user_id);
     return `<div class="card client" onclick="go('client','${c.id}')">
-      <div class="row"><div class="name">${esc(c.name)}</div><span class="spacer"></span>${c.status === "paused" ? `<span class="chip grey">متوقف</span>` : ""}<span class="chip grey">${c.type === "store" ? "🛒 متجر" : "📞 ليدز"}</span></div>
+      <div class="row">${clientLogo(c, 34)}<div class="name">${esc(c.name)}</div><span class="spacer"></span>${c.status === "paused" ? `<span class="chip grey">متوقف</span>` : ""}<span class="chip grey">${c.type === "store" ? "🛒 متجر" : "📞 ليدز"}</span></div>
       <div class="row" style="gap:4px">${plats(c).map(p => badge(p.name)).join("")}<span class="spacer"></span>${isAdmin() ? team.map(pid => avatar(pid, 22)).join("") : ""}</div>
       ${a && (a.s || a.sl) ? `<div class="small">${MONTHS[+ym.slice(5)-1]}: صرف <b class="num">${fmt(a.s)}</b> · ${c.type === "store" ? `ROAS <b class="num">${fmt2(a.roas)}</b>` : `تحويلات <b class="num">${fmt(a.conv)}</b> · CPA <b class="num">${fmt2(a.cpl)}</b>`}</div>` : canSeeNumbers(c.id) ? `<div class="small muted">مفيش أرقام الشهر ده لسه</div>` : `<div class="small muted">${myPlatforms(c).length ? "بتسجّل أرقام: " + myPlatforms(c).map(esc).join("، ") : "تاسكات بس"}</div>`}
       ${al ? `<div class="small" style="color:var(--warn)">⚠️ ${al} تنبيه</div>` : ""}</div>`; }).join("")}</div>`;
@@ -689,7 +689,7 @@ function viewClient(){
   const c = clientById(ui.clientId); if (!c) { ui.tab = "clients"; return viewClients(); }
   const tk = todayK(), ym = ui.month, see = canSeeNumbers(c.id), mp = myPlatforms(c);
   if (!Mload[c.id]) loadMetrics(c.id);
-  let h = `<div class="row" style="margin-bottom:10px"><button class="btn sm" onclick="go('clients')">→ العملاء</button><h2 style="font-size:21px">${esc(c.name)}</h2><span class="chip grey">${c.type === "store" ? "🛒 متجر" : "📞 ليدز"}</span><span class="spacer"></span>
+  let h = `<div class="row" style="margin-bottom:10px"><button class="btn sm" onclick="go('clients')">→ العملاء</button>${clientLogo(c, 40, isAdmin())}<h2 style="font-size:21px">${esc(c.name)}</h2><span class="chip grey">${c.type === "store" ? "🛒 متجر" : "📞 ليدز"}</span><span class="spacer"></span>
     ${(isAdmin() || mp.length) ? `<button class="btn sm primary" onclick="openEntry('${c.id}','${addDaysK(tk,-1)}')">✍️ سجّل أرقام</button>` : ""}
     ${isAdmin() ? `<button class="btn sm" onclick="openDataReceived('${c.id}')">📥 العميل بعت داتا</button><button class="btn sm" onclick="go('settings');ui.stab='clients';ui.sClient='${c.id}';render()">${ico("settings")} Settings</button>` : ""}</div>
   <div class="row" style="gap:6px;margin-bottom:10px">${plats(c).map(p => `<span class="chip grey pname" style="padding:3px 10px 3px 6px">${badge(p.name)} ${esc(p.name)}${p.cur !== c.currency ? ` <span class="tiny">(${p.cur})</span>` : ""}</span>`).join("")}${(c.depts||[]).length ? `<span class="tiny muted" style="margin-right:6px">الأقسام: ${c.depts.map(esc).join("، ")}</span>` : ""}</div>
@@ -1306,7 +1306,7 @@ function settingsClients(){
   h += list.map(c => { const open = ui.sClient === c.id, ms = members.filter(m => m.client_id === c.id);
     return `<div class="card scl${open ? " open" : ""}" id="scl_${c.id}">
       <div class="scl-h" onclick="ui.sClient=${open ? "null" : `'${c.id}'`};render()">
-        <span class="cdot ${c.type}"></span><b>${esc(c.name)}</b>
+        ${clientLogo(c, 30)}<b>${esc(c.name)}</b>
         <span class="chip grey">${c.type === "store" ? "متجر" : "ليدز"}</span><span class="chip grey">${esc(c.currency || "SAR")}</span>
         ${c.status === "paused" ? `<span class="chip warn">متوقف</span>` : ""}
         <span class="scl-p">${plats(c).map(p => badge(p.name)).join("")}</span>
@@ -1319,6 +1319,7 @@ function settingsClients(){
           <div><span>المنصات</span><b>${plats(c).map(p => esc(p.name) + (p.cur !== c.currency ? ` (${esc(p.cur)})` : "")).join("، ") || "—"}</b></div>
           ${c.type === "store" ? `<div><span>التارجت</span><b>${[c.targets?.sales ? "مبيعات " + fmt(c.targets.sales) : "", c.targets?.minRoas ? "ROAS " + fmt2(c.targets.minRoas) : "", c.targets?.maxCpp ? "CPP " + fmt2(c.targets.maxCpp) : ""].filter(Boolean).join(" · ") || "—"}</b></div>` : `<div><span>الأقسام</span><b>${(c.depts||[]).map(esc).join("، ") || "—"}</b></div><div><span>التارجت</span><b>${c.targets?.cpl ? "CPA " + fmt2(c.targets.cpl) : "—"}</b></div>`}
         </div>
+        <div class="row" style="margin:12px 0 4px;gap:10px">${clientLogo(c, 56, true)}<div><b>لوجو العميل</b><div class="row" style="gap:6px;margin-top:4px"><button class="btn xs" onclick="pickClientLogo('${c.id}')">${c.logo_url ? "غيّر اللوجو" : "+ ارفع لوجو"}</button>${c.logo_url ? `<button class="btn xs ghost" onclick="removeLogo('${c.id}')">شيله</button>` : ""}</div></div></div>
         <div class="row" style="margin:10px 0 4px"><button class="btn sm primary" onclick="openSettings('${c.id}')">✏️ عدّل العميل (العملة، المنصات، التارجت…)</button><button class="btn sm" onclick="go('client','${c.id}')">افتح الداشبورد</button></div>
         ${c.type === "leads" ? leadSheetEditor(c) : ""}
         ${clientTeamCard(c)}
@@ -1662,11 +1663,90 @@ function alertsHtml(list){ return list.map(a => `<div class="alert lv-${a.lv}">$
 
 /* ================= Member account: logout only ================= */
 const _settingsAccount0 = settingsAccount;
+const photoRow = () => `<div class="row" style="gap:14px;margin-bottom:14px"><button class="photo-btn" onclick="pickMyPhoto()" title="غيّر الصورة">${avatar(me.id, 72)}<span>📷</span></button><div><b style="font-size:16px">${esc(me.name || "")}</b><div class="tiny muted">${esc(isAdmin() ? "Admin" : (me.job || ""))}</div><div class="row" style="gap:6px;margin-top:8px"><button class="btn xs" onclick="pickMyPhoto()">${me.avatar_url ? "غيّر الصورة" : "+ حط صورة"}</button>${me.avatar_url ? `<button class="btn xs ghost" onclick="removeMyPhoto()">شيلها</button>` : ""}</div></div></div>`;
 settingsAccount = function(){
-  if (isAdmin()) return _settingsAccount0();
-  return `<div class="card" style="max-width:520px"><div class="row">${avatar(me.id, 44)}<div><b>${esc(me.name || "")}</b><div class="tiny muted">${esc(me.job || "")}</div></div><span class="spacer"></span><button class="btn danger sm" onclick="signOut()">تسجيل خروج</button></div>
+  if (isAdmin()) return _settingsAccount0().replace(/<div class="row" style="margin-bottom:6px">[\s\S]*?<\/div><\/div><\/div>/, "").replace('<div class="card" style="max-width:520px">', '<div class="card" style="max-width:520px">' + photoRow());
+  return `<div class="card" style="max-width:520px">${photoRow()}<div class="row"><span class="spacer"></span><button class="btn danger sm" onclick="signOut()">تسجيل خروج</button></div>
     <p class="small muted" style="margin:12px 0 0">لو محتاج تغيّر الباسورد أو الاسم، كلّم زياد.</p></div>`;
 };
+
+
+/* ================= Photos & logos ================= */
+const _avatar0 = avatar;
+avatar = function(pid, size){
+  const p = profileById(pid);
+  if (p && p.avatar_url) { const z = size || 26; return `<img class="av avimg" src="${esc(p.avatar_url)}" alt="${esc(p.name || "")}" title="${esc(p.name || p.email || "")}" style="width:${z}px;height:${z}px" loading="lazy">`; }
+  return _avatar0(pid, size);
+};
+function clientLogo(c, size, editable){
+  const z = size || 32, ed = editable ? ` onclick="event.stopPropagation();pickClientLogo('${c.id}')" title="غيّر اللوجو" style="width:${z}px;height:${z}px;cursor:pointer"` : ` style="width:${z}px;height:${z}px"`;
+  if (c.logo_url) return `<span class="clogo"${ed}><img src="${esc(c.logo_url)}" alt="${esc(c.name)}" loading="lazy"></span>`;
+  const ch = String(c.name || "?").replace(/[^\p{L}\p{N}]/gu, "").slice(0, 1) || "?";
+  return `<span class="clogo ph ${c.type}"${ed}>${editable && z >= 36 ? `<span class="clogo-add">+ لوجو</span>` : esc(ch)}</span>`;
+}
+function pickImage(cb){ const i = document.createElement("input"); i.type = "file"; i.accept = "image/png,image/jpeg,image/webp"; i.onchange = () => { const f = i.files && i.files[0]; if (f) cb(f); }; i.click(); }
+function pickClientLogo(cid){ pickImage(f => openCropper(f, { kind:"logo", title:"لوجو العميل", onDone: blob => uploadImage(blob, `clients/${cid}`, "png", url => saveLogo(cid, url)) })); }
+function pickMyPhoto(){ pickImage(f => openCropper(f, { kind:"avatar", title:"صورتك", onDone: blob => uploadImage(blob, `users/${me.id}`, "jpg", url => saveMyPhoto(url)) })); }
+async function uploadImage(blob, folder, ext, done){
+  const path = `${folder}/${Date.now()}.${ext}`;
+  toast("بيرفع الصورة…");
+  const { error } = await sb.storage.from("avatars").upload(path, blob, { contentType: ext === "png" ? "image/png" : "image/jpeg", upsert: true, cacheControl: "31536000" });
+  if (error) return toast("ماترفعتش: " + error.message);
+  const { data } = sb.storage.from("avatars").getPublicUrl(path);
+  done(data.publicUrl);
+}
+async function saveLogo(cid, url){ try { await q(sb.from("clients").update({ logo_url: url }).eq("id", cid), "logo"); const c = clientById(cid); if (c) c.logo_url = url; closeModal(); toast("اتحفظ اللوجو ✓"); render(); } catch(e){ toast("ماتحفظش: " + (e.message || e)); } }
+async function saveMyPhoto(url){ try { await q(sb.from("profiles").update({ avatar_url: url }).eq("id", me.id), "photo"); me.avatar_url = url; const p = profileById(me.id); if (p) p.avatar_url = url; closeModal(); toast("اتحفظت الصورة ✓"); render(); } catch(e){ toast("ماتحفظتش: " + (e.message || e)); } }
+async function removeLogo(cid){ try { await q(sb.from("clients").update({ logo_url: null }).eq("id", cid), "logo"); const c = clientById(cid); if (c) c.logo_url = null; render(); toast("اتشال"); } catch(e){ toast("ماتشالش"); } }
+async function removeMyPhoto(){ try { await q(sb.from("profiles").update({ avatar_url: null }).eq("id", me.id), "photo"); me.avatar_url = null; const p = profileById(me.id); if (p) p.avatar_url = null; render(); toast("اتشالت"); } catch(e){ toast("ماتشالتش"); } }
+
+/* cropper: drag to move, slider/wheel to zoom; logos can show the whole image with a background */
+let CR = null;
+function openCropper(file, opt){
+  if (file.size > 15 * 1024 * 1024) return toast("الصورة كبيرة أوي");
+  const img = new Image(), url = URL.createObjectURL(file);
+  img.onload = () => {
+    const V = 280, logo = opt.kind === "logo";
+    const cover = Math.max(V / img.width, V / img.height), contain = Math.min(V / img.width, V / img.height);
+    CR = { img, opt, V, logo, min: logo ? contain * 0.6 : cover, max: cover * 4, s: logo ? contain * 0.9 : cover, x: 0, y: 0, bg: logo ? "#ffffff" : null };
+    openModal(`<h2>${esc(opt.title)}</h2><p class="small muted" style="margin:4px 0 12px">اسحب الصورة عشان تحرّكها، وكبّر أو صغّر من الشريط.${logo ? " اللوجو بيبان كامل جوه المربع." : ""}</p>
+      <div class="crop-wrap"><canvas id="crCv" width="${V * 2}" height="${V * 2}" class="crop-cv ${logo ? "sq" : "circ"}" style="width:${V}px;height:${V}px"></canvas></div>
+      <div class="row" style="margin-top:12px;gap:10px"><span class="tiny muted">صغّر</span><input type="range" id="crZoom" min="0" max="1000" value="${Math.round((CR.s - CR.min) / (CR.max - CR.min) * 1000)}" style="flex:1" oninput="crZoom(this.value)"><span class="tiny muted">كبّر</span></div>
+      ${logo ? `<div class="row" style="margin-top:10px;gap:6px"><span class="tiny muted">الخلفية:</span>${[["#ffffff","أبيض"],["#0e1418","غامق"],["transparent","شفافة"]].map(([v,l]) => `<button class="btn xs crbg" data-bg="${v}" onclick="crBg('${v}')">${l}</button>`).join("")}<span class="spacer"></span><button class="btn xs" onclick="crFit()">اللوجو كامل</button></div>` : ""}
+      <div class="actions"><span class="spacer"></span><button class="btn" onclick="closeModal()">إلغاء</button><button class="btn primary" onclick="crSave()">احفظ</button></div>`);
+    const cv = $("#crCv"); let drag = null;
+    cv.addEventListener("pointerdown", e => { drag = { x: e.clientX, y: e.clientY, ox: CR.x, oy: CR.y }; cv.setPointerCapture(e.pointerId); });
+    cv.addEventListener("pointermove", e => { if (!drag) return; CR.x = drag.ox + (e.clientX - drag.x); CR.y = drag.oy + (e.clientY - drag.y); crClamp(); crDraw(); });
+    cv.addEventListener("pointerup", () => drag = null);
+    cv.addEventListener("wheel", e => { e.preventDefault(); const r = $("#crZoom"); r.value = Math.max(0, Math.min(1000, +r.value - e.deltaY)); crZoom(r.value); }, { passive:false });
+    crDraw(); crMarkBg();
+  };
+  img.onerror = () => toast("مقدرش يفتح الصورة");
+  img.src = url;
+}
+function crZoom(v){ CR.s = CR.min + (CR.max - CR.min) * (+v / 1000); crClamp(); crDraw(); }
+function crBg(v){ CR.bg = v; crDraw(); crMarkBg(); }
+function crMarkBg(){ document.querySelectorAll(".crbg").forEach(b => b.classList.toggle("primary", b.dataset.bg === CR.bg)); }
+function crFit(){ CR.s = Math.min(CR.V / CR.img.width, CR.V / CR.img.height) * 0.9; CR.x = 0; CR.y = 0; const r = $("#crZoom"); if (r) r.value = Math.round((CR.s - CR.min) / (CR.max - CR.min) * 1000); crDraw(); }
+function crClamp(){
+  const w = CR.img.width * CR.s, h = CR.img.height * CR.s, V = CR.V;
+  if (!CR.logo) { const mx = Math.max(0, (w - V) / 2), my = Math.max(0, (h - V) / 2); CR.x = Math.max(-mx, Math.min(mx, CR.x)); CR.y = Math.max(-my, Math.min(my, CR.y)); }
+  else { const mx = Math.abs(w - V) / 2 + V * 0.3, my = Math.abs(h - V) / 2 + V * 0.3; CR.x = Math.max(-mx, Math.min(mx, CR.x)); CR.y = Math.max(-my, Math.min(my, CR.y)); }
+}
+function crPaint(ctx, size){
+  const k = size / CR.V; ctx.clearRect(0, 0, size, size);
+  if (CR.bg && CR.bg !== "transparent") { ctx.fillStyle = CR.bg; ctx.fillRect(0, 0, size, size); }
+  const w = CR.img.width * CR.s * k, h = CR.img.height * CR.s * k;
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(CR.img, (size - w) / 2 + CR.x * k, (size - h) / 2 + CR.y * k, w, h);
+}
+function crDraw(){ const cv = $("#crCv"); if (!cv) return; const ctx = cv.getContext("2d"); crPaint(ctx, cv.width);
+  if (CR.bg === "transparent") { cv.style.backgroundImage = "repeating-conic-gradient(#ddd 0 25%, #fff 0 50%)"; cv.style.backgroundSize = "16px 16px"; } else cv.style.backgroundImage = ""; }
+function crSave(){
+  const out = document.createElement("canvas"), size = CR.logo ? 512 : 400; out.width = out.height = size;
+  crPaint(out.getContext("2d"), size);
+  out.toBlob(b => { if (!b) return toast("ماتحفظتش"); CR.opt.onDone(b); }, CR.logo ? "image/png" : "image/jpeg", 0.9);
+}
 
 const APP_SHELL = "<div class=\"wrap\"><header class=\"top\"><span class=\"brand\" aria-label=\"\u0632\u064a\u0627\u062f \u0625\u0628\u0631\u0627\u0647\u064a\u0645\"><svg width=\"28\" height=\"28\" viewBox=\"0 0 48 48\" aria-hidden=\"true\"><rect class=\"zm-ink\" x=\"0\" y=\"28\" width=\"12\" height=\"20\" rx=\"2\"/><rect class=\"zm-brand\" x=\"18\" y=\"16\" width=\"12\" height=\"32\" rx=\"2\"/><rect class=\"zm-signal\" x=\"36\" y=\"0\" width=\"12\" height=\"12\" rx=\"2\"/><rect class=\"zm-brand\" x=\"36\" y=\"15\" width=\"12\" height=\"33\" rx=\"2\"/></svg><span class=\"nm\">\u0632\u064a\u0627\u062f \u0625\u0628\u0631\u0627\u0647\u064a\u0645</span><span class=\"sub\">\u00b7 \u0633\u064a\u0633\u062a\u0645 \u0627\u0644\u0634\u063a\u0644</span></span><nav class=\"tabs\" id=\"tabs\"></nav><span class=\"spacer\"></span><div id=\"who\"></div></header><main id=\"view\"><div class=\"card empty\">\u0628\u064a\u062d\u0645\u0651\u0644\u2026</div></main></div>";
 start();
