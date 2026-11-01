@@ -489,7 +489,7 @@ function openDayCard(cid){
   const mineFirst = list => list.slice().sort((a,b) => (isMine(b) - isMine(a)));
   openModal(`<div class="row" style="margin-bottom:4px"><h2 style="margin:0">${c ? esc(c.name) : "مهام عامة"}</h2>${c ? `<span class="chip grey">${c.type === "store" ? "متجر" : "ليدز"}</span>` : ""}<span class="spacer"></span><span class="num small muted">${dn}/${ts.length}</span></div>
     <div class="small muted" style="margin-bottom:10px">${fmtDate(fromKey(dk))}</div>
-    ${c && (c.links||[]).length ? `<div class="links" style="margin-bottom:10px">${linksHtml(c)}</div>` : ""}
+    ${c ? fileChips(c) : ""}
     ${al.map(a => `<div class="alert">⚠️ ${a}</div>`).join("")}
     ${c && bestYesterday(c) ? `<div class="advice"><span>💡</span><div>${bestYesterday(c).html}</div></div>` : ""}
     ${od.length ? `<div class="small" style="color:var(--danger);font-weight:700;margin:8px 0 2px">متأخرة من أيام فاتت</div>${od.map(t => taskRow(t, t.date, cid)).join("")}` : ""}
@@ -664,7 +664,7 @@ function viewClient(){
     ${(isAdmin() || mp.length) ? `<button class="btn sm primary" onclick="openEntry('${c.id}','${addDaysK(tk,-1)}')">✍️ سجّل أرقام</button>` : ""}
     ${isAdmin() ? `<button class="btn sm" onclick="openDataReceived('${c.id}')">📥 العميل بعت داتا</button><button class="btn sm" onclick="openSettings('${c.id}')">⚙️ الإعدادات</button>` : ""}</div>
   <div class="row" style="gap:6px;margin-bottom:10px">${plats(c).map(p => `<span class="chip grey pname" style="padding:3px 10px 3px 6px">${badge(p.name)} ${esc(p.name)}${p.cur !== c.currency ? ` <span class="tiny">(${p.cur})</span>` : ""}</span>`).join("")}${(c.depts||[]).length ? `<span class="tiny muted" style="margin-right:6px">الأقسام: ${c.depts.map(esc).join("، ")}</span>` : ""}</div>
-  ${(c.links||[]).length && canFiles(c.id) ? `<div class="links" style="margin-bottom:10px">${linksHtml(c)}</div>` : ""}
+  ${fileChips(c)}
   ${isAdmin() ? clientTeamCard(c) : ""}`;
   if (!isAdmin()) return h + memberClientView(c, ym, see, mp);
   h += clientAlerts(c).map(x => `<div class="alert">⚠️ ${x}</div>`).join("");
@@ -769,7 +769,7 @@ function openSettings(id){
       <div class="only-leads"><label class="f">أقصى تكلفة تحويل (CPA)</label><input class="inp" id="tCpl" type="number" step="0.01" value="${tg.cpl ?? ""}"></div>
       <div class="only-store"><label class="f">أقل ROAS (Breakeven)</label><input class="inp" id="tRoas" type="number" step="0.01" value="${tg.minRoas ?? ""}"></div>
       <div class="only-store"><label class="f">أقصى CPP</label><input class="inp" id="tCpp" type="number" step="0.01" value="${tg.maxCpp ?? ""}"></div></div></div>
-    <div class="section"><h3>اللينكات</h3><div id="sLinks"></div><button class="btn xs" onclick="F.links.push({label:'',url:''});drawLinks()">+ لينك</button></div>
+    <div class="section"><h3>اللينكات</h3><p class="small muted" style="margin:4px 0 0">اللينكات بقت في «ملفات العميل» في صفحة العميل: تضيفها وتعدّل أسماءها من هناك، والفريق كمان.</p><div id="sLinks" hidden></div></div>
     <div class="section"><label class="f" style="margin-top:0">ملاحظات (انت بس اللي بتشوفها)</label><textarea class="inp" id="sNotes">${esc(c?.notes||"")}</textarea>
       <label class="f">الحالة</label><select class="inp" id="sStatus"><option value="active">شغال</option><option value="paused" ${c?.status==="paused"?"selected":""}>متوقف مؤقتاً</option></select>
       ${!c ? `<label class="check"><input type="checkbox" id="sDefaults" checked> ضيف المهام الأساسية</label>` : ""}</div>
@@ -794,7 +794,6 @@ async function saveSettings(){
     depts: F.type === "leads" ? F.depts.map(d => d.trim()).filter(Boolean) : [],
     targets: F.type === "store" ? { sales: pn("#tSales"), salesMonths: (old && old.targets && old.targets.salesMonths) || {}, minRoas: pn("#tRoas"), maxCpp: pn("#tCpp") } : { cpl: pn("#tCpl") },
     store_platform: F.type === "store" ? $("#sStore").value : null,
-    links: F.links.filter(l => (l.url||"").trim()).map(l => ({ label: (l.label||"").trim() || "لينك", url: l.url.trim() })),
     notes: $("#sNotes").value, status: $("#sStatus").value };
   try {
     if (F.id) { await q(sb.from("clients").update(data).eq("id", F.id), "upd"); Object.assign(old, data); }
@@ -1216,6 +1215,14 @@ function clientTeamCard(c){
   return `<div class="card perm-card" style="margin-bottom:12px"><div class="row" style="margin-bottom:${ms.length ? 6 : 0}px"><h3 style="margin:0;font-size:15px">الفريق على العميل ده</h3><span class="tiny muted">مين شغال، وبيعمل إيه ويشوف إيه. التغيير بيتحفظ على طول.</span><span class="spacer"></span>
     ${free.length ? `<select class="inp" style="width:auto;padding:4px 8px;font-size:13px" onchange="assign('${c.id}', this)"><option value="">+ ضيف حد من الفريق</option>${free.map(p => `<option value="${p.id}">${esc(p.name || p.email)} · ${esc(p.job || "")}</option>`).join("")}</select>` : ""}</div>
     ${ms.length ? ms.map(m => permRow(m, c, "member")).join("") : `<div class="small muted" style="margin-top:6px">انت بس اللي شغال عليه.</div>`}</div>`;
+}
+
+function fileChips(c){
+  if (!canFiles(c.id)) return "";
+  if (!(c.id in FILES)) { FILES[c.id] = null; loadFiles(c.id); }
+  const L = (FILES[c.id] || []).filter(f => f.url);
+  if (!L.length) return "";
+  return `<div class="links" style="margin-bottom:10px">${L.slice(0, 8).map(f => `<a class="link" href="${esc(normUrl(f.url))}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${esc(f.name)}</a>`).join("")}${L.length > 8 ? `<span class="tiny muted">+${L.length - 8}</span>` : ""}</div>`;
 }
 
 const APP_SHELL = "<div class=\"wrap\"><header class=\"top\"><span class=\"brand\" aria-label=\"\u0632\u064a\u0627\u062f \u0625\u0628\u0631\u0627\u0647\u064a\u0645\"><svg width=\"28\" height=\"28\" viewBox=\"0 0 48 48\" aria-hidden=\"true\"><rect class=\"zm-ink\" x=\"0\" y=\"28\" width=\"12\" height=\"20\" rx=\"2\"/><rect class=\"zm-brand\" x=\"18\" y=\"16\" width=\"12\" height=\"32\" rx=\"2\"/><rect class=\"zm-signal\" x=\"36\" y=\"0\" width=\"12\" height=\"12\" rx=\"2\"/><rect class=\"zm-brand\" x=\"36\" y=\"15\" width=\"12\" height=\"33\" rx=\"2\"/></svg><span class=\"nm\">\u0632\u064a\u0627\u062f \u0625\u0628\u0631\u0627\u0647\u064a\u0645</span><span class=\"sub\">\u00b7 \u0633\u064a\u0633\u062a\u0645 \u0627\u0644\u0634\u063a\u0644</span></span><nav class=\"tabs\" id=\"tabs\"></nav><span class=\"spacer\"></span><div id=\"who\"></div></header><main id=\"view\"><div class=\"card empty\">\u0628\u064a\u062d\u0645\u0651\u0644\u2026</div></main></div>";
