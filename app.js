@@ -390,18 +390,35 @@ function quickKpi(c){
 }
 
 /* ================= Render / nav ================= */
+const ICONS = {
+  today:'<path d="M4 6h16M4 12h10M4 18h7"/><circle cx="18" cy="17" r="3"/>',
+  clients:'<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M8 14h3"/>',
+  review:'<path d="M5 12l4 4L19 6"/>',
+  settings:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>'
+};
+const ico = k => `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[k]}</svg>`;
+const SHELL2 = `<div class="shell"><aside class="side">
+  <div class="brand"><svg width="26" height="26" viewBox="0 0 48 48" aria-hidden="true"><rect class="zm-ink" x="0" y="28" width="12" height="20" rx="2"/><rect class="zm-brand" x="18" y="16" width="12" height="32" rx="2"/><rect class="zm-signal" x="36" y="0" width="12" height="12" rx="2"/><rect class="zm-brand" x="36" y="15" width="12" height="33" rx="2"/></svg><div><div class="nm">زياد إبراهيم</div><div class="sub">Work System</div></div></div>
+  <nav class="snav" id="tabs"></nav>
+  <div class="side-foot" id="who"></div>
+</aside><main class="main" id="view"><div class="card empty">بيحمّل…</div></main></div>`;
+const pageHead = (title, sub, actions) => `<div class="ph"><div><h1>${title}</h1>${sub ? `<div class="ph-sub">${sub}</div>` : ""}</div><span class="spacer"></span>${actions || ""}</div>`;
 function render(){
   if (!me) return;
-  const tabs = isAdmin() ? [["today","مهام اليوم"],["clients","العملاء"],["review","المراجعة"],["team","الفريق"]] : [["today","تاسكاتي"],["clients","العملاء"]];
+  if (ui.tab === "team") { ui.tab = "settings"; ui.stab = "team"; }
+  if (!isAdmin() && ui.tab === "review") ui.tab = "today";
   const pending = isAdmin() ? reviewCount() : 0;
-  $("#tabs").innerHTML = tabs.map(([k,l]) => `<button data-tab="${k}" class="${ui.tab === k || (ui.tab === "client" && k === "clients") ? "active" : ""}">${l}${k === "review" && pending ? ` <span class="nb">${pending}</span>` : ""}</button>`).join("");
-  $("#who").innerHTML = `${avatar(me.id, 28)}<span class="small"><b>${esc(me.name || me.email)}</b><br><span class="muted tiny">${isAdmin() ? "Admin" : esc(me.job || "عضو في الفريق")}</span></span><button class="btn xs ghost" onclick="openAccount()" aria-label="الحساب">⚙︎</button>`;
+  const tabs = isAdmin() ? [["today","Today"],["clients","Clients"],["review","Review"],["settings","Settings"]] : [["today","My Tasks"],["clients","Clients"],["settings","Settings"]];
+  const cur = ui.tab === "client" ? "clients" : ui.tab;
+  const act = clients.filter(c => c.status !== "paused").sort((a,b) => (a.is_test - b.is_test) || a.name.localeCompare(b.name, "ar"));
+  $("#tabs").innerHTML = tabs.map(([k,l]) => `<button data-tab="${k}" class="${cur === k ? "active" : ""}">${ico(k === "today" ? "today" : k)}<span>${l}</span>${k === "review" && pending ? `<span class="nb">${pending}</span>` : ""}</button>` +
+    (k === "clients" && act.length ? `<div class="snav-sub">${act.map(c => `<a href="#" class="${ui.tab === "client" && ui.clientId === c.id ? "on" : ""}" onclick="go('client','${c.id}');return false"><span class="cdot ${c.type}"></span>${esc(c.name)}</a>`).join("")}</div>` : "")).join("");
+  $("#who").innerHTML = `<button class="whob" onclick="go('settings');ui.stab='account';render()">${avatar(me.id, 30)}<span><b>${esc(me.name || me.email)}</b><span class="tiny muted">${isAdmin() ? "Admin" : esc(me.job || "Team")}</span></span></button>`;
   const v = $("#view");
-  if (!isAdmin() && (ui.tab === "review" || ui.tab === "team")) ui.tab = "today";
   if (ui.tab === "client") v.innerHTML = viewClient();
   else if (ui.tab === "clients") v.innerHTML = viewClients();
   else if (ui.tab === "review") v.innerHTML = viewReview();
-  else if (ui.tab === "team") v.innerHTML = viewTeam();
+  else if (ui.tab === "settings") v.innerHTML = viewSettings();
   else v.innerHTML = viewToday();
 }
 function go(tab, cid){ ui.tab = tab; if (cid) { ui.clientId = cid; ui.month = ymOf(addDaysK(todayK(), -1)); ui.selDay = null; loadMetrics(cid); } saveUi(); render(); window.scrollTo(0,0); }
@@ -417,7 +434,7 @@ function viewToday(){
   for (const t of overdue) { const k = t.clientId || "_"; if (!groups.has(k)) groups.set(k, []); }
   const rel = dk === tk ? "النهارده" : dk === addDaysK(tk,1) ? "بكرة" : dk === addDaysK(tk,-1) ? "امبارح" : "";
   const returned = !isAdmin() ? VT.filter(t => Object.values(ST).some(s => s.task_id === t.id && s.state === "returned")) : [];
-  let h = `<div class="daybar">
+  let h = pageHead(isAdmin() ? "Today" : "My Tasks", isAdmin() ? "مهام النهارده لكل العملاء والفريق" : "التاسكات المسنودة عليك") + `<div class="daybar">
     <button class="btn sm" onclick="ui.date=addDaysK(ui.date,1);render()" aria-label="اليوم اللي بعده">›</button>
     <div class="date">${rel ? rel + " — " : ""}${fmtDate(d)}</div>
     <button class="btn sm" onclick="ui.date=addDaysK(ui.date,-1);render()" aria-label="اليوم اللي قبله">‹</button>
@@ -540,7 +557,7 @@ function unreviewedGroups(){ const g = new Map(); for (const r of unreviewed) { 
 const reviewCount = () => pendingSubs().length + unreviewedGroups().length;
 function viewReview(){
   const subs = pendingSubs(), mg = unreviewedGroups();
-  let h = `<div class="row" style="margin-bottom:12px"><h2>المراجعة</h2><span class="spacer"></span><button class="btn sm" onclick="refreshAll()">↻ تحديث</button></div>`;
+  let h = pageHead("Review", "التسليمات والأرقام اللي مستنية رأيك", `<button class="btn sm" onclick="refreshAll()">↻ تحديث</button>`);
   if (!subs.length && !mg.length) return h + `<div class="card empty">مفيش حاجة مستنية مراجعتك ✓</div>`;
   if (subs.length) h += `<div class="section-title" style="margin-top:0"><h3>تسليمات (${subs.length})</h3></div>` + subs.map(({ s, t }) => { const c = clientById(t.clientId); return `<div class="card rv">
       <div class="row">${avatar(s.by_user, 30)}<div style="flex:1;min-width:0"><div><b>${esc(personName(s.by_user))}</b> سلّم <b>${esc(t.title)}</b>${c ? ` · ${esc(c.name)}` : ""}</div><div class="tiny muted">${fmtDate(fromKey(s.day))} · ${s.updated_at ? timeAgo(s.updated_at) : ""}</div></div></div>
@@ -565,7 +582,7 @@ async function markReviewed(cid, d, by){ try { await q(sb.from("metrics").update
 /* ================= Team (admin) ================= */
 function viewTeam(){
   const team = profiles.filter(p => p.id !== me.id);
-  let h = `<div class="row" style="margin-bottom:12px"><h2>الفريق</h2><span class="small muted">${team.length} من 6</span><span class="spacer"></span><button class="btn primary sm" onclick="openInvite()">+ ضيف عضو</button></div>`;
+  let h = `<div class="row" style="margin-bottom:12px"><h2>الفريق والصلاحيات</h2><span class="small muted">${team.length} من 6</span><span class="spacer"></span><button class="btn primary sm" onclick="openInvite()">+ ضيف عضو</button></div>`;
   if (!team.length) return h + `<div class="card empty">لسه مفيش حد في الفريق. دوس "ضيف عضو"، واعمله يوزر وباسورد تبعتهمله.</div>`;
   h += `<p class="small muted" style="margin:-4px 0 12px">تحت كل واحد: هو شغال على أنهي عملاء، وبيعمل إيه ويشوف إيه في كل عميل. أي علامة تغيّرها بتتحفظ على طول.</p>`;
   h += `<div class="card" style="padding:4px 16px">${team.map(p => { const cs = members.filter(m => m.user_id === p.id); return `<div class="tm-block"><div class="trow" style="border:0">${avatar(p.id, 34)}<div style="flex:1;min-width:0"><div><b>${esc(p.name || p.email)}</b> <span class="chip grey">${esc(p.job || "—")}</span>${!p.active ? ` <span class="chip warn">متوقف</span>` : ""}</div>
@@ -644,7 +661,7 @@ async function doRemove(pid){ try { await callInvite({ action:"remove", id:pid }
 function viewClients(){
   const qx = ui.q.trim().toLowerCase();
   const list = clients.filter(c => !qx || c.name.toLowerCase().includes(qx)).sort((a,b) => (a.is_test - b.is_test) || (a.status === "paused") - (b.status === "paused") || a.name.localeCompare(b.name,"ar"));
-  let h = `<div class="row" style="margin-bottom:12px"><input class="search" placeholder="دوّر على عميل…" value="${esc(ui.q)}" oninput="ui.q=this.value;render();const s=document.querySelector('.search');s.focus();s.setSelectionRange(s.value.length,s.value.length)">${isAdmin() ? `<button class="btn primary sm" onclick="openSettings()">+ عميل جديد</button>` : ""}</div>`;
+  let h = pageHead("Clients", isAdmin() ? `${clients.length} عميل` : "العملاء اللي شغال عليهم") + `<div class="row" style="margin-bottom:12px"><input class="search" placeholder="دوّر على عميل…" value="${esc(ui.q)}" oninput="ui.q=this.value;render();const s=document.querySelector('.search');s.focus();s.setSelectionRange(s.value.length,s.value.length)">${isAdmin() ? `<button class="btn primary sm" onclick="openSettings()">+ عميل جديد</button>` : ""}</div>`;
   if (!list.length) return h + `<div class="card empty">${isAdmin() ? "مفيش عملاء." : "زياد لسه مامسكّكش على أي عميل."}</div>`;
   const ym = ymOf(todayK());
   for (const c of list) if (canSeeNumbers(c.id) && !Mload[c.id]) loadMetrics(c.id);
@@ -662,10 +679,10 @@ function viewClient(){
   if (!Mload[c.id]) loadMetrics(c.id);
   let h = `<div class="row" style="margin-bottom:10px"><button class="btn sm" onclick="go('clients')">→ العملاء</button><h2 style="font-size:21px">${esc(c.name)}</h2><span class="chip grey">${c.type === "store" ? "🛒 متجر" : "📞 ليدز"}</span><span class="spacer"></span>
     ${(isAdmin() || mp.length) ? `<button class="btn sm primary" onclick="openEntry('${c.id}','${addDaysK(tk,-1)}')">✍️ سجّل أرقام</button>` : ""}
-    ${isAdmin() ? `<button class="btn sm" onclick="openDataReceived('${c.id}')">📥 العميل بعت داتا</button><button class="btn sm" onclick="openSettings('${c.id}')">⚙️ الإعدادات</button>` : ""}</div>
+    ${isAdmin() ? `<button class="btn sm" onclick="openDataReceived('${c.id}')">📥 العميل بعت داتا</button><button class="btn sm" onclick="go('settings');ui.stab='clients';ui.sClient='${c.id}';render()">${ico("settings")} Settings</button>` : ""}</div>
   <div class="row" style="gap:6px;margin-bottom:10px">${plats(c).map(p => `<span class="chip grey pname" style="padding:3px 10px 3px 6px">${badge(p.name)} ${esc(p.name)}${p.cur !== c.currency ? ` <span class="tiny">(${p.cur})</span>` : ""}</span>`).join("")}${(c.depts||[]).length ? `<span class="tiny muted" style="margin-right:6px">الأقسام: ${c.depts.map(esc).join("، ")}</span>` : ""}</div>
   ${fileChips(c)}
-  ${isAdmin() ? clientTeamCard(c) : ""}`;
+  ${isAdmin() ? clientTeamLine(c) : ""}`;
   if (!isAdmin()) return h + memberClientView(c, ym, see, mp);
   h += clientAlerts(c).map(x => `<div class="alert">⚠️ ${x}</div>`).join("");
   h += `<div class="row" style="margin:6px 0 12px"><div class="monthnav"><button class="btn sm" onclick="ui.month=ymAdd(ui.month,1);ui.selDay=null;saveUi();render()" aria-label="الشهر اللي بعده">›</button><div class="m">${monthLabel(ym)}</div><button class="btn sm" onclick="ui.month=ymAdd(ui.month,-1);ui.selDay=null;saveUi();render()" aria-label="الشهر اللي قبله">‹</button></div><span class="spacer"></span><button class="btn xs" onclick="loadMetrics('${c.id}',true)">↻ تحديث</button></div>`;
@@ -923,7 +940,7 @@ async function bootInner(){
   if (needPass) { authScreen("setpass"); return; }
   me = { id: session.user.id, email: session.user.email };
   document.body.classList.remove("auth");
-  $("#app").innerHTML = APP_SHELL;
+  $("#app").innerHTML = SHELL2;
   try { await loadAll(); } catch(e){ $("#view").innerHTML = `<div class="alert">مقدرش يحمّل الداتا: ${esc(e.message || e)}</div>`; return; }
   if (!me.active) { $("#view").innerHTML = `<div class="card empty">حسابك متوقف. كلّم زياد.</div>`; return; }
   render();
@@ -1223,6 +1240,56 @@ function fileChips(c){
   const L = (FILES[c.id] || []).filter(f => f.url);
   if (!L.length) return "";
   return `<div class="links" style="margin-bottom:10px">${L.slice(0, 8).map(f => `<a class="link" href="${esc(normUrl(f.url))}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${esc(f.name)}</a>`).join("")}${L.length > 8 ? `<span class="tiny muted">+${L.length - 8}</span>` : ""}</div>`;
+}
+
+
+/* ================= Settings ================= */
+function clientTeamLine(c){
+  const ms = members.filter(m => m.client_id === c.id);
+  return `<div class="row small muted" style="gap:8px;margin-bottom:12px">الفريق: ${ms.length ? ms.map(m => `<span class="pname">${avatar(m.user_id, 22)} ${esc(String(personName(m.user_id)).split(" ")[0])}${m.platforms.length ? ` <span class="tiny">(${m.platforms.map(esc).join("، ")})</span>` : ""}</span>`).join("") : "انت بس"}
+    <a href="#" class="tiny" onclick="go('settings');ui.stab='clients';ui.sClient='${c.id}';render();return false">الصلاحيات ←</a></div>`;
+}
+function viewSettings(){
+  const tabs = isAdmin() ? [["team","Team & Permissions"],["clients","Clients"],["account","Account"]] : [["account","Account"]];
+  if (!tabs.some(t => t[0] === ui.stab)) ui.stab = tabs[0][0];
+  let h = pageHead("Settings", isAdmin() ? "الفريق والصلاحيات، وإعدادات كل عميل، وحسابك" : "حسابك") +
+    `<div class="stabs">${tabs.map(([k,l]) => `<button class="${ui.stab === k ? "on" : ""}" onclick="ui.stab='${k}';saveUi();render()">${l}</button>`).join("")}</div>`;
+  if (ui.stab === "team") h += viewTeam();
+  else if (ui.stab === "clients") h += settingsClients();
+  else h += settingsAccount();
+  return h;
+}
+function settingsClients(){
+  const list = clients.slice().sort((a,b) => (a.is_test - b.is_test) || (a.status === "paused") - (b.status === "paused") || a.name.localeCompare(b.name, "ar"));
+  let h = `<div class="row" style="margin-bottom:12px"><h2>العملاء</h2><span class="small muted">العملة، والمنصات، والتارجت، ومين شغال على كل عميل</span><span class="spacer"></span><button class="btn primary sm" onclick="openSettings()">+ عميل جديد</button></div>`;
+  h += list.map(c => { const open = ui.sClient === c.id, ms = members.filter(m => m.client_id === c.id);
+    return `<div class="card scl${open ? " open" : ""}" id="scl_${c.id}">
+      <div class="scl-h" onclick="ui.sClient=${open ? "null" : `'${c.id}'`};render()">
+        <span class="cdot ${c.type}"></span><b>${esc(c.name)}</b>
+        <span class="chip grey">${c.type === "store" ? "متجر" : "ليدز"}</span><span class="chip grey">${esc(c.currency || "SAR")}</span>
+        ${c.status === "paused" ? `<span class="chip warn">متوقف</span>` : ""}
+        <span class="scl-p">${plats(c).map(p => badge(p.name)).join("")}</span>
+        <span class="spacer"></span>
+        <span class="scl-av">${ms.map(m => avatar(m.user_id, 22)).join("")}</span>
+        <span class="tiny muted">${open ? "▲" : "▼"}</span></div>
+      ${open ? `<div class="scl-b">
+        <div class="kvs">
+          <div><span>العملة</span><b>${esc(c.currency || "SAR")}${(c.usd_rate && c.usd_rate !== 1) ? ` · الدولار = ${fmt2(c.usd_rate)}` : ""}</b></div>
+          <div><span>المنصات</span><b>${plats(c).map(p => esc(p.name) + (p.cur !== c.currency ? ` (${esc(p.cur)})` : "")).join("، ") || "—"}</b></div>
+          ${c.type === "store" ? `<div><span>التارجت</span><b>${[c.targets?.sales ? "مبيعات " + fmt(c.targets.sales) : "", c.targets?.minRoas ? "ROAS " + fmt2(c.targets.minRoas) : "", c.targets?.maxCpp ? "CPP " + fmt2(c.targets.maxCpp) : ""].filter(Boolean).join(" · ") || "—"}</b></div>` : `<div><span>الأقسام</span><b>${(c.depts||[]).map(esc).join("، ") || "—"}</b></div><div><span>التارجت</span><b>${c.targets?.cpl ? "CPA " + fmt2(c.targets.cpl) : "—"}</b></div>`}
+        </div>
+        <div class="row" style="margin:10px 0 4px"><button class="btn sm primary" onclick="openSettings('${c.id}')">✏️ عدّل العميل (العملة، المنصات، التارجت…)</button><button class="btn sm" onclick="go('client','${c.id}')">افتح الداشبورد</button></div>
+        ${clientTeamCard(c)}
+      </div>` : ""}
+    </div>`; }).join("");
+  return h;
+}
+function settingsAccount(){
+  return `<div class="card" style="max-width:520px">
+    <div class="row" style="margin-bottom:6px">${avatar(me.id, 44)}<div><b>${esc(me.name || "")}</b><div class="tiny muted" dir="ltr">${esc(me.email || "")}</div></div></div>
+    <label class="f">اسمك</label><input class="inp" id="acName" value="${esc(me.name||"")}">
+    <label class="f">باسورد جديد (اختياري)</label><input class="inp" id="acPass" type="password" autocomplete="new-password" placeholder="8 حروف على الأقل">
+    <div class="actions"><button class="btn danger sm" onclick="signOut()">تسجيل خروج</button><span class="spacer"></span><button class="btn primary" onclick="saveAccount()">حفظ</button></div></div>`;
 }
 
 const APP_SHELL = "<div class=\"wrap\"><header class=\"top\"><span class=\"brand\" aria-label=\"\u0632\u064a\u0627\u062f \u0625\u0628\u0631\u0627\u0647\u064a\u0645\"><svg width=\"28\" height=\"28\" viewBox=\"0 0 48 48\" aria-hidden=\"true\"><rect class=\"zm-ink\" x=\"0\" y=\"28\" width=\"12\" height=\"20\" rx=\"2\"/><rect class=\"zm-brand\" x=\"18\" y=\"16\" width=\"12\" height=\"32\" rx=\"2\"/><rect class=\"zm-signal\" x=\"36\" y=\"0\" width=\"12\" height=\"12\" rx=\"2\"/><rect class=\"zm-brand\" x=\"36\" y=\"15\" width=\"12\" height=\"33\" rx=\"2\"/></svg><span class=\"nm\">\u0632\u064a\u0627\u062f \u0625\u0628\u0631\u0627\u0647\u064a\u0645</span><span class=\"sub\">\u00b7 \u0633\u064a\u0633\u062a\u0645 \u0627\u0644\u0634\u063a\u0644</span></span><nav class=\"tabs\" id=\"tabs\"></nav><span class=\"spacer\"></span><div id=\"who\"></div></header><main id=\"view\"><div class=\"card empty\">\u0628\u064a\u062d\u0645\u0651\u0644\u2026</div></main></div>";

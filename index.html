@@ -306,6 +306,61 @@ nav.tabs button.active .nb{background:var(--on-accent);color:var(--accent)}
 .flink .inp{padding:6px 10px;font-size:14px}
 .fl-ic{font-size:18px;text-align:center}
 @media (max-width:700px){.flink,.flink.fl-new{grid-template-columns:28px 1fr auto}.flink .fl-url{grid-column:2 / -1}}
+
+/* ===== app shell: sidebar ===== */
+.ico{width:16px;height:16px;vertical-align:-3px;flex:none}
+.btn .ico{margin-inline-end:4px}
+.shell{display:grid;grid-template-columns:232px minmax(0,1fr);min-height:100vh}
+.side{position:sticky;top:0;height:100vh;background:var(--card);border-inline-end:1px solid var(--line);display:flex;flex-direction:column;padding:18px 12px 12px;gap:18px;overflow:auto}
+.side .brand{display:flex;align-items:center;gap:10px;padding:0 8px}
+.side .brand .nm{font-weight:700;font-size:16px;line-height:1.2}
+.side .brand .sub{font-size:11px;color:var(--muted);letter-spacing:.06em;text-transform:uppercase;font-family:var(--font-mono)}
+.snav{display:flex;flex-direction:column;gap:2px;flex:1}
+.snav>button{display:flex;align-items:center;gap:10px;border:0;background:transparent;padding:9px 10px;border-radius:var(--radius);cursor:pointer;color:var(--muted);font-weight:500;font-size:14.5px;text-align:start;font-family:var(--font-mono);letter-spacing:.01em}
+.snav>button:hover{background:var(--soft,var(--accent-soft));color:var(--ink)}
+.snav>button.active{background:var(--accent-soft);color:var(--accent);font-weight:600}
+.snav>button.active .ico{color:var(--accent)}
+.snav .ico{width:18px;height:18px;flex:none}
+.snav>button .nb{margin-inline-start:auto}
+.snav-sub{display:flex;flex-direction:column;gap:1px;margin:2px 0 8px;padding-inline-start:20px;border-inline-start:1px solid var(--line);margin-inline-start:19px}
+.snav-sub a{display:flex;align-items:center;gap:8px;padding:5px 10px;border-radius:var(--radius);color:var(--muted);text-decoration:none;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.snav-sub a:hover{color:var(--ink);background:var(--accent-soft)}
+.snav-sub a.on{color:var(--accent);font-weight:600;background:var(--accent-soft)}
+.cdot{width:7px;height:7px;border-radius:50%;flex:none;background:var(--accent)}
+.cdot.leads{background:var(--warn)}
+.side-foot{border-top:1px solid var(--line);padding-top:10px}
+.whob{display:flex;align-items:center;gap:10px;width:100%;border:0;background:transparent;padding:6px 8px;border-radius:var(--radius);cursor:pointer;text-align:start}
+.whob:hover{background:var(--accent-soft)}
+.whob>span{display:flex;flex-direction:column;line-height:1.3;min-width:0}
+.whob b{font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.main{padding:26px 34px 90px;max-width:1240px;width:100%}
+.ph{display:flex;align-items:flex-end;gap:12px;margin-bottom:18px;padding-bottom:14px;border-bottom:1px solid var(--line)}
+.ph h1{margin:0;font-size:26px;font-weight:600;font-family:var(--font-mono);letter-spacing:-.01em;line-height:1.1}
+.ph-sub{color:var(--muted);font-size:13.5px;margin-top:4px}
+.stabs{display:flex;gap:4px;margin-bottom:18px;border-bottom:1px solid var(--line)}
+.stabs button{border:0;background:transparent;padding:9px 14px;cursor:pointer;color:var(--muted);font-weight:500;border-bottom:2px solid transparent;margin-bottom:-1px;font-family:var(--font-mono)}
+.stabs button.on{color:var(--accent);border-bottom-color:var(--accent);font-weight:600}
+.scl{padding:0;margin-bottom:10px;overflow:hidden}
+.scl-h{display:flex;align-items:center;gap:10px;padding:13px 16px;cursor:pointer;flex-wrap:wrap}
+.scl-h:hover{background:var(--accent-soft)}
+.scl.open .scl-h{border-bottom:1px solid var(--line)}
+.scl-p{display:inline-flex;gap:3px}
+.scl-av{display:inline-flex;gap:2px}
+.scl-b{padding:14px 16px}
+.scl-b .perm-card{border:0;padding:0;margin:12px 0 0;background:transparent}
+.kvs{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}
+.kvs>div{background:var(--bg);border-radius:var(--radius);padding:9px 12px;display:flex;flex-direction:column;gap:2px}
+.kvs span{font-size:12px;color:var(--muted)} .kvs b{font-weight:500;font-size:14px}
+@media (max-width:860px){
+  .shell{grid-template-columns:1fr}
+  .side{position:sticky;top:0;z-index:50;height:auto;flex-direction:row;align-items:center;padding:8px 10px;gap:8px;border-inline-end:0;border-bottom:1px solid var(--line);overflow-x:auto}
+  .side .brand .sub,.side .brand .nm,.snav-sub,.whob>span{display:none}
+  .snav{flex-direction:row;flex:1}
+  .snav>button{padding:7px 10px}
+  .snav>button span:not(.nb){display:none}
+  .side-foot{border:0;padding:0}
+  .main{padding:16px 14px 90px}
+}
 </style>
 </head>
 <body>
@@ -313,7 +368,7 @@ nav.tabs button.active .nb{background:var(--on-accent);color:var(--accent)}
 <div class="modal-bg" id="modalBg" onmousedown="if(event.target.id==='modalBg')closeModal()"><div class="modal" id="modal"></div></div>
 <div class="toast" id="toast"></div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script>window.__APP_VERSION="20261101203609"</script>
-<script src="app.js?v=20261101203609"></script>
+<script>window.__APP_VERSION="20261101204152"</script>
+<script src="app.js?v=20261101204152"></script>
 </body>
 </html>
