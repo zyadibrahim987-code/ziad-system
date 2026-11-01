@@ -450,6 +450,15 @@ bdi{unicode-bidi:isolate}
 .lsh h4{font-size:14px}
 .lsh-t .inp.sm{padding:3px 6px;font-size:12.5px;min-width:130px}
 .lsh-t tr.off td{opacity:.45}
+
+.cal2 .cd.c2{min-height:96px}
+.cd .cls{margin-top:6px;display:flex;flex-direction:column;gap:1px}
+.cd .cl{display:flex;justify-content:space-between;gap:6px;font-size:11.5px;line-height:1.45}
+.cd .cl span{color:var(--muted)} .cd .cl b{font-weight:500}
+.cd .cl.mn{font-size:14px;margin:1px 0}.cd .cl.mn b{font-weight:700}
+.cd.g .cl.mn b,.cd.g .cl.mn span{color:var(--ok-ink)} .cd.a .cl.mn b,.cd.a .cl.mn span{color:var(--amb-ink)} .cd.r .cl.mn b,.cd.r .cl.mn span{color:var(--bad-ink)}
+.alert.lv-bad{background:var(--bad-cell);color:var(--bad-ink)} .alert.lv-good{background:var(--ok-cell);color:var(--ok-ink)}
+@media (max-width:700px){.cd .cl:not(.mn){display:none}.cal2 .cd.c2{min-height:64px}}
 </style>
 </head>
 <body>
@@ -457,7 +466,7 @@ bdi{unicode-bidi:isolate}
 <div class="modal-bg" id="modalBg" onmousedown="if(event.target.id==='modalBg')closeModal()"><div class="modal" id="modal"></div></div>
 <div class="toast" id="toast"></div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script>window.__APP_VERSION="20261101223201"</script>
-<script src="app.js?v=20261101223201"></script>
+<script>window.__APP_VERSION="20261101224142"</script>
+<script src="app.js?v=20261101224142"></script>
 </body>
 </html>

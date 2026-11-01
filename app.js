@@ -1404,7 +1404,7 @@ function clientPanel(c, ym, v, see, mp){
   let h = head(esc(sl.self ? (isAdmin() ? "نتايجك انت" : "نتايجي") : sl.name), `${sl.platforms.map(esc).join("، ")} بس${c.type === "store" ? " · المبيعات والـ ROAS في Total" : ""}`, sl.id);
   h += monthNav(c, ym);
   if (!sliceRows(rows, sl).length) return h + `<div class="card small muted">لسه مفيش أرقام لـ ${sl.platforms.map(esc).join(" و ")} في ${monthLabel(ym)}.${(isAdmin() || mp.length) ? ` سجّلها من زرار "سجّل أرقام" فوق.` : ""}</div>`;
-  if (isCurMonth) h += sliceAdvice(c, sl);
+  if (isCurMonth) h += alertsHtml(sliceAlerts(c, sl)) + sliceAdvice(c, sl);
   if (isAdmin() && !sl.self) { const pend = sliceRows(rows, sl).filter(r => r.reviewed === false).length, byD = new Set(sliceRows(rows, sl).filter(r => r.by === sl.id).map(r => r.d)).size;
     h += `<div class="small muted" style="margin:-4px 0 10px">${byD ? `سجّل ${daysAr(byD)} في ${monthLabel(ym)}` : "لسه ماسجّلش أرقام الشهر ده"}${pend ? ` · <span style="color:var(--warn)">فيه أرقام مستنية مراجعتك</span>` : ""}</div>`; }
   return h + personDash(c, ym, rows, prev, sl, { noShare: !isAdmin() && !see });
@@ -1597,6 +1597,65 @@ function settingsSync(){
       ${L.map(c => { const m = c.lead_meta || {}; return `<div class="trow"><span class="cdot leads"></span><div style="flex:1"><b>${esc(c.name)}</b><div class="tiny muted">${c.leadSheet ? (m.last_sync ? `آخر قراية: ${fmtDate(new Date(m.last_sync))} · ${(m.tabs||[]).length} تاب · ${fmt((m.tabs||[]).reduce((a,t) => a + (t.leads||0), 0))} ليد${m.partial ? " (تجريبي)" : ""}` : "لسه ماتقراش") : "مفيش شيت ليدز متحدد"}</div></div><button class="btn sm" onclick="ui.stab='clients';ui.sClient='${c.id}';render()">${c.leadSheet ? "التابات والإعدادات" : "حط لينك الشيت"}</button></div>`; }).join("") || `<div class="small muted">مفيش عملاء ليدز.</div>`}
     </div>`;
 }
+
+
+/* ================= Calendar v2: every cell shows all key numbers ================= */
+function calendar(c, ym, rows){
+  const store = c.type === "store", slice = !!window.__slice;
+  const defs = metricDefs(c, adRows(rows), rows);
+  const mainK = store ? (slice ? "cpp" : "roas") : "cpl", D = defs[mainK] || defs[Object.keys(defs)[0]];
+  const days = daysOfMonth(ym), tk = todayK(), cu = cur(c);
+  const off = (fromKey(days[0]).getDay() + 1) % 7;
+  const mname = MONTHS[+ym.slice(5)-1];
+  const K = v => v >= 10000 ? fmt(v/1000, 1) + "K" : fmt(v);
+  const line = (l, v, main) => `<div class="cl${main ? " mn" : ""}"><span>${l}</span><b class="num">${v}</b></div>`;
+  let h = `<div class="section-title"><h3>الشهر يوم بيوم</h3><span class="tiny muted">دوس على أي يوم تشوف تفاصيله</span></div>
+  <div class="tiny muted" style="margin:-4px 0 10px">لون المربع على ${store ? (slice ? "الـ CPP" : "الـ ROAS") : "تكلفة التحويل"}: ${D.lg}</div>
+  <div class="cal calh">${["سبت","أحد","اثنين","تلات","أربع","خميس","جمعة"].map(x => `<div>${x}</div>`).join("")}</div>
+  <div class="cal cal2">${"<div></div>".repeat(off)}`;
+  for (const d of days) {
+    const dr = rows.filter(r => r.d === d), x = agg(store ? dr : adRows(dr)); if (!store) x.bk = agg(dr.filter(r => r.p === "_bk")).bk;
+    const dn = `${fromKey(d).getDate()} ${mname}`, sel = ui.selDay === d ? " sel" : "";
+    if (d > tk) { h += `<div class="cd fut"><span class="dn">${dn}</span></div>`; continue; }
+    if (!dr.length) { h += `<div class="cd e${sel}" onclick="ui.selDay='${d}';render()"><span class="dn">${dn}</span><span class="ml">لسه ماتسجلش</span><span class="mv">+ سجّل</span></div>`; continue; }
+    let body;
+    if (store && slice) body = line("الصرف", fmt(x.s)) + line("أوردرات", fmt(x.po)) + line("CPP", x.po ? fmt2(x.s / x.po) : "—", true);
+    else if (store) body = line("الصرف", fmt(x.s)) + line("المبيعات", x.sl ? K(x.sl) : "—") + line("ROAS", x.sl && x.s ? fmt2(x.roas) : "—", true) + line("أوردرات", fmt(x.o)) + line("CPP", x.cpp != null ? fmt2(x.cpp) : "—");
+    else body = line("الصرف", fmt(x.s)) + line("تحويلات", fmt(x.conv)) + line("CPA", x.conv ? fmt2(x.cpl) : x.s ? "مفيش" : "—", true) + (x.bk ? line("حجوزات", fmt(x.bk)) : "");
+    h += `<div class="cd c2 ${D.cls(x)}${sel}" onclick="ui.selDay='${d}';render()"><span class="dn">${dn}</span><div class="cls">${body}</div></div>`;
+  }
+  h += `</div><div class="tiny muted" style="margin-top:6px">الأرقام بالـ ${cu}.</div>`;
+  if (ui.selDay && ui.selDay.startsWith(ym)) h += dayDetail(c, ui.selDay, rows.filter(r => r.d === ui.selDay));
+  return h;
+}
+
+/* ================= Alerts for one person's platforms ================= */
+function sliceAlerts(c, sl){
+  const out = []; if (!M[c.id]) return out;
+  const t = todayK(), y = addDaysK(t,-1), f3 = addDaysK(t,-3), store = c.type === "store", tg = c.targets || {};
+  const all = sliceRows(M[c.id], sl), r3 = all.filter(r => r.d >= f3 && r.d <= y), ym = ymOf(y), mon = all.filter(r => r.d.startsWith(ym));
+  const res = x => store ? x.po : x.conv, unit = store ? "CPP" : "تكلفة التحويل", T = store ? tg.maxCpp : tg.cpl;
+  const missing = sl.platforms.filter(p => !all.some(r => r.d === y && r.p === p));
+  if (missing.length && all.length) out.push({ lv:"warn", t:`مسجلتش أرقام امبارح (${fmtShort(y)}) لـ ${missing.map(esc).join(" و ")}` });
+  for (const p of sl.platforms) {
+    const a = agg(r3.filter(r => r.p === p)), m = agg(mon.filter(r => r.p === p)), rn = res(a), rm = res(m);
+    if (a.s > 0 && !rn) out.push({ lv:"bad", t:`<b>${esc(p)}</b> صرفت ${money("", a.s, cur(c), 0)} آخر 3 أيام من غير ولا ${store ? "أوردر" : "تحويل"}` });
+    else if (rn && rm) { const c3 = a.s / rn, cm = m.s / rm;
+      if (T && c3 > T) out.push({ lv:"bad", t:`<b>${esc(p)}</b>: ${unit} آخر 3 أيام ${money("", c3, cur(c))} فوق التارجت (${fmt2(T)})` });
+      else if (c3 > cm * 1.3) out.push({ lv:"warn", t:`<b>${esc(p)}</b>: ${unit} آخر 3 أيام ${money("", c3, cur(c))}، أغلى من متوسط الشهر (${fmt2(cm)}) بـ ${fmt((c3/cm - 1) * 100)}%` });
+      else if (c3 < cm * 0.8) out.push({ lv:"good", t:`<b>${esc(p)}</b>: ${unit} آخر 3 أيام ${money("", c3, cur(c))}، أرخص من متوسط الشهر (${fmt2(cm)}) بـ ${fmt((1 - c3/cm) * 100)}% 👌` }); }
+  }
+  return out;
+}
+function alertsHtml(list){ return list.map(a => `<div class="alert lv-${a.lv}">${a.lv === "good" ? "✓" : "⚠️"} ${a.t}</div>`).join(""); }
+
+/* ================= Member account: logout only ================= */
+const _settingsAccount0 = settingsAccount;
+settingsAccount = function(){
+  if (isAdmin()) return _settingsAccount0();
+  return `<div class="card" style="max-width:520px"><div class="row">${avatar(me.id, 44)}<div><b>${esc(me.name || "")}</b><div class="tiny muted">${esc(me.job || "")}</div></div><span class="spacer"></span><button class="btn danger sm" onclick="signOut()">تسجيل خروج</button></div>
+    <p class="small muted" style="margin:12px 0 0">لو محتاج تغيّر الباسورد أو الاسم، كلّم زياد.</p></div>`;
+};
 
 const APP_SHELL = "<div class=\"wrap\"><header class=\"top\"><span class=\"brand\" aria-label=\"\u0632\u064a\u0627\u062f \u0625\u0628\u0631\u0627\u0647\u064a\u0645\"><svg width=\"28\" height=\"28\" viewBox=\"0 0 48 48\" aria-hidden=\"true\"><rect class=\"zm-ink\" x=\"0\" y=\"28\" width=\"12\" height=\"20\" rx=\"2\"/><rect class=\"zm-brand\" x=\"18\" y=\"16\" width=\"12\" height=\"32\" rx=\"2\"/><rect class=\"zm-signal\" x=\"36\" y=\"0\" width=\"12\" height=\"12\" rx=\"2\"/><rect class=\"zm-brand\" x=\"36\" y=\"15\" width=\"12\" height=\"33\" rx=\"2\"/></svg><span class=\"nm\">\u0632\u064a\u0627\u062f \u0625\u0628\u0631\u0627\u0647\u064a\u0645</span><span class=\"sub\">\u00b7 \u0633\u064a\u0633\u062a\u0645 \u0627\u0644\u0634\u063a\u0644</span></span><nav class=\"tabs\" id=\"tabs\"></nav><span class=\"spacer\"></span><div id=\"who\"></div></header><main id=\"view\"><div class=\"card empty\">\u0628\u064a\u062d\u0645\u0651\u0644\u2026</div></main></div>";
 start();
