@@ -361,6 +361,26 @@ nav.tabs button.active .nb{background:var(--on-accent);color:var(--accent)}
   .side-foot{border:0;padding:0}
   .main{padding:16px 14px 90px}
 }
+
+/* ===== client page side views ===== */
+.cvw{display:grid;grid-template-columns:210px minmax(0,1fr);gap:22px;align-items:start;margin-top:6px}
+.cnav{position:sticky;top:16px;display:flex;flex-direction:column;gap:2px;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:8px}
+.cnav-l{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);padding:8px 8px 4px;font-family:var(--font-mono)}
+.cnav button{display:flex;align-items:center;gap:9px;border:0;background:transparent;padding:8px;border-radius:var(--radius);cursor:pointer;text-align:start;color:var(--ink);flex-wrap:wrap}
+.cnav button:hover{background:var(--accent-soft)}
+.cnav button.on{background:var(--accent-soft);box-shadow:inset 3px 0 0 var(--accent)}
+[dir=rtl] .cnav button.on{box-shadow:inset -3px 0 0 var(--accent)}
+.cnav button.on b{color:var(--accent)}
+.cv-ic{width:22px;height:22px;border-radius:50%;background:var(--grey-chip);color:var(--muted);display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex:none}
+.cnav button.on .cv-ic{background:var(--accent);color:var(--on-accent)}
+.cv-t{display:flex;flex-direction:column;line-height:1.3;min-width:0;flex:1}
+.cv-t b{font-size:14px;font-weight:600;font-family:var(--font-mono)}
+.cv-t span{font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cv-m{font-size:11.5px;color:var(--muted);font-family:var(--font-mono);white-space:nowrap;width:100%;padding-inline-start:31px}
+.cv-m:empty{display:none}
+.cv-head{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+.cv-head h2{font-size:21px;font-weight:600;font-family:var(--font-mono)}
+@media (max-width:860px){.cvw{grid-template-columns:1fr}.cnav{position:static;flex-direction:row;overflow-x:auto}.cnav-l{display:none}.cnav button{flex:none;flex-wrap:nowrap}.cv-m{display:none}.cv-t span{display:none}}
 </style>
 </head>
 <body>
@@ -368,7 +388,7 @@ nav.tabs button.active .nb{background:var(--on-accent);color:var(--accent)}
 <div class="modal-bg" id="modalBg" onmousedown="if(event.target.id==='modalBg')closeModal()"><div class="modal" id="modal"></div></div>
 <div class="toast" id="toast"></div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script>window.__APP_VERSION="20261101204152"</script>
-<script src="app.js?v=20261101204152"></script>
+<script>window.__APP_VERSION="20261101210431"</script>
+<script src="app.js?v=20261101210431"></script>
 </body>
 </html>

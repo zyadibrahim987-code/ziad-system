@@ -683,22 +683,7 @@ function viewClient(){
   <div class="row" style="gap:6px;margin-bottom:10px">${plats(c).map(p => `<span class="chip grey pname" style="padding:3px 10px 3px 6px">${badge(p.name)} ${esc(p.name)}${p.cur !== c.currency ? ` <span class="tiny">(${p.cur})</span>` : ""}</span>`).join("")}${(c.depts||[]).length ? `<span class="tiny muted" style="margin-right:6px">الأقسام: ${c.depts.map(esc).join("، ")}</span>` : ""}</div>
   ${fileChips(c)}
   ${isAdmin() ? clientTeamLine(c) : ""}`;
-  if (!isAdmin()) return h + memberClientView(c, ym, see, mp);
-  h += clientAlerts(c).map(x => `<div class="alert">⚠️ ${x}</div>`).join("");
-  h += `<div class="row" style="margin:6px 0 12px"><div class="monthnav"><button class="btn sm" onclick="ui.month=ymAdd(ui.month,1);ui.selDay=null;saveUi();render()" aria-label="الشهر اللي بعده">›</button><div class="m">${monthLabel(ym)}</div><button class="btn sm" onclick="ui.month=ymAdd(ui.month,-1);ui.selDay=null;saveUi();render()" aria-label="الشهر اللي قبله">‹</button></div><span class="spacer"></span><button class="btn xs" onclick="loadMetrics('${c.id}',true)">↻ تحديث</button></div>`;
-  if (!M[c.id]) return h + `<div class="card empty">بيحمّل الأرقام…</div>`;
-  const rows = monthRows(c.id, ym), prev = monthRows(c.id, ymAdd(ym,-1)), a = agg(rows);
-  if (!ui.selDay || !ui.selDay.startsWith(ym)) { const dd = rows.map(r => r.d).sort(); ui.selDay = dd.length ? dd[dd.length-1] : null; }
-  if (ym === ymOf(addDaysK(todayK(), -1))) h += weekAdvice(c);
-  const TS = isAdmin() ? teamSlices(c) : [], pfSel = TS.find(s => s.id === (ui.pf||{})[c.id]);
-  if (TS.length) h += teamBlock(c, ym, rows, prev);
-  if (pfSel) h += personDash(c, ym, rows, prev, pfSel);
-  else h += c.type === "store" ? storeDash2(c, ym, rows, a, agg(prev)) : leadsDash2(c, ym, rows, agg(adRows(rows)), agg(adRows(prev)));
-  h += filesBlock(c);
-  if (isAdmin()) { const ct = tasks.filter(t => t.clientId === c.id);
-    h += `<div class="section-title"><h3>كل مهام العميل (${ct.length})</h3><span class="spacer"></span><button class="btn xs primary" onclick="openTask(null,{clientId:'${c.id}'})">+ مهمة</button></div><div class="card">${ct.map(t => `<div class="task"><div class="t"><div class="title">${esc(t.title)} ${t.paused ? `<span class="chip grey">متوقفة</span>` : ""}</div><div class="meta">${t.assigneeId && t.assigneeId !== me.id ? `${avatar(t.assigneeId, 16)} ${esc(personName(t.assigneeId))} · ` : "انت · "}${esc(repeatText(t))}${t.needsReview ? " · محتاجة مراجعة" : ""}</div></div><button class="btn ghost sm" onclick="openTask('${t.id}')">تعديل</button></div>`).join("") || `<div class="small muted">مفيش مهام.</div>`}</div>`; }
-  if (c.notes && isAdmin()) h += `<div class="section-title"><h3>ملاحظات</h3></div><div class="card small" style="white-space:pre-wrap">${esc(c.notes)}</div>`;
-  return h;
+  return h + clientBody(c, ym, see, mp);
 }
 
 /* ================= Entry ================= */
@@ -1033,7 +1018,8 @@ function dayDetail(c, d, dr){
   if (!dr.length) return `<div class="det"><div class="row"><h3>${date}</h3></div><div class="small muted" style="margin-top:4px">لسه مفيش أرقام لليوم ده.</div><button class="btn primary sm" style="margin-top:10px" onclick="openEntry('${c.id}','${d}')">✍️ سجّل أرقام اليوم ده</button></div>`;
   const ad = adRows(dr), a = agg(c.type === "store" ? dr : ad), adv = platformAdvice(c, dr, "في اليوم ده");
   let h = `<div class="det"><div class="row"><h3>تفاصيل ${date}</h3><span class="spacer"></span><button class="btn sm" onclick="openEntry('${c.id}','${d}')">✏️ تعديل الأرقام</button></div>`;
-  if (c.type === "store") h += `<div class="kv"><div>الصرف<b>${fmt(a.s)} ${cur(c)}</b></div><div>المبيعات<b>${fmt(a.sl)} ${cur(c)}</b></div><div>ROAS<b>${a.sl ? fmt2(a.roas) : "—"}</b></div><div>الأوردرات<b>${fmt(a.o)}</b></div><div>CPP<b>${a.cpp != null ? fmt2(a.cpp) + " " + cur(c) : "—"}</b></div><div>AOV<b>${a.aov != null ? fmt(a.aov) + " " + cur(c) : "—"}</b></div></div>`;
+  if (c.type === "store" && window.__slice) h += `<div class="kv"><div>الصرف<b>${fmt(a.s)} ${cur(c)}</b></div><div>الأوردرات (حسب المنصات)<b>${fmt(a.po)}</b></div><div>CPP<b>${a.po ? fmt2(a.s/a.po) + " " + cur(c) : "—"}</b></div></div>`;
+  else if (c.type === "store") h += `<div class="kv"><div>الصرف<b>${fmt(a.s)} ${cur(c)}</b></div><div>المبيعات<b>${fmt(a.sl)} ${cur(c)}</b></div><div>ROAS<b>${a.sl ? fmt2(a.roas) : "—"}</b></div><div>الأوردرات<b>${fmt(a.o)}</b></div><div>CPP<b>${a.cpp != null ? fmt2(a.cpp) + " " + cur(c) : "—"}</b></div><div>AOV<b>${a.aov != null ? fmt(a.aov) + " " + cur(c) : "—"}</b></div></div>`;
   else { const bk = agg(dr.filter(r => r.p === "_bk")); h += `<div class="kv"><div>الصرف<b>${fmt(a.s)} ${cur(c)}</b></div><div>التحويلات<b>${fmt(a.conv)}</b></div><div>تكلفة التحويل<b>${a.cpl != null ? fmt2(a.cpl) + " " + cur(c) : "—"}</b></div><div>ليدز / رسائل / مكالمات<b>${fmt(a.ld)} / ${fmt(a.ms)} / ${fmt(a.ca)}</b></div>${bk.bk ? `<div>حجوزات فعلية<b>${fmt(bk.bk)}</b></div>` : ""}</div>`; }
   if (adv) h += `<div class="advice"><span>💡</span><div>${adv.html}</div></div>`;
   h += `<div class="small muted" style="margin:14px 0 8px">المنصات في اليوم ده</div>` + platformCards(c, dr);
@@ -1088,15 +1074,14 @@ function personDash(c, ym, rows, prev, sl, opt){
   opt = opt || {};
   const R = sliceRows(rows, sl), PR = sliceRows(prev, sl), x = agg(R), px = agg(PR), store = c.type === "store", cu = cur(c);
   const total = agg(adRows(rows)).s, res = store ? x.po : x.conv, pres = store ? px.po : px.conv, cost = res ? x.s/res : null, pcost = pres ? px.s/pres : null;
-  let h = opt.member ? `<div class="section-title" style="margin-top:4px"><h3>${avatar(me.id, 24)} نتايجك</h3><span class="tiny muted">${sl.platforms.map(esc).join("، ")} · الشهر ده${store ? " · المبيعات مش بتتقسم على المنصات" : ""}</span></div><div class="stats">` : `<div class="advice" style="margin-top:14px"><span>${avatar(sl.id, 24)}</span><div>بتشوف نتايج <b>${esc(sl.self ? "منصاتك انت" : sl.name)}</b> بس: ${sl.platforms.map(esc).join("، ")}. ${store ? "المبيعات والـ ROAS بتاعة المتجر مش بتتقسم على المنصات، فهتلاقيها في «الكل»." : "الحجوزات وشيت الليدز في «الكل»."} <button class="btn xs" onclick="setPf('${c.id}','')">ارجع للكل</button></div></div>
-  <div class="stats">`; h += `
-    <div class="stat"><div class="l">الصرف${opt.member && !opt.see ? "" : ` · ${total ? fmt(x.s/total*100) : 0}% من صرف العميل`}</div><div class="n">${fmt(x.s)} <span class="small muted">${cu}</span></div>${deltaHtml(x.s, px.s, true)}</div>
+  let h = `<div class="stats">`; h += `
+    <div class="stat"><div class="l">الصرف${opt.noShare ? "" : ` · ${total ? fmt(x.s/total*100) : 0}% من صرف العميل`}</div><div class="n">${fmt(x.s)} <span class="small muted">${cu}</span></div>${deltaHtml(x.s, px.s, true)}</div>
     <div class="stat"><div class="l">${store ? "الأوردرات (حسب المنصات)" : `التحويلات · ليدز ${fmt(x.ld)} · رسائل ${fmt(x.ms)} · مكالمات ${fmt(x.ca)}`}</div><div class="n">${fmt(res)}</div>${deltaHtml(res, pres, true)}</div>
-    <div class="stat"><div class="l">${store ? "CPP" : "تكلفة التحويل"}</div><div class="n">${cost != null ? (opt.member && opt.see ? fmt2(cost) : `<span class="hl">${fmt2(cost)}</span>`) : "—"} <span class="small muted">${cu}</span></div>${deltaHtml(cost, pcost, false)}</div></div>`;
-  h += `<div class="section-title" style="margin-bottom:8px"><h3>${opt.member ? "منصاتك" : "منصاته"} في الشهر</h3></div>` + (window.__noOwner = true, platformCards(c, R)); window.__noOwner = false;
+    <div class="stat"><div class="l">${store ? "CPP" : "تكلفة التحويل"}</div><div class="n">${cost != null ? `<span class="hl">${fmt2(cost)}</span>` : "—"} <span class="small muted">${cu}</span></div>${deltaHtml(cost, pcost, false)}</div></div>`;
+  h += `<div class="section-title" style="margin-bottom:8px"><h3>المنصات في الشهر</h3></div>` + (window.__noOwner = true, platformCards(c, R)); window.__noOwner = false;
   const key = store ? "metricS" : "metricL", keep = ui[key];
   if (store && (!ui[key] || ui[key] === "roas" || ui[key] === "sl")) ui[key] = "cpp";
-  if (!opt.noCal) h += calendar(c, ym, R); ui[key] = keep;
+  window.__slice = true; try { if (!opt.noCal) h += calendar(c, ym, R); } finally { window.__slice = false; } ui[key] = keep;
   return h;
 }
 
@@ -1291,6 +1276,84 @@ function settingsAccount(){
     <label class="f">باسورد جديد (اختياري)</label><input class="inp" id="acPass" type="password" autocomplete="new-password" placeholder="8 حروف على الأقل">
     <div class="actions"><button class="btn danger sm" onclick="signOut()">تسجيل خروج</button><span class="spacer"></span><button class="btn primary" onclick="saveAccount()">حفظ</button></div></div>`;
 }
+
+
+/* ================= Client page: side views (Total / each person / files / tasks) ================= */
+function clientViews(c, see, mp){
+  const R = [], O = [];
+  if (isAdmin()) {
+    R.push({ k:"total", l:"Total", sub:"العميل كله" });
+    for (const sl of teamSlices(c)) R.push({ k:sl.id, l: sl.self ? "انت" : String(sl.name).split(" ")[0], sub: sl.platforms.join("، "), sl, av:sl.id });
+  } else {
+    if (mp.length) R.push({ k:"me", l:"نتايجي", sub: mp.join("، "), sl:{ id:me.id, name:me.name || "انت", platforms:mp, self:true }, av:me.id });
+    if (see) R.push({ k:"total", l:"Total", sub:"العميل كله" });
+  }
+  if (canFiles(c.id)) O.push({ k:"files", l:"Files", sub:"لينكات وملفات العميل" });
+  O.push({ k:"tasks", l:"Tasks", sub: isAdmin() ? "كل مهام العميل" : "تاسكاتك على العميل" });
+  return { R, O };
+}
+function sliceMetric(c, sl, ym){
+  if (!M[c.id]) return "";
+  const x = agg(sl ? sliceRows(monthRows(c.id, ym), sl) : adRows(monthRows(c.id, ym)));
+  if (c.type === "store" && !sl) { const a = agg(monthRows(c.id, ym)); return a.sl ? `ROAS ${fmt2(a.roas)}` : ""; }
+  const res = c.type === "store" ? x.po : x.conv; return res ? `${c.type === "store" ? "CPP" : "CPA"} ${fmt2(x.s/res)}` : "";
+}
+function clientBody(c, ym, see, mp){
+  const { R, O } = clientViews(c, see, mp), all = [...R, ...O];
+  ui.cv = ui.cv || {};
+  let k = ui.cv[c.id]; if (!all.some(v => v.k === k)) k = (R[0] || O[0]).k;
+  const v = all.find(x => x.k === k);
+  const item = x => `<button class="${x.k === k ? "on" : ""}" onclick="ui.cv=ui.cv||{};ui.cv['${c.id}']='${x.k}';ui.selDay=null;saveUi();render()">
+      ${x.av ? avatar(x.av, 22) : `<span class="cv-ic">${x.k === "total" ? "Σ" : x.k === "files" ? "⌗" : "✓"}</span>`}
+      <span class="cv-t"><b>${esc(x.l)}</b><span>${esc(x.sub)}</span></span>
+      ${R.includes(x) ? `<span class="cv-m">${sliceMetric(c, x.sl, ym)}</span>` : ""}</button>`;
+  const nav = `<nav class="cnav">${R.length ? `<div class="cnav-l">Results</div>${R.map(item).join("")}` : ""}<div class="cnav-l">Client</div>${O.map(item).join("")}</nav>`;
+  return `<div class="cvw">${nav}<div class="cvbody">${clientPanel(c, ym, v, see, mp)}</div></div>`;
+}
+function monthNav(c, ym){ return `<div class="row" style="margin:0 0 12px"><div class="monthnav"><button class="btn sm" onclick="ui.month=ymAdd(ui.month,1);ui.selDay=null;saveUi();render()" aria-label="الشهر اللي بعده">›</button><div class="m">${monthLabel(ym)}</div><button class="btn sm" onclick="ui.month=ymAdd(ui.month,-1);ui.selDay=null;saveUi();render()" aria-label="الشهر اللي قبله">‹</button></div><span class="spacer"></span><button class="btn xs" onclick="loadMetrics('${c.id}',true)">↻ تحديث</button></div>`; }
+function sliceAdvice(c, sl){
+  if (!M[c.id] || sl.platforms.length < 2) return "";
+  const t = todayK(), r7 = sliceRows(M[c.id].filter(r => r.d >= addDaysK(t,-7) && r.d <= addDaysK(t,-1)), sl), ry = sliceRows(M[c.id].filter(r => r.d === addDaysK(t,-1)), sl);
+  const a = platformAdvice(c, r7, "آخر 7 أيام"), y = platformAdvice(c, ry, "امبارح");
+  if (!a && !y) return "";
+  return `<div class="advice big"><span>💡</span><div>${y ? `<div><span class="muted small">امبارح:</span> ${y.html}</div>` : ""}${a ? `<div style="margin-top:${y ? 6 : 0}px"><span class="muted small">آخر 7 أيام:</span> ${a.html}</div>` : ""}</div></div>`;
+}
+function clientPanel(c, ym, v, see, mp){
+  const head = (t, sub, av) => `<div class="cv-head">${av ? avatar(av, 30) : ""}<div><h2>${t}</h2>${sub ? `<div class="ph-sub">${sub}</div>` : ""}</div></div>`;
+  if (v.k === "files") return head("Files", "لينكات درايف وملفات العميل، وأي حد على العميل يقدر يضيف ويعدّل") + filesBlock(c).replace(/^<div class="section-title">[\s\S]*?<\/div>/, "");
+  if (v.k === "tasks") {
+    const ct = isAdmin() ? tasks.filter(t => t.clientId === c.id) : tasks.filter(t => t.clientId === c.id && t.assigneeId === me.id);
+    let h = head("Tasks", isAdmin() ? `${ct.length} مهمة على العميل ده` : "التاسكات المسنودة عليك") + (isAdmin() ? `<div class="row" style="margin-bottom:10px"><span class="spacer"></span><button class="btn sm primary" onclick="openTask(null,{clientId:'${c.id}'})">+ مهمة</button></div>` : "");
+    h += `<div class="card">${ct.map(t => `<div class="task"><div class="t"><div class="title">${esc(t.title)} ${t.paused ? `<span class="chip grey">متوقفة</span>` : ""}</div><div class="meta">${isAdmin() ? (t.assigneeId && t.assigneeId !== me.id ? `${avatar(t.assigneeId, 16)} ${esc(personName(t.assigneeId))} · ` : "انت · ") : ""}${esc(repeatText(t))}${t.needsReview ? " · محتاجة مراجعة" : ""}</div></div>${isAdmin() ? `<button class="btn ghost sm" onclick="openTask('${t.id}')">تعديل</button>` : ""}</div>`).join("") || `<div class="small muted">مفيش مهام.</div>`}</div>`;
+    if (c.notes && isAdmin()) h += `<div class="section-title"><h3>ملاحظات</h3></div><div class="card small" style="white-space:pre-wrap">${esc(c.notes)}</div>`;
+    return h;
+  }
+  if (!M[c.id]) return monthNav(c, ym) + `<div class="card empty">بيحمّل الأرقام…</div>`;
+  const rows = monthRows(c.id, ym), prev = monthRows(c.id, ymAdd(ym,-1));
+  if (!ui.selDay || !ui.selDay.startsWith(ym)) { const dd = rows.map(r => r.d).sort(); ui.selDay = dd.length ? dd[dd.length-1] : null; }
+  const isCurMonth = ym === ymOf(addDaysK(todayK(), -1));
+  if (v.k === "total") {
+    let h = head("Total", `نتايج العميل كلها: كل المنصات${c.type === "store" ? " والمبيعات" : ""}`);
+    if (isAdmin()) h += clientAlerts(c).map(x => `<div class="alert">⚠️ ${x}</div>`).join("");
+    h += monthNav(c, ym);
+    if (isCurMonth) h += weekAdvice(c);
+    const a = agg(rows);
+    let full = c.type === "store" ? storeDash2(c, ym, rows, a, agg(prev)) : leadsDash2(c, ym, rows, agg(adRows(rows)), agg(adRows(prev)));
+    if (!isAdmin()) full = full.replace(/<button class="btn xs ghost" style="padding:0 4px" onclick="openSalesTarget\([^)]*\)">[^<]*<\/button>/g, "");
+    return h + full;
+  }
+  const sl = v.sl;
+  let h = head(esc(sl.self ? (isAdmin() ? "نتايجك انت" : "نتايجي") : sl.name), `${sl.platforms.map(esc).join("، ")} بس${c.type === "store" ? " · المبيعات والـ ROAS في Total" : ""}`, sl.id);
+  h += monthNav(c, ym);
+  if (!sliceRows(rows, sl).length) return h + `<div class="card small muted">لسه مفيش أرقام لـ ${sl.platforms.map(esc).join(" و ")} في ${monthLabel(ym)}.${(isAdmin() || mp.length) ? ` سجّلها من زرار "سجّل أرقام" فوق.` : ""}</div>`;
+  if (isCurMonth) h += sliceAdvice(c, sl);
+  if (isAdmin() && !sl.self) { const pend = sliceRows(rows, sl).filter(r => r.reviewed === false).length, byD = new Set(sliceRows(rows, sl).filter(r => r.by === sl.id).map(r => r.d)).size;
+    h += `<div class="small muted" style="margin:-4px 0 10px">${byD ? `سجّل ${byD} يوم في ${monthLabel(ym)}` : "لسه ماسجّلش أرقام الشهر ده"}${pend ? ` · <span style="color:var(--warn)">${pend} محتاجة مراجعة</span>` : ""}</div>`; }
+  return h + personDash(c, ym, rows, prev, sl, { noShare: !isAdmin() && !see });
+}
+
+const _metricDefs0 = metricDefs;
+metricDefs = function(c, ad, rows){ const d = _metricDefs0(c, ad, rows); if (window.__slice && c.type === "store") { delete d.roas; delete d.sl; } return d; };
 
 const APP_SHELL = "<div class=\"wrap\"><header class=\"top\"><span class=\"brand\" aria-label=\"\u0632\u064a\u0627\u062f \u0625\u0628\u0631\u0627\u0647\u064a\u0645\"><svg width=\"28\" height=\"28\" viewBox=\"0 0 48 48\" aria-hidden=\"true\"><rect class=\"zm-ink\" x=\"0\" y=\"28\" width=\"12\" height=\"20\" rx=\"2\"/><rect class=\"zm-brand\" x=\"18\" y=\"16\" width=\"12\" height=\"32\" rx=\"2\"/><rect class=\"zm-signal\" x=\"36\" y=\"0\" width=\"12\" height=\"12\" rx=\"2\"/><rect class=\"zm-brand\" x=\"36\" y=\"15\" width=\"12\" height=\"33\" rx=\"2\"/></svg><span class=\"nm\">\u0632\u064a\u0627\u062f \u0625\u0628\u0631\u0627\u0647\u064a\u0645</span><span class=\"sub\">\u00b7 \u0633\u064a\u0633\u062a\u0645 \u0627\u0644\u0634\u063a\u0644</span></span><nav class=\"tabs\" id=\"tabs\"></nav><span class=\"spacer\"></span><div id=\"who\"></div></header><main id=\"view\"><div class=\"card empty\">\u0628\u064a\u062d\u0645\u0651\u0644\u2026</div></main></div>";
 start();
