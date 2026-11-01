@@ -587,7 +587,7 @@ function viewTeam(){
   h += `<p class="small muted" style="margin:-4px 0 12px">تحت كل واحد: هو شغال على أنهي عملاء، وبيعمل إيه ويشوف إيه في كل عميل. أي علامة تغيّرها بتتحفظ على طول.</p>`;
   h += `<div class="card" style="padding:4px 16px">${team.map(p => { const cs = members.filter(m => m.user_id === p.id); return `<div class="tm-block"><div class="trow" style="border:0">${avatar(p.id, 34)}<div style="flex:1;min-width:0"><div><b>${esc(p.name || p.email)}</b> <span class="chip grey">${esc(p.job || "—")}</span>${!p.active ? ` <span class="chip warn">متوقف</span>` : ""}</div>
       <div class="tiny muted" dir="ltr">${esc(p.email || "")}</div>
-      </div><button class="btn sm" onclick="openMember('${p.id}')">✏️ الاسم والعملاء والباسورد</button></div>
+      </div><button class="btn sm primary" onclick="openTask(null,{assigneeId:'${p.id}'})">+ تاسك ليه</button><button class="btn sm" onclick="openMember('${p.id}')">✏️ الاسم والعملاء والباسورد</button></div>
       <div class="perm-list">${cs.length ? cs.map(m => { const c = clientById(m.client_id); return c ? permRow(m, c, "client") : ""; }).join("") : `<div class="small muted" style="padding:6px 0 12px">مش مسنود على أي عميل. دوس «الاسم والعملاء» واختارله عملاء.</div>`}</div>`; }).join("")}</div>`;
 
   return h;
@@ -813,14 +813,15 @@ async function confirmDelete(id){ try { await q(sb.from("clients").delete().eq("
 /* ================= Task form (admin) ================= */
 let formDays = [];
 function openTask(id, preset){
-  const t = id ? tasks.find(x => x.id === id) : Object.assign({ repeat:"daily", days:[], monthDay:1, every:2, date: todayK() }, preset||{});
+  const t = id ? tasks.find(x => x.id === id) : Object.assign({ repeat: preset && preset.assigneeId ? "once" : "daily", days:[], monthDay:1, every:2, date: todayK() }, preset||{});
+  const presetJob = !id && t.assigneeId ? ((profileById(t.assigneeId)||{}).job || "") : "";
   formDays = (t.days||[]).slice();
   const team = profiles.filter(p => p.id !== me.id && p.active);
   openModal(`<h2>${id ? "تعديل مهمة" : "مهمة جديدة"}</h2>
     <label class="f">المهمة</label><input class="inp" id="tTitle" value="${esc(t.title||"")}" autofocus>
     <div class="two"><div><label class="f">العميل</label><select class="inp" id="tClient"><option value="">— مهمة عامة —</option>${clients.map(c => `<option value="${c.id}" ${t.clientId===c.id?"selected":""}>${esc(c.name)}</option>`).join("")}</select></div>
       <div><label class="f">مسنودة على</label><select class="inp" id="tAssignee" onchange="document.getElementById('tReview').checked=!!this.value && this.selectedOptions[0].dataset.job!=='Media Buyer'"><option value="">انت</option>${team.map(p => `<option value="${p.id}" data-job="${esc(p.job||"")}" ${t.assigneeId===p.id?"selected":""}>${esc(p.name || p.email)} · ${esc(p.job||"")}</option>`).join("")}</select></div></div>
-    <label class="check"><input type="checkbox" id="tReview" ${t.needsReview || (!id && t.assigneeId) ? "checked" : ""}> محتاجة تسليم ومراجعة (العضو يدوس "سلّم" ويحط لينك أو ملف)</label>
+    <label class="check"><input type="checkbox" id="tReview" ${t.needsReview || (!id && t.assigneeId && presetJob !== "Media Buyer") ? "checked" : ""}> محتاجة تسليم ومراجعة (العضو يدوس "سلّم" ويحط لينك أو ملف)</label>
     <label class="f">البريف / التفاصيل (اختياري)</label><textarea class="inp" id="tBrief" placeholder="مثلاً: فيديو 15 ثانية عمودي، الخصم 5% باين في أول 3 ثواني">${esc(t.brief||"")}</textarea>
     <label class="f">بتتكرر إمتى؟</label><select class="inp" id="tRepeat" onchange="repeatFields()">${Object.entries(REPEAT_LABEL).map(([k,v]) => `<option value="${k}" ${t.repeat===k?"selected":""}>${v}</option>`).join("")}</select><div id="tRF"></div>
     <div class="two"><div><label class="f">الوقت (اختياري)</label><input class="inp" id="tTime" value="${esc(t.time||"")}"></div><div><label class="f">ملاحظة (اختياري)</label><input class="inp" id="tNote" value="${esc(t.note||"")}"></div></div>
@@ -848,7 +849,10 @@ async function saveTask(id){
   try {
     if (id) { await q(sb.from("tasks").update(taskToDb(t)).eq("id", id), "task"); Object.assign(base, t); }
     else { const [row] = await q(sb.from("tasks").insert({ ...taskToDb(t), created_by: me.id }).select(), "task"); tasks.push(mapTask(row)); }
-    closeModal(); render(); toast("اتحفظت ✓");
+    if (t.assigneeId && t.clientId && !members.some(m => m.client_id === t.clientId && m.user_id === t.assigneeId)) {
+      try { await q(sb.from("client_members").insert({ client_id:t.clientId, user_id:t.assigneeId, platforms:[], see_numbers:false, see_files:false }), "automember"); await loadAll(); } catch(e){}
+    }
+    closeModal(); render(); toast(t.assigneeId ? `اتحفظت ✓ — هتظهر عند ${String(personName(t.assigneeId)).split(" ")[0]}` : "اتحفظت ✓");
   } catch(e){ toast("ماتحفظتش: " + (e.message || e)); }
 }
 async function deleteTask(id){ try { await q(sb.from("tasks").delete().eq("id", id), "deltask"); tasks = tasks.filter(t => t.id !== id); closeModal(); render(); toast("اتمسحت"); } catch(e){ toast("ماتمسحتش"); } }
@@ -1201,7 +1205,7 @@ function permRow(m, c, label){
   return `<div class="perm">
     <div class="perm-h">${head}</div>
     <div class="perm-o">
-      ${P.length ? `<span class="perm-g" title="${PERM_HELP.plat}"><span class="tiny muted">يسجّل أرقام:</span>${P.map(pp => { const on = (m.platforms||[]).includes(pp.name); return `<button class="ptog${on ? " on" : ""}" title="${esc(pp.name)}" onclick="togPerm('${c.id}','${m.user_id}','plat','${jsq(pp.name)}')">${badge(pp.name)}</button>`; }).join("")}</span>` : ""}
+      ${P.length && (((profileById(m.user_id)||{}).job === "Media Buyer") || (m.platforms||[]).length) ? `<span class="perm-g" title="${PERM_HELP.plat}"><span class="tiny muted">يسجّل أرقام:</span>${P.map(pp => { const on = (m.platforms||[]).includes(pp.name); return `<button class="ptog${on ? " on" : ""}" title="${esc(pp.name)}" onclick="togPerm('${c.id}','${m.user_id}','plat','${jsq(pp.name)}')">${badge(pp.name)}</button>`; }).join("")}</span>` : ""}
       <label class="perm-c" title="${PERM_HELP.nums}"><input type="checkbox" ${m.see_numbers ? "checked" : ""} onchange="togPerm('${c.id}','${m.user_id}','see_numbers')"> يشوف نتايج العميل كلها</label>
       <label class="perm-c" title="${PERM_HELP.files}"><input type="checkbox" ${m.see_files ? "checked" : ""} onchange="togPerm('${c.id}','${m.user_id}','see_files')"> الملفات</label>
       ${label !== "client" ? `<button class="btn xs ghost" title="شيله من العميل ده" onclick="unassign('${c.id}','${m.user_id}')">✕</button>` : ""}
