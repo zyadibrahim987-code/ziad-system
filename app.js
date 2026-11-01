@@ -445,7 +445,7 @@ function viewToday(){
     ${isAdmin() ? `<div class="stat"><div class="l">مستني مراجعتك</div><div class="n">${reviewCount()}</div>${reviewCount() ? `<div class="d"><a href="#" onclick="go('review');return false">افتح المراجعة ←</a></div>` : ""}</div>` : `<div class="stat"><div class="l">اترجعتلك للتعديل</div><div class="n">${returned.length}</div></div>`}
     <div class="stat"><div class="l">${isAdmin() ? "عملاء شغالين" : "عملاء معاك"}</div><div class="n">${clients.filter(c => c.status !== "paused").length}</div></div></div>`;
   if (returned.length) h += `<div class="remind" style="border-inline-start-color:var(--danger)"><span class="rm-ic">↩︎</span><div><div class="rm-t">زياد رجّعلك ${returned.length} ${returned.length === 1 ? "تاسك" : "تاسكات"} للتعديل</div><div class="small">${returned.map(t => `<a href="#" onclick="openSubmit('${t.id}','${returnedDay(t)}');return false">${esc(t.title)}</a>`).join("، ")}</div></div></div>`;
-  if (!clients.length && isAdmin()) return h + `<div class="card empty">مفيش عملاء لسه. روح على "العملاء" وضيف أول عميل.</div>`;
+  if (!clients.length && isAdmin()) return h + `<div class="card empty">مفيش عملاء لسه. روح على Clients وضيف أول عميل.</div>`;
   if (!groups.size) return h + `<div class="card empty">${isAdmin() ? "مفيش مهام في اليوم ده 🎉" : "مفيش تاسكات عليك في اليوم ده 🎉"}</div>`;
   for (const [kind, label, per] of [["monthlyReport","الريبورت الشهري", `عن ${monthLabel(ymAdd(ymOf(dk),-1))}`],["weeklyReport","الريبورت الأسبوعي","عن الأسبوع ده"]]) {
     const ts = due.filter(t => t.kind === kind), pend = ts.filter(t => !isDone(t.id, dk)); if (!ts.length) continue;
@@ -469,7 +469,7 @@ function viewToday(){
       <div class="tc-bar"><i style="width:${p}%"></i></div>
       <div class="row" style="gap:4px">${x.c ? `<span class="tc-plats">${plats(x.c).map(pp => badge(pp.name)).join("")}</span>` : ""}<span class="spacer"></span>${x.team.map(pid => avatar(pid, 22)).join("")}</div>
       ${x.c && quickKpi(x.c) ? `<div class="tc-kpi">${quickKpi(x.c)}</div>` : ""}
-      ${x.c && bestYesterday(x.c) ? `<div class="tc-best">🏆 <b>${esc(bestYesterday(x.c).best.name)}</b> أرخص منصة امبارح · ${bestYesterday(x.c).R.unit} <span class="num">${fmt2(bestYesterday(x.c).best.cost)}</span></div>` : ""}
+      ${x.c && bestYesterday(x.c) && bestYesterday(x.c).best ? `<div class="tc-best">🏆 <b>${esc(bestYesterday(x.c).best.name)}</b> أرخص منصة امبارح · ${bestYesterday(x.c).R.unit} <span class="num">${fmt2(bestYesterday(x.c).best.cost)}</span></div>` : ""}
       <div class="tc-flags">${x.pending.some(t => t.kind === "monthlyReport") ? `<span class="chip rp">📄 الريبورت الشهري</span>` : ""}${x.pending.some(t => t.kind === "weeklyReport") ? `<span class="chip rp">📄 الريبورت الأسبوعي</span>` : ""}${x.waiting ? `<span class="chip amb">${isAdmin() ? `${x.waiting} مستني مراجعتك` : `${x.waiting} عند زياد للمراجعة`}</span>` : ""}${x.od.length ? `<span class="chip warn">${x.od.length} متأخرة</span>` : ""}${x.al.length ? `<span class="chip warn">⚠️ ${x.al.length} تنبيه</span>` : ""}</div>
       <div class="tc-next">${next ? `<span class="muted">الجاي:</span> ${esc(next.title)}${isAdmin() && next.assigneeId && next.assigneeId !== me.id ? ` <span class="muted">· ${esc(personName(next.assigneeId))}</span>` : ""}` : `<span class="muted">مفيش حاجة فاضلة</span>`}</div>
     </button>`;
@@ -636,10 +636,10 @@ function openMember(pid){
   openModal(`<div class="row">${avatar(pid, 36)}<h2 style="margin:0">${esc(p.name || p.email)}</h2><span class="spacer"></span><span class="tiny muted" dir="ltr">يوزر: ${esc(p.email || "")}</span></div>
     <div class="two"><div><label class="f">الاسم</label><input class="inp" id="mfName" value="${esc(p.name || "")}"></div><div><label class="f">الشغلانة</label><select class="inp" id="mfJob">${JOBS.map(j => `<option ${p.job === j ? "selected" : ""}>${j}</option>`).join("")}</select></div></div>
     <label class="check"><input type="checkbox" id="mfActive" ${p.active ? "checked" : ""}> شغال (لو شلت العلامة مش هيقدر يشوف أي حاجة)</label>
-    <div class="section"><h3>العملاء اللي شغال عليهم</h3><p class="tiny muted" style="margin:4px 0 8px">المنصات: اللي يقدر يسجّل أرقامها (للـ Media Buyer). "يشوف الأرقام": يشوف نتايج العميل كلها (المبيعات والتوتال وكل المنصات) تحت نتايجه. "الملفات": يشوف لينكات وملفات العميل ويرفع ملفات.</p>
+    <div class="section"><h3>العملاء اللي شغال عليهم</h3><p class="tiny muted" style="margin:4px 0 8px">المنصات: اللي يقدر يسجّل أرقامها (للـ Media Buyer). "يشوف نتايج العميل كلها": المبيعات والتوتال وكل المنصات، في Total. "الملفات": يشوف لينكات وملفات العميل ويرفع ملفات.</p>
     ${clients.map((c, i) => `<div class="mrow"><label class="check" style="margin:0;min-width:150px"><input type="checkbox" ${MF.rows[i].on ? "checked" : ""} onchange="MF.rows[${i}].on=this.checked;this.closest('.mrow').classList.toggle('off',!this.checked)"> <b>${esc(c.name)}</b></label>
       <div class="mrow-opts">${plats(c).map(pp => `<label class="pchk"><input type="checkbox" ${MF.rows[i].platforms.includes(pp.name) ? "checked" : ""} onchange="MF.rows[${i}].platforms=this.checked?[...MF.rows[${i}].platforms,'${jsq(pp.name)}']:MF.rows[${i}].platforms.filter(x=>x!=='${jsq(pp.name)}')">${badge(pp.name)}</label>`).join("")}
-      <label class="check" style="margin:0"><input type="checkbox" ${MF.rows[i].see ? "checked" : ""} onchange="MF.rows[${i}].see=this.checked"> يشوف الأرقام</label><label class="check" style="margin:0"><input type="checkbox" ${MF.rows[i].files ? "checked" : ""} onchange="MF.rows[${i}].files=this.checked"> الملفات</label></div></div>`).join("") || `<div class="small muted">مفيش عملاء لسه.</div>`}</div>
+      <label class="check" style="margin:0"><input type="checkbox" ${MF.rows[i].see ? "checked" : ""} onchange="MF.rows[${i}].see=this.checked"> يشوف نتايج العميل كلها</label><label class="check" style="margin:0"><input type="checkbox" ${MF.rows[i].files ? "checked" : ""} onchange="MF.rows[${i}].files=this.checked"> الملفات</label></div></div>`).join("") || `<div class="small muted">مفيش عملاء لسه.</div>`}</div>
     <div class="actions"><button class="btn danger sm" onclick="removeMember('${pid}')">شيله من الفريق</button><button class="btn sm" onclick="openSetPass('${pid}')">🔑 غيّر الباسورد</button><span class="spacer"></span><button class="btn" onclick="closeModal()">إلغاء</button><button class="btn primary" onclick="saveMember()">حفظ</button></div>`, true);
   document.querySelectorAll(".mrow").forEach((el, i) => el.classList.toggle("off", !MF.rows[i].on));
 }
@@ -988,27 +988,40 @@ function platformRank(c, rows){
   const list = platformsInUse(c, ad).map(n => { const a = agg(ad.filter(r => r.p === n)); const res = isStore ? a.po : a.conv; return { name:n, s:a.s, res, cost: res ? a.s / res : null, a }; }).filter(x => x.s > 0 || x.res > 0);
   const ranked = list.filter(x => x.cost != null && x.s > 0).sort((a,b) => a.cost - b.cost);
   const total = list.reduce((t,x) => t + x.s, 0);
-  return { list, ranked, total, best: ranked[0] || null, worst: ranked.length > 1 ? ranked[ranked.length-1] : null, unit: isStore ? "CPP" : "CPA", resName: isStore ? "أوردر" : "تحويل" };
+  const n = ranked.length, near = (a, b) => Math.abs(a - b) <= Math.max(a, b) * 0.02; // within 2% = same price
+  const allSame = n > 1 && near(ranked[0].cost, ranked[n-1].cost);
+  const lows = n > 1 && !allSame ? ranked.filter(x => near(x.cost, ranked[0].cost)) : [];
+  const highs = n > 1 && !allSame ? ranked.filter(x => near(x.cost, ranked[n-1].cost)) : [];
+  return { list, ranked, total, lows, highs, allSame, best: lows.length === 1 ? lows[0] : null, worst: highs.length === 1 ? highs[0] : null, unit: isStore ? "CPP" : "CPA", resName: isStore ? "أوردر" : "تحويل" };
 }
 function platformAdvice(c, rows, when){
-  const R = platformRank(c, rows); if (!R.best) return null;
-  const cu = cur(c), b = R.best, w = R.worst, zero = R.list.filter(x => x.s > 0 && !x.res);
-  let t = `<b>${esc(b.name)}</b> أرخص منصة ${when}: ${R.unit} <b class="num">${fmt2(b.cost)}</b> ${cu} (${fmt(b.res)} ${R.resName})`;
-  if (w && w.cost > b.cost * 1.3) {
-    const x = w.cost / b.cost;
-    t += ` · <b>${esc(w.name)}</b> الأغلى ${R.unit} <b class="num">${fmt2(w.cost)}</b> (${x >= 2 ? `أغلى ${fmt(x,1)} مرة` : `أغلى بـ ${fmt((x-1)*100)}%`})`;
-    if (w.s / R.total >= 0.15) t += `. فكّر تنقل جزء من ميزانية ${esc(w.name)} لـ ${esc(b.name)}.`;
+  const R = platformRank(c, rows), cu = cur(c), zero = R.list.filter(x => x.s > 0 && !x.res);
+  const res0 = R.resName === "أوردر" ? "أوردرات" : "تحويلات";
+  const names = L => L.map(x => `<b>${esc(x.name)}</b>`).join(" و ");
+  let t = "";
+  if (R.allSame) t = `كل المنصات ${when} نفس الـ ${R.unit} تقريبًا: <b class="num">${fmt2(R.ranked[0].cost)}</b> ${cu}`;
+  else if (R.lows.length) {
+    const lo = R.lows[0], hi = R.highs[0], one = R.lows.length === 1;
+    t = one ? `${names(R.lows)} أرخص منصة ${when}: ${R.unit} <b class="num">${fmt2(lo.cost)}</b> ${cu} (${fmt(lo.res)} ${R.resName})`
+            : `${names(R.lows)} الأرخص ${when}، بنفس الـ ${R.unit} تقريبًا: <b class="num">${fmt2(lo.cost)}</b> ${cu}`;
+    if (hi && hi.cost > lo.cost * 1.3) {
+      const x = hi.cost / lo.cost, many = R.highs.length > 1;
+      t += ` · ${names(R.highs)} ${many ? "الأغلى" : "الأغلى"}: ${R.unit} <b class="num">${fmt2(hi.cost)}</b> ${cu} (${x >= 2 ? `أغلى ${fmt(x,1)} مرة` : `أغلى بـ ${fmt((x-1)*100)}%`})`;
+      const hiSpend = R.highs.reduce((a, h) => a + h.s, 0);
+      if (hiSpend / R.total >= 0.15) t += `. فكّر تنقل جزء من ميزانية ${R.highs.map(h => esc(h.name)).join(" و ")} لـ ${R.lows.map(l => esc(l.name)).join(" أو ")}.`;
+    }
   }
-  if (zero.length) t += ` · ${zero.map(z => `<b>${esc(z.name)}</b>`).join(" و ")} صرفت ${fmt(zero.reduce((s,z) => s + z.s, 0))} ${cu} من غير ${R.resName === "أوردر" ? "أوردرات" : "تحويلات"}.`;
-  return { html: t, best: b, worst: w, R };
+  if (zero.length) t += `${t ? " · " : ""}${names(zero)} صرفت ${fmt(zero.reduce((s,z) => s + z.s, 0))} ${cu} من غير ${res0}.`;
+  return t ? { html: t, best: R.best, worst: R.worst, R } : null;
 }
 function bestYesterday(c){ if (!M[c.id] || !canSeeNumbers(c.id)) return null; const y = addDaysK(todayK(), -1); return platformAdvice(c, M[c.id].filter(r => r.d === y), "امبارح"); }
 function platformCards(c, rows){
   const R = platformRank(c, rows); if (!R.list.length) return "";
   const cu = cur(c), order = R.list.slice().sort((a,b) => (a.cost == null) - (b.cost == null) || (a.cost ?? 0) - (b.cost ?? 0) || b.s - a.s);
-  return `<div class="pgrid">${order.map(x => { const isB = R.best && x.name === R.best.name && R.ranked.length > 1, isW = R.worst && x.name === R.worst.name;
+  return `<div class="pgrid">${order.map(x => { const isB = R.lows.includes(x), isW = R.highs.includes(x);
     return `<div class="pcard${isB ? " best" : ""}${isW ? " worst" : ""}">
-      <div class="pc-top">${badge(x.name)}<b>${esc(x.name)}</b>${isAdmin() && !window.__noOwner && platformOwner(c, x.name) ? `<span class="tiny muted" style="display:inline-flex;align-items:center;gap:4px">· ${avatar(platformOwner(c, x.name), 18)} ${esc(String(personName(platformOwner(c, x.name))).split(" ")[0])}</span>` : ""}<span class="spacer"></span>${isB ? `<span class="chip ok">🏆 الأرخص</span>` : isW ? `<span class="chip warn">الأغلى</span>` : ""}</div>
+      <div class="pc-top">${badge(x.name)}<b>${esc(x.name)}</b><span class="spacer"></span>${isB ? `<span class="chip ok">الأرخص</span>` : isW ? `<span class="chip warn">الأغلى</span>` : ""}</div>
+      ${isAdmin() && !window.__noOwner && platformOwner(c, x.name) ? `<div class="pc-own">${avatar(platformOwner(c, x.name), 16)} ${esc(String(personName(platformOwner(c, x.name))).split(" ")[0])}</div>` : ""}
       <div class="pc-main"><span class="pc-l">${R.unit}</span><span class="pc-v num">${x.cost != null ? fmt2(x.cost) : x.s ? "مفيش " + R.resName : "—"}</span>${x.cost != null ? `<span class="pc-u">${cu}</span>` : ""}</div>
       <div class="pc-kv"><div><span>الصرف</span><b class="num">${fmt(x.s)}</b></div><div><span>${R.resName === "أوردر" ? "أوردرات" : "تحويلات"}</span><b class="num">${fmt(x.res)}</b></div><div><span>من الصرف</span><b class="num">${R.total ? fmt(x.s/R.total*100) : 0}%</b></div></div>
     </div>`; }).join("")}</div>`;
@@ -1081,7 +1094,7 @@ function personDash(c, ym, rows, prev, sl, opt){
   h += `<div class="section-title" style="margin-bottom:8px"><h3>المنصات في الشهر</h3></div>` + (window.__noOwner = true, platformCards(c, R)); window.__noOwner = false;
   const key = store ? "metricS" : "metricL", keep = ui[key];
   if (store && (!ui[key] || ui[key] === "roas" || ui[key] === "sl")) ui[key] = "cpp";
-  window.__slice = true; try { if (!opt.noCal) h += calendar(c, ym, R); } finally { window.__slice = false; } ui[key] = keep;
+  window.__slice = true; window.__noOwner = true; try { if (!opt.noCal) h += calendar(c, ym, R); } finally { window.__slice = false; window.__noOwner = false; } ui[key] = keep;
   return h;
 }
 
@@ -1348,12 +1361,17 @@ function clientPanel(c, ym, v, see, mp){
   if (!sliceRows(rows, sl).length) return h + `<div class="card small muted">لسه مفيش أرقام لـ ${sl.platforms.map(esc).join(" و ")} في ${monthLabel(ym)}.${(isAdmin() || mp.length) ? ` سجّلها من زرار "سجّل أرقام" فوق.` : ""}</div>`;
   if (isCurMonth) h += sliceAdvice(c, sl);
   if (isAdmin() && !sl.self) { const pend = sliceRows(rows, sl).filter(r => r.reviewed === false).length, byD = new Set(sliceRows(rows, sl).filter(r => r.by === sl.id).map(r => r.d)).size;
-    h += `<div class="small muted" style="margin:-4px 0 10px">${byD ? `سجّل ${byD} يوم في ${monthLabel(ym)}` : "لسه ماسجّلش أرقام الشهر ده"}${pend ? ` · <span style="color:var(--warn)">${pend} محتاجة مراجعة</span>` : ""}</div>`; }
+    h += `<div class="small muted" style="margin:-4px 0 10px">${byD ? `سجّل ${daysAr(byD)} في ${monthLabel(ym)}` : "لسه ماسجّلش أرقام الشهر ده"}${pend ? ` · <span style="color:var(--warn)">فيه أرقام مستنية مراجعتك</span>` : ""}</div>`; }
   return h + personDash(c, ym, rows, prev, sl, { noShare: !isAdmin() && !see });
 }
 
 const _metricDefs0 = metricDefs;
 metricDefs = function(c, ad, rows){ const d = _metricDefs0(c, ad, rows); if (window.__slice && c.type === "store") { delete d.roas; delete d.sl; } return d; };
+
+const _deltaHtml0 = deltaHtml;
+deltaHtml = function(cur, prev, goodUp){ if (cur == null || prev == null || !prev) return ""; return _deltaHtml0(cur, prev, goodUp); };
+
+const daysAr = n => n === 1 ? "يوم واحد" : n === 2 ? "يومين" : n <= 10 ? `${n} أيام` : `${n} يوم`;
 
 const APP_SHELL = "<div class=\"wrap\"><header class=\"top\"><span class=\"brand\" aria-label=\"\u0632\u064a\u0627\u062f \u0625\u0628\u0631\u0627\u0647\u064a\u0645\"><svg width=\"28\" height=\"28\" viewBox=\"0 0 48 48\" aria-hidden=\"true\"><rect class=\"zm-ink\" x=\"0\" y=\"28\" width=\"12\" height=\"20\" rx=\"2\"/><rect class=\"zm-brand\" x=\"18\" y=\"16\" width=\"12\" height=\"32\" rx=\"2\"/><rect class=\"zm-signal\" x=\"36\" y=\"0\" width=\"12\" height=\"12\" rx=\"2\"/><rect class=\"zm-brand\" x=\"36\" y=\"15\" width=\"12\" height=\"33\" rx=\"2\"/></svg><span class=\"nm\">\u0632\u064a\u0627\u062f \u0625\u0628\u0631\u0627\u0647\u064a\u0645</span><span class=\"sub\">\u00b7 \u0633\u064a\u0633\u062a\u0645 \u0627\u0644\u0634\u063a\u0644</span></span><nav class=\"tabs\" id=\"tabs\"></nav><span class=\"spacer\"></span><div id=\"who\"></div></header><main id=\"view\"><div class=\"card empty\">\u0628\u064a\u062d\u0645\u0651\u0644\u2026</div></main></div>";
 start();
