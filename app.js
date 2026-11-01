@@ -1032,16 +1032,16 @@ function adviceBox(c, items){
   const plat = x => `<span class="adv-p">${badge(x.name)}${esc(x.name)}</span>`;
   const row = ({ label, adv: a }) => { const R = a.R, unit = R.unit, rn = R.resName;
     let b = "";
-    if (R.allSame) b += `<div class="adv-line"><span class="adv-k ${a.level === "bad" ? "bad" : "ok"}">نفس السعر</span>${R.ranked.map(plat).join("")}<span class="adv-v"><b class="num">${fmt2(R.ranked[0].cost)}</b> ${cu} ${unit}</span></div>`;
+    if (R.allSame) b += `<div class="adv-line"><span class="adv-k ${a.level === "bad" ? "bad" : "ok"}">نفس السعر</span>${R.ranked.map(plat).join("")}<span class="adv-v">${money(unit, R.ranked[0].cost, cu)}</span></div>`;
     else if (a.lows.length) {
       const lo = a.lows[0];
-      b += `<div class="adv-line"><span class="adv-k ok">الأرخص</span>${a.lows.map(plat).join("")}<span class="adv-v"><b class="num">${fmt2(lo.cost)}</b> ${cu} ${unit}${a.lows.length === 1 ? ` · ${fmt(lo.res)} ${rn}` : ""}</span></div>`;
+      b += `<div class="adv-line"><span class="adv-k ok">الأرخص</span>${a.lows.map(plat).join("")}<span class="adv-v">${money(unit, lo.cost, cu)}${a.lows.length === 1 ? `<span class="sep">·</span><bdi><b class="num">${fmt(lo.res)}</b> ${rn}</bdi>` : ""}</span></div>`;
       if (a.highs.length && a.ratio >= 1.3) { const hi = a.highs[0];
-        b += `<div class="adv-line"><span class="adv-k ${a.ratio >= 2.5 ? "bad" : "warn"}">الأغلى</span>${a.highs.map(plat).join("")}<span class="adv-v"><b class="num">${fmt2(hi.cost)}</b> ${cu} ${unit} · <b>${a.ratio >= 2 ? `أغلى ${fmt(a.ratio,1)}×` : `أغلى بـ ${fmt((a.ratio-1)*100)}%`}</b></span></div>`; }
+        b += `<div class="adv-line"><span class="adv-k ${a.ratio >= 2.5 ? "bad" : "warn"}">الأغلى</span>${a.highs.map(plat).join("")}<span class="adv-v">${money(unit, hi.cost, cu)}<span class="sep">·</span><bdi><b>${a.ratio >= 2 ? `أغلى ${fmt(a.ratio,1)} مرة` : `أغلى بـ ${fmt((a.ratio-1)*100)}%`}</b></bdi></span></div>`; }
     }
-    if (a.zero.length) b += `<div class="adv-line"><span class="adv-k bad">من غير نتيجة</span>${a.zero.map(plat).join("")}<span class="adv-v">صرفت <b class="num">${fmt(a.zero.reduce((s2,z) => s2 + z.s, 0))}</b> ${cu} من غير ${rn === "أوردر" ? "أوردرات" : "تحويلات"}</span></div>`;
-    if (a.T && a.lows[0] && a.lows[0].cost > a.T) b += `<div class="adv-tip bad">حتى أرخص منصة فوق التارجت (${fmt2(a.T)} ${cu})</div>`;
-    else if (a.T && a.highs[0] && a.highs[0].cost > a.T) b += `<div class="adv-tip">${a.highs.map(h => esc(h.name)).join(" و ")} فوق التارجت (${fmt2(a.T)} ${cu})</div>`;
+    if (a.zero.length) b += `<div class="adv-line"><span class="adv-k bad">من غير نتيجة</span>${a.zero.map(plat).join("")}<span class="adv-v">صرفت ${money("", a.zero.reduce((s2,z) => s2 + z.s, 0), cu, 0)} من غير ${rn === "أوردر" ? "أوردرات" : "تحويلات"}</span></div>`;
+    if (a.T && a.lows[0] && a.lows[0].cost > a.T) b += `<div class="adv-tip bad">حتى أرخص منصة فوق التارجت (${money(unit, a.T, cu)})</div>`;
+    else if (a.T && a.highs[0] && a.highs[0].cost > a.T) b += `<div class="adv-tip">${a.highs.map(h => esc(h.name)).join(" و ")} فوق التارجت (${money(unit, a.T, cu)})</div>`;
     if (a.suggest) b += `<div class="adv-tip">← فكّر تنقل جزء من ميزانية <b>${a.highs.map(h => esc(h.name)).join(" و ")}</b> لـ <b>${a.lows.map(l => esc(l.name)).join(" أو ")}</b></div>`;
     return `<div class="adv-row lv-${a.level}"><div class="adv-when"><span class="adv-dot"></span>${label}</div><div class="adv-body">${b}</div></div>`; };
   return `<div class="adv-box lv-${top}">${items.map(row).join("")}</div>`;
@@ -1486,6 +1486,36 @@ function viewMyTasks(){
   }
   return h;
 }
+
+
+/* ================= Bidi: keep Latin/numbers readable inside Arabic ================= */
+// "CPP 75 ر.س" as one readable unit: [unit][number][currency], each isolated
+function money(unit, v, cu, dec){
+  const n = dec === 0 ? fmt(v) : fmt2(v);
+  return `<bdi class="money" dir="rtl">${unit ? `<bdi class="mu">${unit}</bdi> ` : ""}<bdi><b class="num">${n}</b></bdi> <bdi class="mc">${cu}</bdi></bdi>`;
+}
+const LATIN_RUN = /[A-Za-z0-9$€£][A-Za-z0-9.,%×:+\-\/_@#&$€£]*(?:[  ]+[A-Za-z0-9$€£][A-Za-z0-9.,%×:+\-\/_@#&$€£]*)*/g;
+const BIDI_SKIP = new Set(["SCRIPT","STYLE","TEXTAREA","INPUT","SELECT","OPTION","BDI","SVG","CODE","PRE"]);
+function isolateLatin(root){
+  if (!root) return;
+  const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, { acceptNode(n){
+    if (!/[A-Za-z0-9]/.test(n.nodeValue)) return NodeFilter.FILTER_REJECT;
+    for (let p = n.parentNode; p && p !== root; p = p.parentNode) { if (BIDI_SKIP.has(p.nodeName.toUpperCase()) || (p.classList && (p.classList.contains("pb") || p.classList.contains("nob")))) return NodeFilter.FILTER_REJECT; if (p.getAttribute && p.getAttribute("dir") === "ltr") return NodeFilter.FILTER_REJECT; }
+    return NodeFilter.FILTER_ACCEPT; } });
+  const nodes = []; while (w.nextNode()) nodes.push(w.currentNode);
+  for (const n of nodes) {
+    const t = n.nodeValue; LATIN_RUN.lastIndex = 0; if (!LATIN_RUN.test(t)) continue; LATIN_RUN.lastIndex = 0;
+    // whole text node is Latin -> isolate the parent element instead of splitting
+    const frag = document.createDocumentFragment(); let last = 0, m;
+    while ((m = LATIN_RUN.exec(t))) { if (m.index > last) frag.appendChild(document.createTextNode(t.slice(last, m.index))); const b = document.createElement("bdi"); b.dir = "ltr"; b.textContent = m[0]; frag.appendChild(b); last = m.index + m[0].length; }
+    if (last < t.length) frag.appendChild(document.createTextNode(t.slice(last)));
+    n.parentNode.replaceChild(frag, n);
+  }
+}
+const _render0 = render;
+render = function(){ _render0(); try { isolateLatin(document.getElementById("view")); isolateLatin(document.getElementById("tabs")); } catch(e){} };
+const _openModal0 = openModal;
+openModal = function(html, wide){ _openModal0(html, wide); try { isolateLatin(document.getElementById("modal")); } catch(e){} };
 
 const APP_SHELL = "<div class=\"wrap\"><header class=\"top\"><span class=\"brand\" aria-label=\"\u0632\u064a\u0627\u062f \u0625\u0628\u0631\u0627\u0647\u064a\u0645\"><svg width=\"28\" height=\"28\" viewBox=\"0 0 48 48\" aria-hidden=\"true\"><rect class=\"zm-ink\" x=\"0\" y=\"28\" width=\"12\" height=\"20\" rx=\"2\"/><rect class=\"zm-brand\" x=\"18\" y=\"16\" width=\"12\" height=\"32\" rx=\"2\"/><rect class=\"zm-signal\" x=\"36\" y=\"0\" width=\"12\" height=\"12\" rx=\"2\"/><rect class=\"zm-brand\" x=\"36\" y=\"15\" width=\"12\" height=\"33\" rx=\"2\"/></svg><span class=\"nm\">\u0632\u064a\u0627\u062f \u0625\u0628\u0631\u0627\u0647\u064a\u0645</span><span class=\"sub\">\u00b7 \u0633\u064a\u0633\u062a\u0645 \u0627\u0644\u0634\u063a\u0644</span></span><nav class=\"tabs\" id=\"tabs\"></nav><span class=\"spacer\"></span><div id=\"who\"></div></header><main id=\"view\"><div class=\"card empty\">\u0628\u064a\u062d\u0645\u0651\u0644\u2026</div></main></div>";
 start();
