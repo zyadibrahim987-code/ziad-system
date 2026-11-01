@@ -739,7 +739,7 @@ async function saveEntry(){
     if (E.taskId) await setDone(E.taskId, E.taskDay, true);
     await loadMetrics(c.id, true); if (admin) loadUnreviewed();
     closeModal(); render(); toast(admin ? "اتحفظ ✓" : "اتحفظ ✓ — زياد هيراجعه");
-  } catch(e){ $("#enErr").textContent = "ماتحفظش: " + (e.message || e); $("#enBtn").disabled = false; }
+  } catch(e){ const m = String(e.message || e); $("#enErr").textContent = /duplicate key/i.test(m) ? "اليوم ده فيه أرقام متسجلة لنفس المنصة. اعمل refresh للصفحة وافتح الفورم تاني، هتلاقي الأرقام القديمة تعدّل عليها." : /row-level security/i.test(m) ? "مش مسموحلك تسجّل أرقام المنصة دي. كلّم زياد." : "ماتحفظش: " + m; $("#enBtn").disabled = false; }
 }
 async function saveSalesTarget(cid, ym){
   const c = clientById(cid), v = parseFloat($("#stVal").value), val = isFinite(v) && v > 0 ? v : 0;
