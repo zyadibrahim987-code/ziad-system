@@ -664,7 +664,7 @@ function viewClient(){
   ${(c.links||[]).length ? `<div class="links" style="margin-bottom:10px">${linksHtml(c)}</div>` : ""}
   ${isAdmin() ? `<div class="row small muted" style="gap:6px;margin-bottom:10px">الفريق على العميل ده: ${members.filter(m => m.client_id === c.id).map(m => `${avatar(m.user_id, 22)} ${esc(personName(m.user_id))}${m.platforms.length ? ` (${m.platforms.map(esc).join("، ")})` : ""}`).join(" · ") || "انت بس"} <button class="btn xs ghost" onclick="go('team')">تعديل</button></div>` : ""}`;
   if (!see) {
-    h += `<div class="card"><h3>${mp.length ? "الأرقام اللي بتسجّلها" : "العميل ده"}</h3><p class="small muted">${mp.length ? `بتسجّل أرقام ${mp.map(esc).join(" و ")} كل يوم من زرار "سجّل أرقام". زياد بيراجعها.` : "انت شغال على التاسكات بتاعة العميل ده بس."}</p></div>`;
+    h += `<div class="card"><h3>${mp.length ? "الأرقام اللي بتسجّلها" : "العميل ده"}</h3><p class="small muted">${mp.length ? `بتسجّل أرقام ${mp.map(esc).join(" و ")} كل يوم من زرار "سجّل أرقام".${me.job === "Media Buyer" ? "" : " زياد بيراجعها."}` : "انت شغال على التاسكات بتاعة العميل ده بس."}</p></div>`;
     const myT = tasks.filter(t => t.clientId === c.id && t.assigneeId === me.id);
     h += `<div class="section-title"><h3>تاسكاتك على العميل ده (${myT.length})</h3></div><div class="card">${myT.map(t => `<div class="task"><div class="t"><div class="title">${esc(t.title)}</div><div class="meta">${esc(repeatText(t))}</div></div></div>`).join("") || `<div class="small muted">مفيش.</div>`}</div>`;
     return h;
@@ -728,7 +728,7 @@ async function saveEntry(){
   document.querySelectorAll("#modal [data-f]").forEach(inp => {
     const v = parseFloat(inp.value); if (!isFinite(v) || v <= 0) return;
     const p = inp.dataset.p, dep = inp.dataset.dep || "", f = inp.dataset.f, k = p + "|" + dep;
-    map[k] = map[k] || { client_id:c.id, d:E.d, p, dep, entered_by:me.id, reviewed: admin, updated_at:new Date().toISOString() };
+    map[k] = map[k] || { client_id:c.id, d:E.d, p, dep, entered_by:me.id, reviewed: admin || me.job === "Media Buyer", updated_at:new Date().toISOString() };
     map[k][f === "in" ? "ins" : f] = inp.dataset.cur === "1" ? r2(v * rate) : v;
   });
   const editable = admin ? null : myPlatforms(c);
@@ -819,7 +819,7 @@ function openTask(id, preset){
   openModal(`<h2>${id ? "تعديل مهمة" : "مهمة جديدة"}</h2>
     <label class="f">المهمة</label><input class="inp" id="tTitle" value="${esc(t.title||"")}" autofocus>
     <div class="two"><div><label class="f">العميل</label><select class="inp" id="tClient"><option value="">— مهمة عامة —</option>${clients.map(c => `<option value="${c.id}" ${t.clientId===c.id?"selected":""}>${esc(c.name)}</option>`).join("")}</select></div>
-      <div><label class="f">مسنودة على</label><select class="inp" id="tAssignee" onchange="document.getElementById('tReview').checked=!!this.value"><option value="">انت</option>${team.map(p => `<option value="${p.id}" ${t.assigneeId===p.id?"selected":""}>${esc(p.name || p.email)} · ${esc(p.job||"")}</option>`).join("")}</select></div></div>
+      <div><label class="f">مسنودة على</label><select class="inp" id="tAssignee" onchange="document.getElementById('tReview').checked=!!this.value && this.selectedOptions[0].dataset.job!=='Media Buyer'"><option value="">انت</option>${team.map(p => `<option value="${p.id}" data-job="${esc(p.job||"")}" ${t.assigneeId===p.id?"selected":""}>${esc(p.name || p.email)} · ${esc(p.job||"")}</option>`).join("")}</select></div></div>
     <label class="check"><input type="checkbox" id="tReview" ${t.needsReview || (!id && t.assigneeId) ? "checked" : ""}> محتاجة تسليم ومراجعة (العضو يدوس "سلّم" ويحط لينك أو ملف)</label>
     <label class="f">البريف / التفاصيل (اختياري)</label><textarea class="inp" id="tBrief" placeholder="مثلاً: فيديو 15 ثانية عمودي، الخصم 5% باين في أول 3 ثواني">${esc(t.brief||"")}</textarea>
     <label class="f">بتتكرر إمتى؟</label><select class="inp" id="tRepeat" onchange="repeatFields()">${Object.entries(REPEAT_LABEL).map(([k,v]) => `<option value="${k}" ${t.repeat===k?"selected":""}>${v}</option>`).join("")}</select><div id="tRF"></div>
