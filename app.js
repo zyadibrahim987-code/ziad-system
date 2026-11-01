@@ -893,7 +893,7 @@ function authScreen(mode, msg){
     <div id="auMsg" class="small" style="margin-top:10px;color:${msg && msg.ok ? "var(--ok)" : "var(--danger)"}">${msg ? esc(msg.t) : ""}</div>
     <button class="btn primary" style="width:100%;margin-top:14px;height:42px" id="auBtn" onclick="authSubmit('${mode}')">${{ login:"دخول", signup:"اعمل الحساب", forgot:"ابعتلي لينك", setpass:"احفظ الباسورد وادخل" }[mode]}</button>
     <div class="row small" style="margin-top:14px;justify-content:center;gap:16px">
-      ${mode === "login" ? `<a href="#" onclick="authScreen('forgot');return false" title="للأدمن. أعضاء الفريق يكلموا زياد">نسيت الباسورد؟</a><a href="#" onclick="authScreen('signup');return false" class="muted">أول مرة (للأدمن)</a>` : mode !== "setpass" ? `<a href="#" onclick="authScreen('login');return false">رجوع لتسجيل الدخول</a>` : ""}
+      ${mode === "login" ? `<a href="#" onclick="authScreen('forgot');return false" title="للأدمن. أعضاء الفريق يكلموا زياد">نسيت الباسورد؟</a>` : mode !== "setpass" ? `<a href="#" onclick="authScreen('login');return false">رجوع لتسجيل الدخول</a>` : ""}
     </div></div>`;
   const f = $("#auEmail") || $("#auPass"); if (f) f.focus();
   document.querySelectorAll(".authbox input").forEach(i => i.addEventListener("keydown", e => { if (e.key === "Enter") authSubmit(mode); }));
@@ -902,7 +902,7 @@ async function authSubmit(mode){
   const email = ($("#auEmail")||{}).value?.trim(), pass = ($("#auPass")||{}).value, btn = $("#auBtn"), msg = t => { $("#auMsg").style.color = "var(--danger)"; $("#auMsg").textContent = t; };
   btn.disabled = true;
   try {
-    if (mode === "login") { const login = email && !email.includes("@") ? email.toLowerCase() + "@team.ziad-system.app" : email; const { error } = await sb.auth.signInWithPassword({ email: login, password: pass }); if (error) throw new Error(/invalid/i.test(error.message) ? "اليوزر أو الباسورد غلط" : error.message); }
+    if (mode === "login") { const login = email && !email.includes("@") ? email.toLowerCase() + "@team.ziad-system.app" : email; const { error } = await sb.auth.signInWithPassword({ email: login, password: pass }); if (error) throw new Error(/invalid/i.test(error.message) ? "اليوزر أو الباسورد غلط" : error.message); btn.textContent = "⏳ بيفتح…"; await boot(); return; }
     else if (mode === "signup") { if (!pass || pass.length < 8) throw new Error("الباسورد لازم 8 حروف على الأقل"); const { data, error } = await sb.auth.signUp({ email, password: pass, options: { data: { name: $("#auName").value.trim() }, emailRedirectTo: location.origin + location.pathname } }); if (error) throw error; if (!data.session) { $("#auMsg").style.color = "var(--ok)"; $("#auMsg").textContent = "اتبعتلك إيميل تأكيد. دوس على اللينك اللي فيه وبعدين ادخل."; btn.disabled = false; return; } }
     else if (mode === "forgot") { const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname }); if (error) throw error; $("#auMsg").style.color = "var(--ok)"; $("#auMsg").textContent = "لو الإيميل متسجل، هيوصلك لينك تعمل منه باسورد جديد."; btn.disabled = false; return; }
     else if (mode === "setpass") { if (!pass || pass.length < 8) throw new Error("الباسورد لازم 8 حروف على الأقل"); const { error } = await sb.auth.updateUser({ password: pass }); if (error) throw error; history.replaceState(null, "", location.pathname); needPass = false; await boot(); }
@@ -911,7 +911,12 @@ async function authSubmit(mode){
 
 /* ================= Boot ================= */
 let needPass = /type=(invite|recovery)/.test(location.hash);
+let booting = false;
 async function boot(){
+  if (booting) return; booting = true;
+  try { await bootInner(); } finally { booting = false; }
+}
+async function bootInner(){
   const { data: { session } } = await sb.auth.getSession();
   if (!session) { authScreen("login"); return; }
   if (needPass) { authScreen("setpass"); return; }
@@ -939,7 +944,7 @@ setInterval(() => { const k = todayK(); if (k !== lastDay) { if (ui.date === las
 function start(){
   if (!window.supabase) { document.getElementById("app").innerHTML = `<div class="authbox"><h2>مقدرش يحمّل السيستم</h2><p class="small muted">اتأكد من النت وجرب تاني.</p></div>`; return; }
   sb = window.supabase.createClient(SB_URL, SB_KEY, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
-  sb.auth.onAuthStateChange((ev) => { if (ev === "PASSWORD_RECOVERY") { needPass = true; authScreen("setpass"); } if (ev === "SIGNED_OUT") { me = null; authScreen("login"); } });
+  sb.auth.onAuthStateChange((ev) => { if (ev === "PASSWORD_RECOVERY") { needPass = true; authScreen("setpass"); } if (ev === "SIGNED_OUT") { me = null; authScreen("login"); } if (ev === "SIGNED_IN" && !me && !needPass && document.body.classList.contains("auth")) setTimeout(boot, 0); });
   boot();
 }
 
