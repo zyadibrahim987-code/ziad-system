@@ -563,41 +563,62 @@ async function markReviewed(cid, d, by){ try { await q(sb.from("metrics").update
 function viewTeam(){
   const team = profiles.filter(p => p.id !== me.id);
   let h = `<div class="row" style="margin-bottom:12px"><h2>الفريق</h2><span class="small muted">${team.length} من 6</span><span class="spacer"></span><button class="btn primary sm" onclick="openInvite()">+ ضيف عضو</button></div>`;
-  if (!team.length) return h + `<div class="card empty">لسه مفيش حد في الفريق. دوس "ضيف عضو"، فيوصله إيميل دعوة يعمل منه باسورده.</div>`;
+  if (!team.length) return h + `<div class="card empty">لسه مفيش حد في الفريق. دوس "ضيف عضو"، واعمله يوزر وباسورد تبعتهمله.</div>`;
   h += `<div class="card" style="padding:4px 16px">${team.map(p => { const cs = members.filter(m => m.user_id === p.id); return `<div class="trow">${avatar(p.id, 34)}<div style="flex:1;min-width:0"><div><b>${esc(p.name || p.email)}</b> <span class="chip grey">${esc(p.job || "—")}</span>${!p.active ? ` <span class="chip warn">متوقف</span>` : ""}</div>
-      <div class="tiny muted">${esc(p.email || "")}</div>
+      <div class="tiny muted" dir="ltr">${esc(p.email || "")}</div>
       <div class="small" style="margin-top:4px">${cs.length ? cs.map(m => { const c = clientById(m.client_id); return c ? `<span class="chip grey">${esc(c.name)}${m.platforms.length ? " · " + m.platforms.map(esc).join("، ") : ""}${m.see_numbers ? " · 👁 الأرقام" : ""}</span>` : ""; }).join(" ") : `<span class="muted">مش مسنود على أي عميل</span>`}</div></div>
       <button class="btn sm" onclick="openMember('${p.id}')">تعديل</button></div>`; }).join("")}</div>`;
   return h;
 }
+function genPass(){ const a = "abcdefghjkmnpqrstuvwxyz", A = "ABCDEFGHJKLMNPQRSTUVWXYZ", d = "23456789"; const pick = (set, n) => Array.from(crypto.getRandomValues(new Uint32Array(n)), x => set[x % set.length]).join(""); return pick(A,1) + pick(a,4) + pick(d,3); }
 function openInvite(){
-  openModal(`<h2>ضيف عضو للفريق</h2><p class="small muted">هيوصله إيميل دعوة، يدوس عليه ويعمل باسورده، وبعدها يدخل بالإيميل والباسورد.</p>
-    <div class="two"><div><label class="f">الاسم</label><input class="inp" id="ivName" autofocus></div><div><label class="f">الإيميل</label><input class="inp" id="ivEmail" dir="ltr" type="email" placeholder="name@gmail.com"></div></div>
-    <label class="f">الشغلانة</label><select class="inp" id="ivJob">${JOBS.map(j => `<option>${j}</option>`).join("")}</select>
+  openModal(`<h2>ضيف عضو للفريق</h2><p class="small muted">هتعمله يوزر وباسورد، وتبعتهمله على الواتساب. يقدر يغيّر الباسورد بعد ما يدخل.</p>
+    <div class="two"><div><label class="f">الاسم</label><input class="inp" id="ivName" autofocus placeholder="أحمد محمد"></div>
+      <div><label class="f">الشغلانة</label><select class="inp" id="ivJob">${JOBS.map(j => `<option>${j}</option>`).join("")}</select></div>
+      <div><label class="f">اليوزر (حروف إنجليزي وأرقام)</label><input class="inp" id="ivUser" dir="ltr" placeholder="ahmed" autocomplete="off"></div>
+      <div><label class="f">الباسورد</label><div class="row" style="gap:6px;flex-wrap:nowrap"><input class="inp" id="ivPass" dir="ltr" value="${genPass()}" autocomplete="off"><button class="btn sm" type="button" onclick="$('#ivPass').value=genPass()" title="باسورد جديد">↻</button></div></div></div>
     <div id="ivErr" class="small" style="color:var(--danger);margin-top:6px"></div>
-    <div class="actions"><span class="spacer"></span><button class="btn" onclick="closeModal()">إلغاء</button><button class="btn primary" id="ivBtn" onclick="doInvite()">ابعت الدعوة</button></div>`);
+    <div class="actions"><span class="spacer"></span><button class="btn" onclick="closeModal()">إلغاء</button><button class="btn primary" id="ivBtn" onclick="doInvite()">اعمل الحساب</button></div>`);
 }
-async function callInvite(body){ const { data, error } = await sb.functions.invoke("invite-member", { body: { ...body, redirectTo: location.origin + location.pathname } }); if (error) { let msg = error.message; try { const j = await error.context.json(); msg = j.error || msg; } catch(_){} throw new Error(msg); } if (data && data.error) throw new Error(data.error); return data; }
+async function callInvite(body){ const { data, error } = await sb.functions.invoke("invite-member", { body }); if (error) { let msg = error.message; try { const j = await error.context.json(); msg = j.error || msg; } catch(_){} throw new Error(msg); } if (data && data.error) throw new Error(data.error); return data; }
+const ERR_AR = { username_taken:"اليوزر ده مستخدم قبل كده، اختار غيره", bad_username:"اليوزر لازم 3 حروف على الأقل، إنجليزي وأرقام بس من غير مسافات", short_password:"الباسورد لازم 8 حروف على الأقل", not_admin:"الحساب ده مش أدمن" };
 async function doInvite(){
-  const name = $("#ivName").value.trim(), email = $("#ivEmail").value.trim(), job = $("#ivJob").value;
-  if (!name || !email.includes("@")) { $("#ivErr").textContent = "اكتب الاسم والإيميل صح"; return; }
+  const name = $("#ivName").value.trim(), username = $("#ivUser").value.trim().toLowerCase(), password = $("#ivPass").value.trim(), job = $("#ivJob").value;
+  if (!name) { $("#ivErr").textContent = "اكتب الاسم"; return; }
+  if (!/^[a-z0-9._-]{3,40}$/.test(username)) { $("#ivErr").textContent = ERR_AR.bad_username; return; }
+  if (password.length < 8) { $("#ivErr").textContent = ERR_AR.short_password; return; }
   if (profiles.length >= 7) { $("#ivErr").textContent = "الفريق وصل 6 أعضاء"; return; }
-  $("#ivBtn").disabled = true; $("#ivBtn").textContent = "⏳ بيبعت…";
-  try { const r = await callInvite({ action:"invite", email, name, job }); await loadAll(); closeModal(); render(); toast("الدعوة اتبعتت ✓"); if (r && r.id) openMember(r.id); }
-  catch(e){ $("#ivErr").textContent = /already/i.test(e.message) ? "الإيميل ده متسجل قبل كده" : "ماتبعتتش: " + e.message; $("#ivBtn").disabled = false; $("#ivBtn").textContent = "ابعت الدعوة"; }
+  $("#ivBtn").disabled = true; $("#ivBtn").textContent = "⏳ بيعمل الحساب…";
+  try { const r = await callInvite({ action:"create", username, password, name, job }); await loadAll(); render(); showCreds(name, username, password, r && r.id); }
+  catch(e){ $("#ivErr").textContent = ERR_AR[e.message] || ("ماتعملش: " + e.message); $("#ivBtn").disabled = false; $("#ivBtn").textContent = "اعمل الحساب"; }
 }
+function credsText(name, username, password){ return `أهلاً ${name} 👋\nده حسابك على سيستم الشغل:\n\nاللينك: ${location.origin + location.pathname}\nاليوزر: ${username}\nالباسورد: ${password}\n\nتقدر تغيّر الباسورد من علامة ⚙︎ فوق بعد ما تدخل.`; }
+function showCreds(name, username, password, pid){
+  const txt = credsText(name, username, password);
+  openModal(`<h2>الحساب جاهز ✓</h2><p class="small muted">ابعت الرسالة دي لـ ${esc(name)} على الواتساب. الباسورد مش هيظهر تاني، فانسخه دلوقتي.</p>
+    <textarea class="inp" id="crTxt" style="min-height:190px;font-family:var(--font-ar)" readonly>${esc(txt)}</textarea>
+    <div class="actions">${pid ? `<button class="btn sm" onclick="openMember('${pid}')">امسكه على عملاء ←</button>` : ""}<span class="spacer"></span><button class="btn" onclick="closeModal()">قفل</button><button class="btn primary" onclick="copyText(document.getElementById('crTxt').value)">📋 انسخ الرسالة</button></div>`);
+}
+async function copyText(t){ try { await navigator.clipboard.writeText(t); toast("اتنسخ ✓"); } catch(e){ const el = $("#crTxt"); if (el) { el.select(); document.execCommand && document.execCommand("copy"); toast("اتنسخ ✓"); } } }
+function openSetPass(pid){ const p = profileById(pid);
+  openModal(`<h2>باسورد جديد لـ ${esc(p.name || p.email)}</h2><p class="small muted">الباسورد القديم هيتلغي، وهتبعتله الجديد.</p>
+    <div class="row" style="gap:6px;flex-wrap:nowrap"><input class="inp" id="spPass" dir="ltr" value="${genPass()}"><button class="btn sm" onclick="$('#spPass').value=genPass()">↻</button></div>
+    <div id="spErr" class="small" style="color:var(--danger);margin-top:6px"></div>
+    <div class="actions"><span class="spacer"></span><button class="btn" onclick="openMember('${pid}')">رجوع</button><button class="btn primary" id="spBtn" onclick="doSetPass('${pid}')">غيّر الباسورد</button></div>`); }
+async function doSetPass(pid){ const p = profileById(pid), pass = $("#spPass").value.trim(); if (pass.length < 8) { $("#spErr").textContent = ERR_AR.short_password; return; }
+  $("#spBtn").disabled = true; try { await callInvite({ action:"set_password", id:pid, password:pass }); showCreds(p.name || p.email, p.email, pass, null); } catch(e){ $("#spErr").textContent = ERR_AR[e.message] || e.message; $("#spBtn").disabled = false; } }
 let MF = {};
 function openMember(pid){
   const p = profileById(pid); if (!p) return;
   MF = { pid, rows: clients.map(c => { const m = members.find(x => x.client_id === c.id && x.user_id === pid); return { cid:c.id, on:!!m, platforms: m ? m.platforms.slice() : [], see: m ? m.see_numbers : false }; }) };
-  openModal(`<div class="row">${avatar(pid, 36)}<h2 style="margin:0">${esc(p.name || p.email)}</h2><span class="spacer"></span><span class="tiny muted" dir="ltr">${esc(p.email || "")}</span></div>
+  openModal(`<div class="row">${avatar(pid, 36)}<h2 style="margin:0">${esc(p.name || p.email)}</h2><span class="spacer"></span><span class="tiny muted" dir="ltr">يوزر: ${esc(p.email || "")}</span></div>
     <div class="two"><div><label class="f">الاسم</label><input class="inp" id="mfName" value="${esc(p.name || "")}"></div><div><label class="f">الشغلانة</label><select class="inp" id="mfJob">${JOBS.map(j => `<option ${p.job === j ? "selected" : ""}>${j}</option>`).join("")}</select></div></div>
     <label class="check"><input type="checkbox" id="mfActive" ${p.active ? "checked" : ""}> شغال (لو شلت العلامة مش هيقدر يشوف أي حاجة)</label>
     <div class="section"><h3>العملاء اللي شغال عليهم</h3><p class="tiny muted" style="margin:4px 0 8px">المنصات: اللي يقدر يسجّل أرقامها (للـ Media Buyer). "يشوف الأرقام": يشوف داشبورد العميل كله.</p>
     ${clients.map((c, i) => `<div class="mrow"><label class="check" style="margin:0;min-width:150px"><input type="checkbox" ${MF.rows[i].on ? "checked" : ""} onchange="MF.rows[${i}].on=this.checked;this.closest('.mrow').classList.toggle('off',!this.checked)"> <b>${esc(c.name)}</b></label>
       <div class="mrow-opts">${plats(c).map(pp => `<label class="pchk"><input type="checkbox" ${MF.rows[i].platforms.includes(pp.name) ? "checked" : ""} onchange="MF.rows[${i}].platforms=this.checked?[...MF.rows[${i}].platforms,'${jsq(pp.name)}']:MF.rows[${i}].platforms.filter(x=>x!=='${jsq(pp.name)}')">${badge(pp.name)}</label>`).join("")}
       <label class="check" style="margin:0"><input type="checkbox" ${MF.rows[i].see ? "checked" : ""} onchange="MF.rows[${i}].see=this.checked"> يشوف الأرقام</label></div></div>`).join("") || `<div class="small muted">مفيش عملاء لسه.</div>`}</div>
-    <div class="actions"><button class="btn danger sm" onclick="removeMember('${pid}')">شيله من الفريق</button><button class="btn sm" onclick="resendInvite('${pid}')">ابعت الدعوة تاني</button><span class="spacer"></span><button class="btn" onclick="closeModal()">إلغاء</button><button class="btn primary" onclick="saveMember()">حفظ</button></div>`, true);
+    <div class="actions"><button class="btn danger sm" onclick="removeMember('${pid}')">شيله من الفريق</button><button class="btn sm" onclick="openSetPass('${pid}')">🔑 غيّر الباسورد</button><span class="spacer"></span><button class="btn" onclick="closeModal()">إلغاء</button><button class="btn primary" onclick="saveMember()">حفظ</button></div>`, true);
   document.querySelectorAll(".mrow").forEach((el, i) => el.classList.toggle("off", !MF.rows[i].on));
 }
 async function saveMember(){
@@ -610,7 +631,6 @@ async function saveMember(){
     await loadAll(); closeModal(); render(); toast("اتحفظ ✓");
   } catch(e){ toast("ماتحفظش: " + (e.message || e)); }
 }
-async function resendInvite(pid){ const p = profileById(pid); try { await callInvite({ action:"resend", email:p.email }); toast("اتبعتت تاني ✓"); } catch(e){ toast("ماتبعتتش: " + e.message); } }
 function removeMember(pid){ const p = profileById(pid);
   openModal(`<h2>تشيل ${esc(p.name || p.email)} من الفريق؟</h2><p>حسابه هيتمسح، والتاسكات اللي عليه هتفضل من غير حد مسنود عليها.</p><div class="actions"><span class="spacer"></span><button class="btn" onclick="openMember('${pid}')">رجوع</button><button class="btn primary" style="background:var(--danger);border-color:var(--danger)" onclick="doRemove('${pid}')">شيله</button></div>`); }
 async function doRemove(pid){ try { await callInvite({ action:"remove", id:pid }); await loadAll(); closeModal(); render(); toast("اتشال"); } catch(e){ toast("ماتشالش: " + e.message); } }
@@ -863,14 +883,14 @@ function authScreen(mode, msg){
   $("#app").innerHTML = `<div class="authbox">
     <div class="brand" style="margin-bottom:22px"><svg width="34" height="34" viewBox="0 0 48 48" aria-hidden="true"><rect class="zm-ink" x="0" y="28" width="12" height="20" rx="2"/><rect class="zm-brand" x="18" y="16" width="12" height="32" rx="2"/><rect class="zm-signal" x="36" y="0" width="12" height="12" rx="2"/><rect class="zm-brand" x="36" y="15" width="12" height="33" rx="2"/></svg><span class="nm" style="font-size:22px">زياد إبراهيم</span><span class="sub">· سيستم الشغل</span></div>
     <h2 style="margin-bottom:4px">${titles[mode]}</h2>
-    ${mode === "setpass" ? `<p class="small muted">أهلاً بيك في الفريق. اعمل باسورد تدخل بيه بعد كده.</p>` : mode === "signup" ? `<p class="small muted">أول حساب بيتعمل بيبقى الأدمن (زياد). أعضاء الفريق بيدخلوا بالدعوة اللي بتوصلهم على الإيميل.</p>` : ""}
-    ${mode !== "setpass" ? `<label class="f">الإيميل</label><input class="inp" id="auEmail" type="email" dir="ltr" autocomplete="email">` : ""}
+    ${mode === "setpass" ? `<p class="small muted">اعمل باسورد جديد تدخل بيه بعد كده.</p>` : mode === "signup" ? `<p class="small muted">أول حساب بيتعمل بيبقى الأدمن (زياد). أعضاء الفريق بيدخلوا باليوزر والباسورد اللي زياد بيعملهوملهم.</p>` : mode === "forgot" ? `<p class="small muted">ده للأدمن بس. لو انت في الفريق ونسيت الباسورد، كلّم زياد يعملك واحد جديد.</p>` : ""}
+    ${mode !== "setpass" ? `<label class="f">${mode === "login" ? "اليوزر أو الإيميل" : "الإيميل"}</label><input class="inp" id="auEmail" type="${mode === "login" ? "text" : "email"}" dir="ltr" autocomplete="username" autocapitalize="none">` : ""}
     ${mode === "signup" ? `<label class="f">اسمك</label><input class="inp" id="auName">` : ""}
     ${mode !== "forgot" ? `<label class="f">الباسورد</label><input class="inp" id="auPass" type="password" dir="ltr" autocomplete="${mode === "login" ? "current-password" : "new-password"}">` : ""}
     <div id="auMsg" class="small" style="margin-top:10px;color:${msg && msg.ok ? "var(--ok)" : "var(--danger)"}">${msg ? esc(msg.t) : ""}</div>
     <button class="btn primary" style="width:100%;margin-top:14px;height:42px" id="auBtn" onclick="authSubmit('${mode}')">${{ login:"دخول", signup:"اعمل الحساب", forgot:"ابعتلي لينك", setpass:"احفظ الباسورد وادخل" }[mode]}</button>
     <div class="row small" style="margin-top:14px;justify-content:center;gap:16px">
-      ${mode === "login" ? `<a href="#" onclick="authScreen('forgot');return false">نسيت الباسورد؟</a><a href="#" onclick="authScreen('signup');return false" class="muted">أول مرة (للأدمن)</a>` : mode !== "setpass" ? `<a href="#" onclick="authScreen('login');return false">رجوع لتسجيل الدخول</a>` : ""}
+      ${mode === "login" ? `<a href="#" onclick="authScreen('forgot');return false" title="للأدمن. أعضاء الفريق يكلموا زياد">نسيت الباسورد؟</a><a href="#" onclick="authScreen('signup');return false" class="muted">أول مرة (للأدمن)</a>` : mode !== "setpass" ? `<a href="#" onclick="authScreen('login');return false">رجوع لتسجيل الدخول</a>` : ""}
     </div></div>`;
   const f = $("#auEmail") || $("#auPass"); if (f) f.focus();
   document.querySelectorAll(".authbox input").forEach(i => i.addEventListener("keydown", e => { if (e.key === "Enter") authSubmit(mode); }));
@@ -879,7 +899,7 @@ async function authSubmit(mode){
   const email = ($("#auEmail")||{}).value?.trim(), pass = ($("#auPass")||{}).value, btn = $("#auBtn"), msg = t => { $("#auMsg").style.color = "var(--danger)"; $("#auMsg").textContent = t; };
   btn.disabled = true;
   try {
-    if (mode === "login") { const { error } = await sb.auth.signInWithPassword({ email, password: pass }); if (error) throw new Error(/invalid/i.test(error.message) ? "الإيميل أو الباسورد غلط" : error.message); }
+    if (mode === "login") { const login = email && !email.includes("@") ? email.toLowerCase() + "@team.ziad-system.app" : email; const { error } = await sb.auth.signInWithPassword({ email: login, password: pass }); if (error) throw new Error(/invalid/i.test(error.message) ? "اليوزر أو الباسورد غلط" : error.message); }
     else if (mode === "signup") { if (!pass || pass.length < 8) throw new Error("الباسورد لازم 8 حروف على الأقل"); const { data, error } = await sb.auth.signUp({ email, password: pass, options: { data: { name: $("#auName").value.trim() }, emailRedirectTo: location.origin + location.pathname } }); if (error) throw error; if (!data.session) { $("#auMsg").style.color = "var(--ok)"; $("#auMsg").textContent = "اتبعتلك إيميل تأكيد. دوس على اللينك اللي فيه وبعدين ادخل."; btn.disabled = false; return; } }
     else if (mode === "forgot") { const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname }); if (error) throw error; $("#auMsg").style.color = "var(--ok)"; $("#auMsg").textContent = "لو الإيميل متسجل، هيوصلك لينك تعمل منه باسورد جديد."; btn.disabled = false; return; }
     else if (mode === "setpass") { if (!pass || pass.length < 8) throw new Error("الباسورد لازم 8 حروف على الأقل"); const { error } = await sb.auth.updateUser({ password: pass }); if (error) throw error; history.replaceState(null, "", location.pathname); needPass = false; await boot(); }
