@@ -508,7 +508,7 @@ function openDayCard(cid){
     <div class="small muted" style="margin-bottom:10px">${fmtDate(fromKey(dk))}</div>
     ${c ? fileChips(c) : ""}
     ${al.map(a => `<div class="alert">⚠️ ${a}</div>`).join("")}
-    ${c && bestYesterday(c) ? `<div class="advice"><span>💡</span><div>${bestYesterday(c).html}</div></div>` : ""}
+    ${c && bestYesterday(c) ? adviceBox(c, [{ label:"امبارح", adv: bestYesterday(c) }]) : ""}
     ${od.length ? `<div class="small" style="color:var(--danger);font-weight:700;margin:8px 0 2px">متأخرة من أيام فاتت</div>${od.map(t => taskRow(t, t.date, cid)).join("")}` : ""}
     ${ts.length ? `<div class="small muted" style="font-weight:700;margin:10px 0 2px">مهام اليوم</div>${mineFirst(ts).map(t => taskRow(t, dk, cid)).join("")}` : ""}
     <div class="actions">${c && isAdmin() ? `<button class="btn sm" onclick="openDataReceived('${c.id}')">📥 العميل بعت داتا</button>` : ""}${c ? `<button class="btn sm" onclick="closeModal();go('client','${c.id}')">صفحة العميل ←</button>` : ""}${isAdmin() ? `<button class="btn sm" onclick="openTask(null,{date:'${dk}',repeat:'once'${c ? `,clientId:'${c.id}'` : ""}})">+ مهمة</button>` : ""}<span class="spacer"></span><button class="btn" onclick="closeModal()">قفل</button></div>`);
@@ -1016,7 +1016,35 @@ function platformAdvice(c, rows, when){
     }
   }
   if (zero.length) t += `${t ? " · " : ""}${names(zero)} صرفت ${fmt(zero.reduce((s,z) => s + z.s, 0))} ${cu} من غير ${res0}.`;
-  return t ? { html: t, best: R.best, worst: R.worst, R } : null;
+  if (!t) return null;
+  const tg = c.targets || {}, T = c.type === "store" ? tg.maxCpp : tg.cpl;
+  const lo = R.lows[0], hi = R.highs[0], ratio = lo && hi ? hi.cost / lo.cost : 1;
+  const hiShare = R.highs.reduce((a, h) => a + h.s, 0) / (R.total || 1);
+  let level = "good";
+  if (zero.length || (T && ((hi && hi.cost > T && hiShare >= 0.1) || (lo && lo.cost > T) || (R.allSame && R.ranked[0].cost > T))) || (ratio >= 2.5 && hiShare >= 0.15)) level = "bad";
+  else if (ratio >= 1.3 || (T && hi && hi.cost > T)) level = "warn";
+  return { html: t, best: R.best, worst: R.worst, R, level, lows: R.lows, highs: R.highs, ratio, zero, T, suggest: hi && ratio >= 1.3 && hiShare >= 0.15 };
+}
+function adviceBox(c, items){
+  items = items.filter(x => x.adv); if (!items.length) return "";
+  const rank = { good:0, warn:1, bad:2 }, top = items.reduce((m, x) => rank[x.adv.level] > rank[m] ? x.adv.level : m, "good");
+  const cu = cur(c);
+  const plat = x => `<span class="adv-p">${badge(x.name)}${esc(x.name)}</span>`;
+  const row = ({ label, adv: a }) => { const R = a.R, unit = R.unit, rn = R.resName;
+    let b = "";
+    if (R.allSame) b += `<div class="adv-line"><span class="adv-k ${a.level === "bad" ? "bad" : "ok"}">نفس السعر</span>${R.ranked.map(plat).join("")}<span class="adv-v"><b class="num">${fmt2(R.ranked[0].cost)}</b> ${cu} ${unit}</span></div>`;
+    else if (a.lows.length) {
+      const lo = a.lows[0];
+      b += `<div class="adv-line"><span class="adv-k ok">الأرخص</span>${a.lows.map(plat).join("")}<span class="adv-v"><b class="num">${fmt2(lo.cost)}</b> ${cu} ${unit}${a.lows.length === 1 ? ` · ${fmt(lo.res)} ${rn}` : ""}</span></div>`;
+      if (a.highs.length && a.ratio >= 1.3) { const hi = a.highs[0];
+        b += `<div class="adv-line"><span class="adv-k ${a.ratio >= 2.5 ? "bad" : "warn"}">الأغلى</span>${a.highs.map(plat).join("")}<span class="adv-v"><b class="num">${fmt2(hi.cost)}</b> ${cu} ${unit} · <b>${a.ratio >= 2 ? `أغلى ${fmt(a.ratio,1)}×` : `أغلى بـ ${fmt((a.ratio-1)*100)}%`}</b></span></div>`; }
+    }
+    if (a.zero.length) b += `<div class="adv-line"><span class="adv-k bad">من غير نتيجة</span>${a.zero.map(plat).join("")}<span class="adv-v">صرفت <b class="num">${fmt(a.zero.reduce((s2,z) => s2 + z.s, 0))}</b> ${cu} من غير ${rn === "أوردر" ? "أوردرات" : "تحويلات"}</span></div>`;
+    if (a.T && a.lows[0] && a.lows[0].cost > a.T) b += `<div class="adv-tip bad">حتى أرخص منصة فوق التارجت (${fmt2(a.T)} ${cu})</div>`;
+    else if (a.T && a.highs[0] && a.highs[0].cost > a.T) b += `<div class="adv-tip">${a.highs.map(h => esc(h.name)).join(" و ")} فوق التارجت (${fmt2(a.T)} ${cu})</div>`;
+    if (a.suggest) b += `<div class="adv-tip">← فكّر تنقل جزء من ميزانية <b>${a.highs.map(h => esc(h.name)).join(" و ")}</b> لـ <b>${a.lows.map(l => esc(l.name)).join(" أو ")}</b></div>`;
+    return `<div class="adv-row lv-${a.level}"><div class="adv-when"><span class="adv-dot"></span>${label}</div><div class="adv-body">${b}</div></div>`; };
+  return `<div class="adv-box lv-${top}">${items.map(row).join("")}</div>`;
 }
 function bestYesterday(c){ if (!M[c.id] || !canSeeNumbers(c.id)) return null; const y = addDaysK(todayK(), -1); return platformAdvice(c, M[c.id].filter(r => r.d === y), "امبارح"); }
 function platformCards(c, rows){
@@ -1038,16 +1066,14 @@ function dayDetail(c, d, dr){
   if (c.type === "store" && window.__slice) h += `<div class="kv"><div>الصرف<b>${fmt(a.s)} ${cur(c)}</b></div><div>الأوردرات (حسب المنصات)<b>${fmt(a.po)}</b></div><div>CPP<b>${a.po ? fmt2(a.s/a.po) + " " + cur(c) : "—"}</b></div></div>`;
   else if (c.type === "store") h += `<div class="kv"><div>الصرف<b>${fmt(a.s)} ${cur(c)}</b></div><div>المبيعات<b>${fmt(a.sl)} ${cur(c)}</b></div><div>ROAS<b>${a.sl ? fmt2(a.roas) : "—"}</b></div><div>الأوردرات<b>${fmt(a.o)}</b></div><div>CPP<b>${a.cpp != null ? fmt2(a.cpp) + " " + cur(c) : "—"}</b></div><div>AOV<b>${a.aov != null ? fmt(a.aov) + " " + cur(c) : "—"}</b></div></div>`;
   else { const bk = agg(dr.filter(r => r.p === "_bk")); h += `<div class="kv"><div>الصرف<b>${fmt(a.s)} ${cur(c)}</b></div><div>التحويلات<b>${fmt(a.conv)}</b></div><div>تكلفة التحويل<b>${a.cpl != null ? fmt2(a.cpl) + " " + cur(c) : "—"}</b></div><div>ليدز / رسائل / مكالمات<b>${fmt(a.ld)} / ${fmt(a.ms)} / ${fmt(a.ca)}</b></div>${bk.bk ? `<div>حجوزات فعلية<b>${fmt(bk.bk)}</b></div>` : ""}</div>`; }
-  if (adv) h += `<div class="advice"><span>💡</span><div>${adv.html}</div></div>`;
+  if (adv) h += adviceBox(c, [{ label:"اليوم ده", adv }]);
   h += `<div class="small muted" style="margin:14px 0 8px">المنصات في اليوم ده</div>` + platformCards(c, dr);
   if (c.type !== "store") { const D = deptsInUse(c, ad); if (D.length) { const DS = D.map(dp => ({ name:dp, color:"var(--accent)", ...agg(ad.filter(r => r.dep === dp)) })).filter(x => x.s > 0 || x.conv > 0); if (DS.length) h += `<div class="small muted" style="margin-top:14px">حسب القسم</div>` + bars(DS.sort((x,y) => y.s - x.s), a.s, c, x => ` · <b>${fmt(x.conv)}</b> تحويل · CPA <b>${x.cpl != null ? fmt2(x.cpl) : "—"}</b>`); } }
   return h + `</div>`;
 }
 function weekAdvice(c){
   if (!M[c.id]) return ""; const t = todayK(), rows = M[c.id].filter(r => r.d >= addDaysK(t,-7) && r.d <= addDaysK(t,-1));
-  const adv = platformAdvice(c, rows, "آخر 7 أيام"), y = bestYesterday(c);
-  if (!adv && !y) return "";
-  return `<div class="advice big"><span>💡</span><div>${y ? `<div><span class="muted small">امبارح:</span> ${y.html}</div>` : ""}${adv ? `<div style="margin-top:${y ? 6 : 0}px"><span class="muted small">آخر 7 أيام:</span> ${adv.html}</div>` : ""}</div></div>`;
+  return adviceBox(c, [{ label:"امبارح", adv: bestYesterday(c) }, { label:"آخر 7 أيام", adv: platformAdvice(c, rows, "آخر 7 أيام") }]);
 }
 
 /* ================= Team results on client dashboard ================= */
@@ -1328,13 +1354,12 @@ function clientBody(c, ym, see, mp){
   const nav = `<nav class="cnav">${R.length ? `<div class="cnav-l">Results</div>${R.map(item).join("")}` : ""}<div class="cnav-l">Client</div>${O.map(item).join("")}</nav>`;
   return `<div class="cvw">${nav}<div class="cvbody">${clientPanel(c, ym, v, see, mp)}</div></div>`;
 }
-function monthNav(c, ym){ return `<div class="row" style="margin:0 0 12px"><div class="monthnav"><button class="btn sm" onclick="ui.month=ymAdd(ui.month,1);ui.selDay=null;saveUi();render()" aria-label="الشهر اللي بعده">›</button><div class="m">${monthLabel(ym)}</div><button class="btn sm" onclick="ui.month=ymAdd(ui.month,-1);ui.selDay=null;saveUi();render()" aria-label="الشهر اللي قبله">‹</button></div><span class="spacer"></span><button class="btn xs" onclick="loadMetrics('${c.id}',true)">↻ تحديث</button></div>`; }
+function pickDay(v){ if (!v) return; ui.month = v.slice(0,7); ui.selDay = v; saveUi(); render(); setTimeout(() => { const d = document.querySelector(".det"); if (d) d.scrollIntoView({ behavior:"smooth", block:"start" }); }, 60); }
+function monthNav(c, ym){ return `<div class="row" style="margin:0 0 12px"><label class="daypick-btn" title="اختار يوم">📅 ${ui.selDay && ui.selDay.startsWith(ym) ? fmtDate(fromKey(ui.selDay)) : "اختار يوم"}<input type="date" value="${ui.selDay || ""}" max="${todayK()}" onclick="try{this.showPicker()}catch(e){}" onchange="pickDay(this.value)"></label><div class="monthnav"><button class="btn sm" onclick="ui.month=ymAdd(ui.month,1);ui.selDay=null;saveUi();render()" aria-label="الشهر اللي بعده">›</button><div class="m">${monthLabel(ym)}</div><button class="btn sm" onclick="ui.month=ymAdd(ui.month,-1);ui.selDay=null;saveUi();render()" aria-label="الشهر اللي قبله">‹</button></div><span class="spacer"></span><button class="btn xs" onclick="loadMetrics('${c.id}',true)">↻ تحديث</button></div>`; }
 function sliceAdvice(c, sl){
   if (!M[c.id] || sl.platforms.length < 2) return "";
   const t = todayK(), r7 = sliceRows(M[c.id].filter(r => r.d >= addDaysK(t,-7) && r.d <= addDaysK(t,-1)), sl), ry = sliceRows(M[c.id].filter(r => r.d === addDaysK(t,-1)), sl);
-  const a = platformAdvice(c, r7, "آخر 7 أيام"), y = platformAdvice(c, ry, "امبارح");
-  if (!a && !y) return "";
-  return `<div class="advice big"><span>💡</span><div>${y ? `<div><span class="muted small">امبارح:</span> ${y.html}</div>` : ""}${a ? `<div style="margin-top:${y ? 6 : 0}px"><span class="muted small">آخر 7 أيام:</span> ${a.html}</div>` : ""}</div></div>`;
+  return adviceBox(c, [{ label:"امبارح", adv: platformAdvice(c, ry, "امبارح") }, { label:"آخر 7 أيام", adv: platformAdvice(c, r7, "آخر 7 أيام") }]);
 }
 function clientPanel(c, ym, v, see, mp){
   const head = (t, sub, av) => `<div class="cv-head">${av ? avatar(av, 30) : ""}<div><h2>${t}</h2>${sub ? `<div class="ph-sub">${sub}</div>` : ""}</div></div>`;

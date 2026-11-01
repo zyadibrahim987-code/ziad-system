@@ -415,6 +415,32 @@ nav.tabs button.active .nb{background:var(--on-accent);color:var(--accent)}
 .up-d{width:92px;flex:none;color:var(--muted);font-size:12.5px}
 .up-t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 @media (max-width:600px){.mt{flex-direction:column;align-items:stretch}.mt-act .btn{width:100%}}
+
+/* ===== advice box (severity colored) ===== */
+.adv-box{border-radius:var(--radius);border:1px solid var(--line);background:var(--card);margin:0 0 14px;overflow:hidden}
+.det .adv-box{margin:12px 0 0}
+.adv-row{display:grid;grid-template-columns:110px 1fr;gap:12px;padding:12px 14px;border-inline-start:4px solid var(--line)}
+.adv-row+.adv-row{border-top:1px solid var(--line)}
+.adv-row.lv-good{border-inline-start-color:var(--ok);background:color-mix(in srgb,var(--ok-cell) 55%,transparent)}
+.adv-row.lv-warn{border-inline-start-color:var(--warn);background:color-mix(in srgb,var(--amb-cell) 60%,transparent)}
+.adv-row.lv-bad{border-inline-start-color:var(--danger);background:color-mix(in srgb,var(--bad-cell) 65%,transparent)}
+.adv-when{display:flex;align-items:center;gap:7px;font-size:13px;font-weight:600;color:var(--muted)}
+.adv-dot{width:9px;height:9px;border-radius:50%;flex:none;background:var(--ok)}
+.lv-warn .adv-dot{background:var(--warn)} .lv-bad .adv-dot{background:var(--danger)}
+.adv-body{display:flex;flex-direction:column;gap:6px;min-width:0}
+.adv-line{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:14px}
+.adv-k{font-size:11.5px;font-weight:600;padding:2px 8px;border-radius:999px;flex:none}
+.adv-k.ok{background:var(--ok-cell);color:var(--ok-ink)} .adv-k.warn{background:var(--amb-cell);color:var(--amb-ink)} .adv-k.bad{background:var(--bad-cell);color:var(--bad-ink)}
+.adv-p{display:inline-flex;align-items:center;gap:5px;font-weight:600}
+.adv-p .pb{width:18px;height:18px;font-size:10px}
+.adv-v{color:var(--muted)} .adv-v b{color:var(--ink)}
+.adv-tip{font-size:13px;color:var(--ink);opacity:.85}
+.adv-tip.bad{color:var(--bad-ink);opacity:1;font-weight:600}
+@media (max-width:600px){.adv-row{grid-template-columns:1fr;gap:6px}}
+/* day picker */
+.daypick-btn{position:relative;display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--card);border-radius:var(--radius-lg);padding:5px 12px;font-size:13px;cursor:pointer;font-weight:500}
+.daypick-btn:hover{border-color:var(--accent);background:var(--accent-soft)}
+.daypick-btn input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
 </style>
 </head>
 <body>
@@ -422,7 +448,7 @@ nav.tabs button.active .nb{background:var(--on-accent);color:var(--accent)}
 <div class="modal-bg" id="modalBg" onmousedown="if(event.target.id==='modalBg')closeModal()"><div class="modal" id="modal"></div></div>
 <div class="toast" id="toast"></div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script>window.__APP_VERSION="20261101221318"</script>
-<script src="app.js?v=20261101221318"></script>
+<script>window.__APP_VERSION="20261101221654"</script>
+<script src="app.js?v=20261101221654"></script>
 </body>
 </html>
