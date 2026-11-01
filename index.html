@@ -299,6 +299,13 @@ nav.tabs button.active .nb{background:var(--on-accent);color:var(--accent)}
 .ptog{border:1px solid var(--line);background:transparent;border-radius:var(--radius);padding:3px;cursor:pointer;opacity:.35;filter:grayscale(1);line-height:0}
 .ptog.on{opacity:1;filter:none;border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
 .perm-card .perm:first-of-type{border-top:0}
+
+.flink{display:grid;grid-template-columns:28px minmax(140px,1fr) minmax(200px,1.6fr) auto auto;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line)}
+.flink .fl-who{grid-column:2 / -1;margin-top:-4px}
+.flink.fl-new{border-bottom:0;grid-template-columns:28px minmax(140px,1fr) minmax(200px,1.6fr) auto}
+.flink .inp{padding:6px 10px;font-size:14px}
+.fl-ic{font-size:18px;text-align:center}
+@media (max-width:700px){.flink,.flink.fl-new{grid-template-columns:28px 1fr auto}.flink .fl-url{grid-column:2 / -1}}
 </style>
 </head>
 <body>
@@ -306,7 +313,7 @@ nav.tabs button.active .nb{background:var(--on-accent);color:var(--accent)}
 <div class="modal-bg" id="modalBg" onmousedown="if(event.target.id==='modalBg')closeModal()"><div class="modal" id="modal"></div></div>
 <div class="toast" id="toast"></div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script>window.__APP_VERSION="20261101203124"</script>
-<script src="app.js?v=20261101203124"></script>
+<script>window.__APP_VERSION="20261101203451"</script>
+<script src="app.js?v=20261101203451"></script>
 </body>
 </html>

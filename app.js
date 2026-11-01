@@ -1120,12 +1120,35 @@ function filesBlock(c){
   if (!canFiles(c.id)) return "";
   if (!(c.id in FILES)) { FILES[c.id] = null; loadFiles(c.id); }
   const L = FILES[c.id];
-  let h = `<div class="section-title"><h3>ملفات العميل${L && L.length ? ` (${L.length})` : ""}</h3><span class="tiny muted">${isAdmin() ? "اللي بترفعه هنا بيظهر لأي حد في الفريق مسموحله بالملفات على العميل ده" : "الملفات اللي زياد والفريق رفعوها على العميل ده"}</span><span class="spacer"></span>
-    <label class="btn xs primary" style="cursor:pointer">⬆️ ارفع ملفات<input type="file" multiple hidden onchange="uploadFiles('${c.id}', this)"></label></div>`;
+  let h = `<div class="section-title"><h3>ملفات العميل${L && L.length ? ` (${L.length})` : ""}</h3><span class="tiny muted">لينكات درايف واسم كل ملف. أي حد على العميل يقدر يضيف ويعدّل، والتعديل بيتحفظ لوحده.</span></div>`;
   if (L === null) return h + `<div class="card empty">بيحمّل…</div>`;
-  if (!L.length) return h + `<div class="card small muted">مفيش ملفات لسه. ارفع اللوجو، الصور، الفيديوهات، البريف، أو أي حاجة تخص العميل.</div>`;
-  return h + `<div class="card" style="padding:4px 16px">${L.map(f => `<div class="trow"><span style="font-size:20px">${fileIcon(f.name)}</span><div style="flex:1;min-width:0"><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><b>${esc(f.name)}</b></div><div class="tiny muted">${avatar(f.uploaded_by, 16)} ${esc(personName(f.uploaded_by))} · ${fmtDate(new Date(f.created_at))}${f.size ? " · " + fsize(f.size) : ""}</div></div>
-    <button class="btn xs" onclick="openFile('${f.id}')">⬇️ تحميل</button>${isAdmin() || f.uploaded_by === me.id ? `<button class="btn xs ghost" onclick="delFile('${f.id}')" aria-label="امسح">🗑</button>` : ""}</div>`).join("")}</div>`;
+  const row = f => `<div class="flink">
+      <span class="fl-ic">${f.url ? "🔗" : fileIcon(f.name)}</span>
+      <input class="inp fl-name" value="${esc(f.name)}" placeholder="اسم الملف (مثلاً: لوجو المتجر)" onchange="editFile('${f.id}','name',this)">
+      ${f.url != null || !f.path ? `<input class="inp fl-url" dir="ltr" value="${esc(f.url || "")}" placeholder="https://drive.google.com/..." onchange="editFile('${f.id}','url',this)">` : `<span class="fl-url tiny muted">ملف مرفوع</span>`}
+      ${f.url ? `<a class="btn xs" href="${esc(normUrl(f.url))}" target="_blank" rel="noopener">افتح ↗</a>` : f.path ? `<button class="btn xs" onclick="openFile('${f.id}')">⬇️ تحميل</button>` : ""}
+      ${isAdmin() || f.uploaded_by === me.id ? `<button class="btn xs ghost" onclick="delFile('${f.id}')" aria-label="امسح">🗑</button>` : `<span style="width:30px"></span>`}
+      <span class="fl-who tiny muted">${avatar(f.updated_by || f.uploaded_by, 16)} ${esc(personName(f.updated_by || f.uploaded_by))}${(f.updated_at || f.created_at) ? " · " + fmtDate(new Date(f.updated_at || f.created_at)) : ""}${f.updated_by ? " (آخر تعديل)" : ""}</span>
+    </div>`;
+  return h + `<div class="card" style="padding:10px 16px">${L.map(row).join("") || `<div class="small muted" style="padding:4px 0 10px">مفيش ملفات لسه. حط لينك الدرايف واسمه تحت.</div>`}
+    <div class="flink fl-new"><span class="fl-ic">➕</span>
+      <input class="inp fl-name" id="nfName_${c.id}" placeholder="اسم الملف (مثلاً: صور المنتجات)">
+      <input class="inp fl-url" id="nfUrl_${c.id}" dir="ltr" placeholder="حط لينك الدرايف هنا" onkeydown="if(event.key==='Enter')addFileLink('${c.id}')">
+      <button class="btn xs primary" onclick="addFileLink('${c.id}')">ضيف</button></div></div>`;
+}
+async function addFileLink(cid){
+  const n = $("#nfName_" + cid), u = $("#nfUrl_" + cid), url = u.value.trim(); let name = n.value.trim();
+  if (!url) { u.focus(); return toast("حط اللينك الأول"); }
+  if (!name) name = /drive\.google|docs\.google/.test(url) ? "ملف درايف" : "لينك";
+  try { await q(sb.from("client_files").insert({ client_id:cid, name, url, uploaded_by:me.id }), "addlink"); toast("اتضاف ✓"); loadFiles(cid); }
+  catch(e){ toast("ماتضافش: " + (e.message || e)); }
+}
+async function editFile(id, field, el){
+  const f = Object.values(FILES).flat().find(x => x && x.id === id); if (!f) return;
+  const v = el.value.trim(); if (field === "name" && !v) { el.value = f.name; return; }
+  const patch = { [field]: v, updated_by: me.id, updated_at: new Date().toISOString() };
+  try { await q(sb.from("client_files").update(patch).eq("id", id), "editfile"); Object.assign(f, patch); toast("اتحفظ ✓"); render(); }
+  catch(e){ el.value = f[field] || ""; toast("ماتحفظش: " + (e.message || e)); }
 }
 async function uploadFiles(cid, input){
   const fs = [...(input.files || [])]; if (!fs.length) return;
