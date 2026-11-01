@@ -312,6 +312,7 @@ const isAdmin = () => me && me.role === "admin";
 const clientById = id => clients.find(c => c.id === id);
 const profileById = id => profiles.find(p => p.id === id);
 const myMembership = cid => members.find(m => m.client_id === cid && m.user_id === me.id);
+const canFiles = cid => isAdmin() || !!(myMembership(cid) || {}).see_files;
 const canSeeNumbers = cid => isAdmin() || !!(myMembership(cid) || {}).see_numbers;
 const myPlatforms = c => isAdmin() ? plats(c).map(p => p.name) : ((myMembership(c.id) || {}).platforms || []);
 function plats(c){ return (c.platforms||[]).map(p => typeof p === "string" ? { name:p, cur:c.currency||"SAR" } : p); }
@@ -612,21 +613,21 @@ async function doSetPass(pid){ const p = profileById(pid), pass = $("#spPass").v
 let MF = {};
 function openMember(pid){
   const p = profileById(pid); if (!p) return;
-  MF = { pid, rows: clients.map(c => { const m = members.find(x => x.client_id === c.id && x.user_id === pid); return { cid:c.id, on:!!m, platforms: m ? m.platforms.slice() : [], see: m ? m.see_numbers : false }; }) };
+  MF = { pid, rows: clients.map(c => { const m = members.find(x => x.client_id === c.id && x.user_id === pid); return { cid:c.id, on:!!m, platforms: m ? m.platforms.slice() : [], see: m ? m.see_numbers : false, files: m ? !!m.see_files : false }; }) };
   openModal(`<div class="row">${avatar(pid, 36)}<h2 style="margin:0">${esc(p.name || p.email)}</h2><span class="spacer"></span><span class="tiny muted" dir="ltr">يوزر: ${esc(p.email || "")}</span></div>
     <div class="two"><div><label class="f">الاسم</label><input class="inp" id="mfName" value="${esc(p.name || "")}"></div><div><label class="f">الشغلانة</label><select class="inp" id="mfJob">${JOBS.map(j => `<option ${p.job === j ? "selected" : ""}>${j}</option>`).join("")}</select></div></div>
     <label class="check"><input type="checkbox" id="mfActive" ${p.active ? "checked" : ""}> شغال (لو شلت العلامة مش هيقدر يشوف أي حاجة)</label>
-    <div class="section"><h3>العملاء اللي شغال عليهم</h3><p class="tiny muted" style="margin:4px 0 8px">المنصات: اللي يقدر يسجّل أرقامها (للـ Media Buyer). "يشوف الأرقام": يشوف داشبورد العميل كله.</p>
+    <div class="section"><h3>العملاء اللي شغال عليهم</h3><p class="tiny muted" style="margin:4px 0 8px">المنصات: اللي يقدر يسجّل أرقامها (للـ Media Buyer). "يشوف الأرقام": يشوف نتايج العميل كلها (المبيعات والتوتال وكل المنصات) تحت نتايجه. "الملفات": يشوف لينكات وملفات العميل ويرفع ملفات.</p>
     ${clients.map((c, i) => `<div class="mrow"><label class="check" style="margin:0;min-width:150px"><input type="checkbox" ${MF.rows[i].on ? "checked" : ""} onchange="MF.rows[${i}].on=this.checked;this.closest('.mrow').classList.toggle('off',!this.checked)"> <b>${esc(c.name)}</b></label>
       <div class="mrow-opts">${plats(c).map(pp => `<label class="pchk"><input type="checkbox" ${MF.rows[i].platforms.includes(pp.name) ? "checked" : ""} onchange="MF.rows[${i}].platforms=this.checked?[...MF.rows[${i}].platforms,'${jsq(pp.name)}']:MF.rows[${i}].platforms.filter(x=>x!=='${jsq(pp.name)}')">${badge(pp.name)}</label>`).join("")}
-      <label class="check" style="margin:0"><input type="checkbox" ${MF.rows[i].see ? "checked" : ""} onchange="MF.rows[${i}].see=this.checked"> يشوف الأرقام</label></div></div>`).join("") || `<div class="small muted">مفيش عملاء لسه.</div>`}</div>
+      <label class="check" style="margin:0"><input type="checkbox" ${MF.rows[i].see ? "checked" : ""} onchange="MF.rows[${i}].see=this.checked"> يشوف الأرقام</label><label class="check" style="margin:0"><input type="checkbox" ${MF.rows[i].files ? "checked" : ""} onchange="MF.rows[${i}].files=this.checked"> الملفات</label></div></div>`).join("") || `<div class="small muted">مفيش عملاء لسه.</div>`}</div>
     <div class="actions"><button class="btn danger sm" onclick="removeMember('${pid}')">شيله من الفريق</button><button class="btn sm" onclick="openSetPass('${pid}')">🔑 غيّر الباسورد</button><span class="spacer"></span><button class="btn" onclick="closeModal()">إلغاء</button><button class="btn primary" onclick="saveMember()">حفظ</button></div>`, true);
   document.querySelectorAll(".mrow").forEach((el, i) => el.classList.toggle("off", !MF.rows[i].on));
 }
 async function saveMember(){
   try {
     await q(sb.from("profiles").update({ name: $("#mfName").value.trim(), job: $("#mfJob").value, active: $("#mfActive").checked }).eq("id", MF.pid), "member");
-    const keep = MF.rows.filter(r => r.on).map(r => ({ client_id:r.cid, user_id:MF.pid, platforms:r.platforms, see_numbers:r.see }));
+    const keep = MF.rows.filter(r => r.on).map(r => ({ client_id:r.cid, user_id:MF.pid, platforms:r.platforms, see_numbers:r.see, see_files:r.files }));
     const drop = MF.rows.filter(r => !r.on).map(r => r.cid);
     if (drop.length) await q(sb.from("client_members").delete().eq("user_id", MF.pid).in("client_id", drop), "drop");
     if (keep.length) await q(sb.from("client_members").upsert(keep), "keep");
@@ -661,14 +662,9 @@ function viewClient(){
     ${(isAdmin() || mp.length) ? `<button class="btn sm primary" onclick="openEntry('${c.id}','${addDaysK(tk,-1)}')">✍️ سجّل أرقام</button>` : ""}
     ${isAdmin() ? `<button class="btn sm" onclick="openDataReceived('${c.id}')">📥 العميل بعت داتا</button><button class="btn sm" onclick="openSettings('${c.id}')">⚙️ الإعدادات</button>` : ""}</div>
   <div class="row" style="gap:6px;margin-bottom:10px">${plats(c).map(p => `<span class="chip grey pname" style="padding:3px 10px 3px 6px">${badge(p.name)} ${esc(p.name)}${p.cur !== c.currency ? ` <span class="tiny">(${p.cur})</span>` : ""}</span>`).join("")}${(c.depts||[]).length ? `<span class="tiny muted" style="margin-right:6px">الأقسام: ${c.depts.map(esc).join("، ")}</span>` : ""}</div>
-  ${(c.links||[]).length ? `<div class="links" style="margin-bottom:10px">${linksHtml(c)}</div>` : ""}
+  ${(c.links||[]).length && canFiles(c.id) ? `<div class="links" style="margin-bottom:10px">${linksHtml(c)}</div>` : ""}
   ${isAdmin() ? `<div class="row small muted" style="gap:6px;margin-bottom:10px">الفريق على العميل ده: ${members.filter(m => m.client_id === c.id).map(m => `${avatar(m.user_id, 22)} ${esc(personName(m.user_id))}${m.platforms.length ? ` (${m.platforms.map(esc).join("، ")})` : ""}`).join(" · ") || "انت بس"} <button class="btn xs ghost" onclick="go('team')">تعديل</button></div>` : ""}`;
-  if (!see) {
-    h += `<div class="card"><h3>${mp.length ? "الأرقام اللي بتسجّلها" : "العميل ده"}</h3><p class="small muted">${mp.length ? `بتسجّل أرقام ${mp.map(esc).join(" و ")} كل يوم من زرار "سجّل أرقام".${me.job === "Media Buyer" ? "" : " زياد بيراجعها."}` : "انت شغال على التاسكات بتاعة العميل ده بس."}</p></div>`;
-    const myT = tasks.filter(t => t.clientId === c.id && t.assigneeId === me.id);
-    h += `<div class="section-title"><h3>تاسكاتك على العميل ده (${myT.length})</h3></div><div class="card">${myT.map(t => `<div class="task"><div class="t"><div class="title">${esc(t.title)}</div><div class="meta">${esc(repeatText(t))}</div></div></div>`).join("") || `<div class="small muted">مفيش.</div>`}</div>`;
-    return h;
-  }
+  if (!isAdmin()) return h + memberClientView(c, ym, see, mp);
   h += clientAlerts(c).map(x => `<div class="alert">⚠️ ${x}</div>`).join("");
   h += `<div class="row" style="margin:6px 0 12px"><div class="monthnav"><button class="btn sm" onclick="ui.month=ymAdd(ui.month,1);ui.selDay=null;saveUi();render()" aria-label="الشهر اللي بعده">›</button><div class="m">${monthLabel(ym)}</div><button class="btn sm" onclick="ui.month=ymAdd(ui.month,-1);ui.selDay=null;saveUi();render()" aria-label="الشهر اللي قبله">‹</button></div><span class="spacer"></span><button class="btn xs" onclick="loadMetrics('${c.id}',true)">↻ تحديث</button></div>`;
   if (!M[c.id]) return h + `<div class="card empty">بيحمّل الأرقام…</div>`;
@@ -679,6 +675,7 @@ function viewClient(){
   if (TS.length) h += teamBlock(c, ym, rows, prev);
   if (pfSel) h += personDash(c, ym, rows, prev, pfSel);
   else h += c.type === "store" ? storeDash2(c, ym, rows, a, agg(prev)) : leadsDash2(c, ym, rows, agg(adRows(rows)), agg(adRows(prev)));
+  h += filesBlock(c);
   if (isAdmin()) { const ct = tasks.filter(t => t.clientId === c.id);
     h += `<div class="section-title"><h3>كل مهام العميل (${ct.length})</h3><span class="spacer"></span><button class="btn xs primary" onclick="openTask(null,{clientId:'${c.id}'})">+ مهمة</button></div><div class="card">${ct.map(t => `<div class="task"><div class="t"><div class="title">${esc(t.title)} ${t.paused ? `<span class="chip grey">متوقفة</span>` : ""}</div><div class="meta">${t.assigneeId && t.assigneeId !== me.id ? `${avatar(t.assigneeId, 16)} ${esc(personName(t.assigneeId))} · ` : "انت · "}${esc(repeatText(t))}${t.needsReview ? " · محتاجة مراجعة" : ""}</div></div><button class="btn ghost sm" onclick="openTask('${t.id}')">تعديل</button></div>`).join("") || `<div class="small muted">مفيش مهام.</div>`}</div>`; }
   if (c.notes && isAdmin()) h += `<div class="section-title"><h3>ملاحظات</h3></div><div class="card small" style="white-space:pre-wrap">${esc(c.notes)}</div>`;
@@ -1038,20 +1035,92 @@ function teamBlock(c, ym, rows, prev){
   return h;
 }
 function setPf(cid, pid){ ui.pf = ui.pf || {}; if (pid) ui.pf[cid] = pid; else delete ui.pf[cid]; ui.selDay = null; saveUi(); render(); }
-function personDash(c, ym, rows, prev, sl){
+function personDash(c, ym, rows, prev, sl, opt){
+  opt = opt || {};
   const R = sliceRows(rows, sl), PR = sliceRows(prev, sl), x = agg(R), px = agg(PR), store = c.type === "store", cu = cur(c);
   const total = agg(adRows(rows)).s, res = store ? x.po : x.conv, pres = store ? px.po : px.conv, cost = res ? x.s/res : null, pcost = pres ? px.s/pres : null;
-  let h = `<div class="advice" style="margin-top:14px"><span>${avatar(sl.id, 24)}</span><div>بتشوف نتايج <b>${esc(sl.self ? "منصاتك انت" : sl.name)}</b> بس: ${sl.platforms.map(esc).join("، ")}. ${store ? "المبيعات والـ ROAS بتاعة المتجر مش بتتقسم على المنصات، فهتلاقيها في «الكل»." : "الحجوزات وشيت الليدز في «الكل»."} <button class="btn xs" onclick="setPf('${c.id}','')">ارجع للكل</button></div></div>
-  <div class="stats">
-    <div class="stat"><div class="l">الصرف · ${total ? fmt(x.s/total*100) : 0}% من صرف العميل</div><div class="n">${fmt(x.s)} <span class="small muted">${cu}</span></div>${deltaHtml(x.s, px.s, true)}</div>
+  let h = opt.member ? `<div class="section-title" style="margin-top:4px"><h3>${avatar(me.id, 24)} نتايجك</h3><span class="tiny muted">${sl.platforms.map(esc).join("، ")} · الشهر ده${store ? " · المبيعات مش بتتقسم على المنصات" : ""}</span></div><div class="stats">` : `<div class="advice" style="margin-top:14px"><span>${avatar(sl.id, 24)}</span><div>بتشوف نتايج <b>${esc(sl.self ? "منصاتك انت" : sl.name)}</b> بس: ${sl.platforms.map(esc).join("، ")}. ${store ? "المبيعات والـ ROAS بتاعة المتجر مش بتتقسم على المنصات، فهتلاقيها في «الكل»." : "الحجوزات وشيت الليدز في «الكل»."} <button class="btn xs" onclick="setPf('${c.id}','')">ارجع للكل</button></div></div>
+  <div class="stats">`; h += `
+    <div class="stat"><div class="l">الصرف${opt.member && !opt.see ? "" : ` · ${total ? fmt(x.s/total*100) : 0}% من صرف العميل`}</div><div class="n">${fmt(x.s)} <span class="small muted">${cu}</span></div>${deltaHtml(x.s, px.s, true)}</div>
     <div class="stat"><div class="l">${store ? "الأوردرات (حسب المنصات)" : `التحويلات · ليدز ${fmt(x.ld)} · رسائل ${fmt(x.ms)} · مكالمات ${fmt(x.ca)}`}</div><div class="n">${fmt(res)}</div>${deltaHtml(res, pres, true)}</div>
-    <div class="stat"><div class="l">${store ? "CPP" : "تكلفة التحويل"}</div><div class="n">${cost != null ? `<span class="hl">${fmt2(cost)}</span>` : "—"} <span class="small muted">${cu}</span></div>${deltaHtml(cost, pcost, false)}</div></div>`;
-  h += `<div class="section-title" style="margin-bottom:8px"><h3>منصاته في الشهر</h3></div>` + (window.__noOwner = true, platformCards(c, R)); window.__noOwner = false;
+    <div class="stat"><div class="l">${store ? "CPP" : "تكلفة التحويل"}</div><div class="n">${cost != null ? (opt.member && opt.see ? fmt2(cost) : `<span class="hl">${fmt2(cost)}</span>`) : "—"} <span class="small muted">${cu}</span></div>${deltaHtml(cost, pcost, false)}</div></div>`;
+  h += `<div class="section-title" style="margin-bottom:8px"><h3>${opt.member ? "منصاتك" : "منصاته"} في الشهر</h3></div>` + (window.__noOwner = true, platformCards(c, R)); window.__noOwner = false;
   const key = store ? "metricS" : "metricL", keep = ui[key];
   if (store && (!ui[key] || ui[key] === "roas" || ui[key] === "sl")) ui[key] = "cpp";
-  h += calendar(c, ym, R); ui[key] = keep;
+  if (!opt.noCal) h += calendar(c, ym, R); ui[key] = keep;
   return h;
 }
+
+
+/* ================= Member client view ================= */
+function memberClientView(c, ym, see, mp){
+  const myT = tasks.filter(t => t.clientId === c.id && t.assigneeId === me.id);
+  const tasksHtml = `<div class="section-title"><h3>تاسكاتك على العميل ده (${myT.length})</h3></div><div class="card">${myT.map(t => `<div class="task"><div class="t"><div class="title">${esc(t.title)}</div><div class="meta">${esc(repeatText(t))}</div></div></div>`).join("") || `<div class="small muted">مفيش.</div>`}</div>`;
+  if (!see && !mp.length) return filesBlock(c) + tasksHtml;
+  let h = `<div class="row" style="margin:6px 0 12px"><div class="monthnav"><button class="btn sm" onclick="ui.month=ymAdd(ui.month,1);ui.selDay=null;saveUi();render()" aria-label="الشهر اللي بعده">›</button><div class="m">${monthLabel(ym)}</div><button class="btn sm" onclick="ui.month=ymAdd(ui.month,-1);ui.selDay=null;saveUi();render()" aria-label="الشهر اللي قبله">‹</button></div><span class="spacer"></span><button class="btn xs" onclick="loadMetrics('${c.id}',true)">↻ تحديث</button></div>`;
+  if (!M[c.id]) return h + `<div class="card empty">بيحمّل الأرقام…</div>`;
+  const rows = monthRows(c.id, ym), prev = monthRows(c.id, ymAdd(ym,-1));
+  if (!ui.selDay || !ui.selDay.startsWith(ym)) { const dd = rows.map(r => r.d).sort(); ui.selDay = dd.length ? dd[dd.length-1] : null; }
+  if (mp.length) {
+    const sl = { id:me.id, name:me.name || "انت", platforms:mp };
+    if (!sliceRows(rows, sl).length) h += `<div class="section-title" style="margin-top:4px"><h3>${avatar(me.id, 24)} نتايجك</h3></div><div class="card small muted">لسه مفيش أرقام لـ ${mp.map(esc).join(" و ")} في ${monthLabel(ym)}. سجّلها من زرار "سجّل أرقام" فوق.</div>`;
+    else h += personDash(c, ym, rows, prev, sl, { member:true, see, noCal:see });
+  }
+  if (see) {
+    const adm = profiles.find(p => p.role === "admin");
+    h += `<div class="section-title" style="margin-top:26px;padding-top:18px;border-top:1px solid var(--line)"><h3>${adm ? avatar(adm.id, 24) : ""} نتايج العميل كلها</h3><span class="tiny muted">من داشبورد ${esc(adm ? (adm.name || "زياد") : "زياد")}: كل المنصات والمبيعات والتوتال</span></div>`;
+    const a = agg(rows);
+    let full = c.type === "store" ? storeDash2(c, ym, rows, a, agg(prev)) : leadsDash2(c, ym, rows, agg(adRows(rows)), agg(adRows(prev)));
+    if (mp.length) full = full.replace('<span class="hl">', '<span>');
+    full = full.replace(/<button class="btn xs ghost" style="padding:0 4px" onclick="openSalesTarget\([^)]*\)">[^<]*<\/button>/g, "");
+    h += full;
+  }
+  return h + filesBlock(c) + tasksHtml;
+}
+
+/* ================= Client files ================= */
+const FILES = {};
+async function loadFiles(cid){ try { FILES[cid] = await q(sb.from("client_files").select("*").eq("client_id", cid).order("created_at", { ascending:false }), "files"); } catch(e){ FILES[cid] = []; } render(); }
+const fileIcon = n => { const e = String(n).split(".").pop().toLowerCase(); return /^(png|jpe?g|gif|webp|svg|heic)$/.test(e) ? "🖼️" : /^(mp4|mov|avi|webm|mkv)$/.test(e) ? "🎬" : e === "pdf" ? "📕" : /^(xlsx?|csv)$/.test(e) ? "📊" : /^(docx?|txt)$/.test(e) ? "📄" : /^(pptx?|key)$/.test(e) ? "📽️" : /^(zip|rar|7z)$/.test(e) ? "🗜️" : "📎"; };
+const fsize = b => !b ? "" : b > 1048576 ? fmt(b/1048576, 1) + " MB" : fmt(Math.max(1, b/1024)) + " KB";
+function filesBlock(c){
+  if (!canFiles(c.id)) return "";
+  if (!(c.id in FILES)) { FILES[c.id] = null; loadFiles(c.id); }
+  const L = FILES[c.id];
+  let h = `<div class="section-title"><h3>ملفات العميل${L && L.length ? ` (${L.length})` : ""}</h3><span class="tiny muted">${isAdmin() ? "اللي بترفعه هنا بيظهر لأي حد في الفريق مسموحله بالملفات على العميل ده" : "الملفات اللي زياد والفريق رفعوها على العميل ده"}</span><span class="spacer"></span>
+    <label class="btn xs primary" style="cursor:pointer">⬆️ ارفع ملفات<input type="file" multiple hidden onchange="uploadFiles('${c.id}', this)"></label></div>`;
+  if (L === null) return h + `<div class="card empty">بيحمّل…</div>`;
+  if (!L.length) return h + `<div class="card small muted">مفيش ملفات لسه. ارفع اللوجو، الصور، الفيديوهات، البريف، أو أي حاجة تخص العميل.</div>`;
+  return h + `<div class="card" style="padding:4px 16px">${L.map(f => `<div class="trow"><span style="font-size:20px">${fileIcon(f.name)}</span><div style="flex:1;min-width:0"><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><b>${esc(f.name)}</b></div><div class="tiny muted">${avatar(f.uploaded_by, 16)} ${esc(personName(f.uploaded_by))} · ${fmtDate(new Date(f.created_at))}${f.size ? " · " + fsize(f.size) : ""}</div></div>
+    <button class="btn xs" onclick="openFile('${f.id}')">⬇️ تحميل</button>${isAdmin() || f.uploaded_by === me.id ? `<button class="btn xs ghost" onclick="delFile('${f.id}')" aria-label="امسح">🗑</button>` : ""}</div>`).join("")}</div>`;
+}
+async function uploadFiles(cid, input){
+  const fs = [...(input.files || [])]; if (!fs.length) return;
+  let ok = 0;
+  for (const f of fs) {
+    toast(`بيرفع ${f.name}…`);
+    const ext = (f.name.includes(".") ? f.name.split(".").pop() : "bin").replace(/[^a-z0-9]/gi, "").slice(0, 8) || "bin";
+    const path = `${cid}/${crypto.randomUUID()}.${ext}`;
+    try {
+      const { error } = await sb.storage.from("client-files").upload(path, f, { contentType: f.type || undefined });
+      if (error) throw error;
+      await q(sb.from("client_files").insert({ client_id:cid, name:f.name, path, size:f.size, uploaded_by:me.id }), "fileins");
+      ok++;
+    } catch(e){ toast(`${f.name} ماترفعش: ${/exceeded|too large|413/i.test(String(e.message)) ? "الملف كبير أوي (الحد 50 ميجا)" : e.message}`); }
+  }
+  input.value = ""; if (ok) toast(`اترفع ${ok} ${ok === 1 ? "ملف" : "ملفات"} ✓`);
+  loadFiles(cid);
+}
+async function openFile(id){
+  const f = Object.values(FILES).flat().find(x => x && x.id === id); if (!f) return;
+  const { data, error } = await sb.storage.from("client-files").createSignedUrl(f.path, 120, { download: f.name });
+  if (error) return toast("مش عارف أفتحه: " + error.message);
+  const a = document.createElement("a"); a.href = data.signedUrl; a.rel = "noopener"; document.body.appendChild(a); a.click(); a.remove();
+}
+function delFile(id){ const f = Object.values(FILES).flat().find(x => x && x.id === id); if (!f) return;
+  openModal(`<h2>تمسح «${esc(f.name)}»؟</h2><p class="small muted">هيتمسح من عند الكل.</p><div class="actions"><span class="spacer"></span><button class="btn" onclick="closeModal()">لا</button><button class="btn primary" style="background:var(--danger);border-color:var(--danger)" onclick="doDelFile('${id}')">امسح</button></div>`); }
+async function doDelFile(id){ const f = Object.values(FILES).flat().find(x => x && x.id === id); if (!f) return;
+  try { await sb.storage.from("client-files").remove([f.path]); await q(sb.from("client_files").delete().eq("id", id), "filedel"); closeModal(); toast("اتمسح"); loadFiles(f.client_id); } catch(e){ toast("ماتمسحش: " + e.message); } }
 
 const APP_SHELL = "<div class=\"wrap\"><header class=\"top\"><span class=\"brand\" aria-label=\"\u0632\u064a\u0627\u062f \u0625\u0628\u0631\u0627\u0647\u064a\u0645\"><svg width=\"28\" height=\"28\" viewBox=\"0 0 48 48\" aria-hidden=\"true\"><rect class=\"zm-ink\" x=\"0\" y=\"28\" width=\"12\" height=\"20\" rx=\"2\"/><rect class=\"zm-brand\" x=\"18\" y=\"16\" width=\"12\" height=\"32\" rx=\"2\"/><rect class=\"zm-signal\" x=\"36\" y=\"0\" width=\"12\" height=\"12\" rx=\"2\"/><rect class=\"zm-brand\" x=\"36\" y=\"15\" width=\"12\" height=\"33\" rx=\"2\"/></svg><span class=\"nm\">\u0632\u064a\u0627\u062f \u0625\u0628\u0631\u0627\u0647\u064a\u0645</span><span class=\"sub\">\u00b7 \u0633\u064a\u0633\u062a\u0645 \u0627\u0644\u0634\u063a\u0644</span></span><nav class=\"tabs\" id=\"tabs\"></nav><span class=\"spacer\"></span><div id=\"who\"></div></header><main id=\"view\"><div class=\"card empty\">\u0628\u064a\u062d\u0645\u0651\u0644\u2026</div></main></div>";
 start();
