@@ -675,7 +675,10 @@ function viewClient(){
   const rows = monthRows(c.id, ym), prev = monthRows(c.id, ymAdd(ym,-1)), a = agg(rows);
   if (!ui.selDay || !ui.selDay.startsWith(ym)) { const dd = rows.map(r => r.d).sort(); ui.selDay = dd.length ? dd[dd.length-1] : null; }
   if (ym === ymOf(addDaysK(todayK(), -1))) h += weekAdvice(c);
-  h += c.type === "store" ? storeDash2(c, ym, rows, a, agg(prev)) : leadsDash2(c, ym, rows, agg(adRows(rows)), agg(adRows(prev)));
+  const TS = isAdmin() ? teamSlices(c) : [], pfSel = TS.find(s => s.id === (ui.pf||{})[c.id]);
+  if (TS.length) h += teamBlock(c, ym, rows, prev);
+  if (pfSel) h += personDash(c, ym, rows, prev, pfSel);
+  else h += c.type === "store" ? storeDash2(c, ym, rows, a, agg(prev)) : leadsDash2(c, ym, rows, agg(adRows(rows)), agg(adRows(prev)));
   if (isAdmin()) { const ct = tasks.filter(t => t.clientId === c.id);
     h += `<div class="section-title"><h3>كل مهام العميل (${ct.length})</h3><span class="spacer"></span><button class="btn xs primary" onclick="openTask(null,{clientId:'${c.id}'})">+ مهمة</button></div><div class="card">${ct.map(t => `<div class="task"><div class="t"><div class="title">${esc(t.title)} ${t.paused ? `<span class="chip grey">متوقفة</span>` : ""}</div><div class="meta">${t.assigneeId && t.assigneeId !== me.id ? `${avatar(t.assigneeId, 16)} ${esc(personName(t.assigneeId))} · ` : "انت · "}${esc(repeatText(t))}${t.needsReview ? " · محتاجة مراجعة" : ""}</div></div><button class="btn ghost sm" onclick="openTask('${t.id}')">تعديل</button></div>`).join("") || `<div class="small muted">مفيش مهام.</div>`}</div>`; }
   if (c.notes && isAdmin()) h += `<div class="section-title"><h3>ملاحظات</h3></div><div class="card small" style="white-space:pre-wrap">${esc(c.notes)}</div>`;
@@ -974,7 +977,7 @@ function platformCards(c, rows){
   const cu = cur(c), order = R.list.slice().sort((a,b) => (a.cost == null) - (b.cost == null) || (a.cost ?? 0) - (b.cost ?? 0) || b.s - a.s);
   return `<div class="pgrid">${order.map(x => { const isB = R.best && x.name === R.best.name && R.ranked.length > 1, isW = R.worst && x.name === R.worst.name;
     return `<div class="pcard${isB ? " best" : ""}${isW ? " worst" : ""}">
-      <div class="pc-top">${badge(x.name)}<b>${esc(x.name)}</b><span class="spacer"></span>${isB ? `<span class="chip ok">🏆 الأرخص</span>` : isW ? `<span class="chip warn">الأغلى</span>` : ""}</div>
+      <div class="pc-top">${badge(x.name)}<b>${esc(x.name)}</b>${isAdmin() && !window.__noOwner && platformOwner(c, x.name) ? `<span class="tiny muted" style="display:inline-flex;align-items:center;gap:4px">· ${avatar(platformOwner(c, x.name), 18)} ${esc(String(personName(platformOwner(c, x.name))).split(" ")[0])}</span>` : ""}<span class="spacer"></span>${isB ? `<span class="chip ok">🏆 الأرخص</span>` : isW ? `<span class="chip warn">الأغلى</span>` : ""}</div>
       <div class="pc-main"><span class="pc-l">${R.unit}</span><span class="pc-v num">${x.cost != null ? fmt2(x.cost) : x.s ? "مفيش " + R.resName : "—"}</span>${x.cost != null ? `<span class="pc-u">${cu}</span>` : ""}</div>
       <div class="pc-kv"><div><span>الصرف</span><b class="num">${fmt(x.s)}</b></div><div><span>${R.resName === "أوردر" ? "أوردرات" : "تحويلات"}</span><b class="num">${fmt(x.res)}</b></div><div><span>من الصرف</span><b class="num">${R.total ? fmt(x.s/R.total*100) : 0}%</b></div></div>
     </div>`; }).join("")}</div>`;
@@ -996,6 +999,58 @@ function weekAdvice(c){
   const adv = platformAdvice(c, rows, "آخر 7 أيام"), y = bestYesterday(c);
   if (!adv && !y) return "";
   return `<div class="advice big"><span>💡</span><div>${y ? `<div><span class="muted small">امبارح:</span> ${y.html}</div>` : ""}${adv ? `<div style="margin-top:${y ? 6 : 0}px"><span class="muted small">آخر 7 أيام:</span> ${adv.html}</div>` : ""}</div></div>`;
+}
+
+/* ================= Team results on client dashboard ================= */
+function platformOwner(c, p){ const m = members.find(m => m.client_id === c.id && (m.platforms||[]).includes(p)); return m ? m.user_id : null; }
+function teamSlices(c){
+  const ms = members.filter(m => m.client_id === c.id && (m.platforms||[]).length);
+  if (!ms.length) return [];
+  const taken = new Set(ms.flatMap(m => m.platforms));
+  const mine = plats(c).map(p => p.name).filter(p => !taken.has(p));
+  const out = ms.map(m => ({ id:m.user_id, name:personName(m.user_id), platforms:m.platforms }));
+  if (mine.length) out.unshift({ id:me.id, name:"انت", platforms:mine, self:true });
+  return out;
+}
+const sliceRows = (rows, sl) => adRows(rows).filter(r => sl.platforms.includes(r.p));
+function teamBlock(c, ym, rows, prev){
+  const S = teamSlices(c); if (!S.length) return "";
+  const store = c.type === "store", cu = cur(c), total = agg(adRows(rows)).s;
+  const L = S.map(sl => { const R = sliceRows(rows, sl), x = agg(R), px = agg(sliceRows(prev, sl));
+    const res = store ? x.po : x.conv, cost = res ? x.s / res : null, pres = store ? px.po : px.conv, pcost = pres ? px.s / pres : null;
+    const byDays = new Set(R.filter(r => r.by === sl.id).map(r => r.d)), last = R.filter(r => r.by === sl.id).map(r => r.d).sort().pop();
+    const pend = R.filter(r => r.reviewed === false).length;
+    return { ...sl, x, res, cost, pcost, byDays:byDays.size, last, pend }; });
+  const ranked = L.filter(l => l.cost != null), best = ranked.length > 1 ? ranked.reduce((a,b) => b.cost < a.cost ? b : a) : null;
+  const unit = store ? "CPP" : "CPA", resName = store ? "أوردر" : "تحويل", sel = (ui.pf||{})[c.id] || "";
+  let h = `<div class="section-title" style="margin-bottom:0"><h3>نتايج الفريق</h3><span class="tiny muted">كل واحد على المنصات اللي ماسكها، الشهر ده</span><span class="spacer"></span>
+    <span class="tiny muted">الداشبورد تعرض:</span><div class="seg"><button class="${!sel?"on":""}" onclick="setPf('${c.id}','')">الكل</button>${S.map(s => `<button class="${sel===s.id?"on":""}" onclick="setPf('${c.id}','${s.id}')">${esc(s.self ? "انت" : String(s.name).split(" ")[0])}</button>`).join("")}</div></div>
+  <div class="pgrid" style="margin-bottom:16px">${L.map(l => { const isB = best && best.id === l.id;
+    const dl = l.cost != null && l.pcost ? (l.cost - l.pcost) / l.pcost * 100 : null;
+    return `<div class="pcard tm${isB ? " best" : ""}${sel === l.id ? " sel" : ""}" onclick="setPf('${c.id}','${sel === l.id ? "" : l.id}')" style="cursor:pointer">
+      <div class="pc-top">${avatar(l.id, 26)}<b>${esc(l.name)}</b><span class="spacer"></span>${isB ? `<span class="chip ok">🏆 أرخص ${unit}</span>` : ""}</div>
+      <div class="tiny muted" style="margin:2px 0 8px">${l.platforms.map(p => `<span class="pname" style="margin-left:8px">${badge(p)} ${esc(p)}</span>`).join("")}</div>
+      <div class="pc-main"><span class="pc-l">${unit}</span><span class="pc-v num">${l.cost != null ? fmt2(l.cost) : l.x.s ? "مفيش " + resName : "—"}</span>${l.cost != null ? `<span class="pc-u">${cu}</span>` : ""}</div>
+      ${dl != null ? `<div class="d ${dl <= 0 ? "up" : "down"}" style="font-size:12px">${dl <= 0 ? "▼" : "▲"} ${fmt(Math.abs(dl))}% عن الشهر اللي فات</div>` : ""}
+      <div class="pc-kv"><div><span>الصرف</span><b class="num">${fmt(l.x.s)}</b></div><div><span>${store ? "أوردرات" : "تحويلات"}</span><b class="num">${fmt(l.res)}</b></div><div><span>من الصرف</span><b class="num">${total ? fmt(l.x.s/total*100) : 0}%</b></div></div>
+      <div class="tiny muted" style="margin-top:8px">${l.self ? "" : l.byDays ? `سجّل ${fmt(l.byDays)} يوم الشهر ده · آخر مرة ${fmtDate(fromKey(l.last))}` : "لسه ماسجّلش أرقام الشهر ده"}${l.pend ? ` · <span style="color:var(--warn)">${l.pend} محتاجة مراجعة</span>` : ""}</div>
+    </div>`; }).join("")}</div>`;
+  return h;
+}
+function setPf(cid, pid){ ui.pf = ui.pf || {}; if (pid) ui.pf[cid] = pid; else delete ui.pf[cid]; ui.selDay = null; saveUi(); render(); }
+function personDash(c, ym, rows, prev, sl){
+  const R = sliceRows(rows, sl), PR = sliceRows(prev, sl), x = agg(R), px = agg(PR), store = c.type === "store", cu = cur(c);
+  const total = agg(adRows(rows)).s, res = store ? x.po : x.conv, pres = store ? px.po : px.conv, cost = res ? x.s/res : null, pcost = pres ? px.s/pres : null;
+  let h = `<div class="advice" style="margin-top:14px"><span>${avatar(sl.id, 24)}</span><div>بتشوف نتايج <b>${esc(sl.self ? "منصاتك انت" : sl.name)}</b> بس: ${sl.platforms.map(esc).join("، ")}. ${store ? "المبيعات والـ ROAS بتاعة المتجر مش بتتقسم على المنصات، فهتلاقيها في «الكل»." : "الحجوزات وشيت الليدز في «الكل»."} <button class="btn xs" onclick="setPf('${c.id}','')">ارجع للكل</button></div></div>
+  <div class="stats">
+    <div class="stat"><div class="l">الصرف · ${total ? fmt(x.s/total*100) : 0}% من صرف العميل</div><div class="n">${fmt(x.s)} <span class="small muted">${cu}</span></div>${deltaHtml(x.s, px.s, true)}</div>
+    <div class="stat"><div class="l">${store ? "الأوردرات (حسب المنصات)" : `التحويلات · ليدز ${fmt(x.ld)} · رسائل ${fmt(x.ms)} · مكالمات ${fmt(x.ca)}`}</div><div class="n">${fmt(res)}</div>${deltaHtml(res, pres, true)}</div>
+    <div class="stat"><div class="l">${store ? "CPP" : "تكلفة التحويل"}</div><div class="n">${cost != null ? `<span class="hl">${fmt2(cost)}</span>` : "—"} <span class="small muted">${cu}</span></div>${deltaHtml(cost, pcost, false)}</div></div>`;
+  h += `<div class="section-title" style="margin-bottom:8px"><h3>منصاته في الشهر</h3></div>` + (window.__noOwner = true, platformCards(c, R)); window.__noOwner = false;
+  const key = store ? "metricS" : "metricL", keep = ui[key];
+  if (store && (!ui[key] || ui[key] === "roas" || ui[key] === "sl")) ui[key] = "cpp";
+  h += calendar(c, ym, R); ui[key] = keep;
+  return h;
 }
 
 const APP_SHELL = "<div class=\"wrap\"><header class=\"top\"><span class=\"brand\" aria-label=\"\u0632\u064a\u0627\u062f \u0625\u0628\u0631\u0627\u0647\u064a\u0645\"><svg width=\"28\" height=\"28\" viewBox=\"0 0 48 48\" aria-hidden=\"true\"><rect class=\"zm-ink\" x=\"0\" y=\"28\" width=\"12\" height=\"20\" rx=\"2\"/><rect class=\"zm-brand\" x=\"18\" y=\"16\" width=\"12\" height=\"32\" rx=\"2\"/><rect class=\"zm-signal\" x=\"36\" y=\"0\" width=\"12\" height=\"12\" rx=\"2\"/><rect class=\"zm-brand\" x=\"36\" y=\"15\" width=\"12\" height=\"33\" rx=\"2\"/></svg><span class=\"nm\">\u0632\u064a\u0627\u062f \u0625\u0628\u0631\u0627\u0647\u064a\u0645</span><span class=\"sub\">\u00b7 \u0633\u064a\u0633\u062a\u0645 \u0627\u0644\u0634\u063a\u0644</span></span><nav class=\"tabs\" id=\"tabs\"></nav><span class=\"spacer\"></span><div id=\"who\"></div></header><main id=\"view\"><div class=\"card empty\">\u0628\u064a\u062d\u0645\u0651\u0644\u2026</div></main></div>";
