@@ -1136,7 +1136,7 @@ function personDash(c, ym, rows, prev, sl, opt){
   h += `<div class="section-title" style="margin-bottom:8px"><h3>المنصات في الشهر</h3></div>` + (window.__noOwner = true, platformCards(c, R)); window.__noOwner = false;
   const key = store ? "metricS" : "metricL", keep = ui[key];
   if (store && (!ui[key] || ui[key] === "roas" || ui[key] === "sl")) ui[key] = "cpp";
-  window.__slice = true; window.__noOwner = true; try { if (!opt.noCal) h += calendar(c, ym, R); } finally { window.__slice = false; window.__noOwner = false; } ui[key] = keep;
+  window.__slicePl = sl.platforms; window.__slice = true; window.__noOwner = true; try { if (!opt.noCal) h += calendar(c, ym, R); } finally { window.__slice = false; window.__noOwner = false; } ui[key] = keep;
   return h;
 }
 
@@ -1368,7 +1368,7 @@ function clientBody(c, ym, see, mp){
   const nav = `<nav class="cnav">${R.length ? `<div class="cnav-l">Results</div>${R.map(item).join("")}` : ""}<div class="cnav-l">Client</div>${O.map(item).join("")}</nav>`;
   return `<div class="cvw">${nav}<div class="cvbody">${clientPanel(c, ym, v, see, mp)}</div></div>`;
 }
-function pickDay(v){ if (!v) return; ui.month = v.slice(0,7); ui.selDay = v; saveUi(); render(); setTimeout(() => { const d = document.querySelector(".det"); if (d) d.scrollIntoView({ behavior:"smooth", block:"start" }); }, 60); }
+function pickDay(v){ if (!v) return; ui.month = v.slice(0,7); ui.selDay = v; saveUi(); render(); const c = clientById(ui.clientId); if (c) { const v2 = (ui.cv || {})[c.id]; openDay(c.id, v, v2 && v2 !== "total" ? 1 : 0); } }
 function monthNav(c, ym){ return `<div class="row" style="margin:0 0 12px"><label class="daypick-btn" title="اختار يوم">📅 ${ui.selDay && ui.selDay.startsWith(ym) ? fmtDate(fromKey(ui.selDay)) : "اختار يوم"}<input type="date" value="${ui.selDay || ""}" max="${todayK()}" onclick="try{this.showPicker()}catch(e){}" onchange="pickDay(this.value)"></label><div class="monthnav"><button class="btn sm" onclick="ui.month=ymAdd(ui.month,1);ui.selDay=null;saveUi();render()" aria-label="الشهر اللي بعده">›</button><div class="m">${monthLabel(ym)}</div><button class="btn sm" onclick="ui.month=ymAdd(ui.month,-1);ui.selDay=null;saveUi();render()" aria-label="الشهر اللي قبله">‹</button></div><span class="spacer"></span><button class="btn xs" onclick="loadMetrics('${c.id}',true)">↻ تحديث</button></div>`; }
 function sliceAdvice(c, sl){
   if (!M[c.id] || sl.platforms.length < 2) return "";
@@ -1617,16 +1617,27 @@ function calendar(c, ym, rows){
     const dr = rows.filter(r => r.d === d), x = agg(store ? dr : adRows(dr)); if (!store) x.bk = agg(dr.filter(r => r.p === "_bk")).bk;
     const dn = `${fromKey(d).getDate()} ${mname}`, sel = ui.selDay === d ? " sel" : "";
     if (d > tk) { h += `<div class="cd fut"><span class="dn">${dn}</span></div>`; continue; }
-    if (!dr.length) { h += `<div class="cd e${sel}" onclick="ui.selDay='${d}';render()"><span class="dn">${dn}</span><span class="ml">لسه ماتسجلش</span><span class="mv">+ سجّل</span></div>`; continue; }
+    if (!dr.length) { h += `<div class="cd e${sel}" onclick="openDay('${c.id}','${d}',${slice ? 1 : 0})"><span class="dn">${dn}</span><span class="ml">لسه ماتسجلش</span><span class="mv">+ سجّل</span></div>`; continue; }
     let body;
     if (store && slice) body = line("الصرف", fmt(x.s)) + line("أوردرات", fmt(x.po)) + line("CPP", x.po ? fmt2(x.s / x.po) : "—", true);
     else if (store) body = line("الصرف", fmt(x.s)) + line("المبيعات", x.sl ? K(x.sl) : "—") + line("ROAS", x.sl && x.s ? fmt2(x.roas) : "—", true) + line("أوردرات", fmt(x.o)) + line("CPP", x.cpp != null ? fmt2(x.cpp) : "—");
     else body = line("الصرف", fmt(x.s)) + line("تحويلات", fmt(x.conv)) + line("CPA", x.conv ? fmt2(x.cpl) : x.s ? "مفيش" : "—", true) + (x.bk ? line("حجوزات", fmt(x.bk)) : "");
-    h += `<div class="cd c2 ${D.cls(x)}${sel}" onclick="ui.selDay='${d}';render()"><span class="dn">${dn}</span><div class="cls">${body}</div></div>`;
+    h += `<div class="cd c2 ${D.cls(x)}${sel}" onclick="openDay('${c.id}','${d}',${slice ? 1 : 0})"><span class="dn">${dn}</span><div class="cls">${body}</div></div>`;
   }
   h += `</div><div class="tiny muted" style="margin-top:6px">الأرقام بالـ ${cu}.</div>`;
-  if (ui.selDay && ui.selDay.startsWith(ym)) h += dayDetail(c, ui.selDay, rows.filter(r => r.d === ui.selDay));
+  if (slice) window.__calSlicePl = (window.__slicePl || []).slice();
   return h;
+}
+function openDay(cid, d, isSlice){
+  const c = clientById(cid); if (!c || !M[cid]) return;
+  ui.selDay = d;
+  let dr = M[cid].filter(r => r.d === d);
+  const pl = isSlice ? (window.__calSlicePl || []) : null;
+  if (pl) dr = adRows(dr).filter(r => pl.includes(r.p));
+  window.__slice = !!pl; window.__noOwner = !!pl;
+  let html; try { html = dayDetail(c, d, dr); } finally { window.__slice = false; window.__noOwner = false; }
+  openModal(`<div class="row" style="margin-bottom:-6px"><span class="spacer"></span><button class="btn ghost sm" onclick="closeModal()" aria-label="اقفل">✕</button></div>` + html.replace('<div class="det">', '<div class="det inmodal">'), true);
+  document.querySelectorAll(".cd.sel").forEach(e => e.classList.remove("sel"));
 }
 
 /* ================= Alerts for one person's platforms ================= */
