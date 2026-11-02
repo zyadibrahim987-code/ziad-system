@@ -1685,7 +1685,7 @@ function clientLogo(c, size, editable){
   return `<span class="clogo ph ${c.type}"${ed}>${editable && z >= 36 ? `<span class="clogo-add">+ لوجو</span>` : esc(ch)}</span>`;
 }
 function pickImage(cb){ const i = document.createElement("input"); i.type = "file"; i.accept = "image/png,image/jpeg,image/webp"; i.onchange = () => { const f = i.files && i.files[0]; if (f) cb(f); }; i.click(); }
-function pickClientLogo(cid){ pickImage(f => openCropper(f, { kind:"logo", title:"لوجو العميل", onDone: blob => uploadImage(blob, `clients/${cid}`, "png", url => saveLogo(cid, url)) })); }
+function pickClientLogo(cid){ pickImage(f => openCropper(f, { kind:"logo", title:"لوجو العميل", onDone: (blob, small) => uploadImage(blob, `clients/${cid}`, "png", url => saveLogo(cid, url, small)) })); }
 function pickMyPhoto(){ pickImage(f => openCropper(f, { kind:"avatar", title:"صورتك", onDone: blob => uploadImage(blob, `users/${me.id}`, "jpg", url => saveMyPhoto(url)) })); }
 async function uploadImage(blob, folder, ext, done){
   const path = `${folder}/${Date.now()}.${ext}`;
@@ -1695,9 +1695,9 @@ async function uploadImage(blob, folder, ext, done){
   const { data } = sb.storage.from("avatars").getPublicUrl(path);
   done(data.publicUrl);
 }
-async function saveLogo(cid, url){ try { await q(sb.from("clients").update({ logo_url: url }).eq("id", cid), "logo"); const c = clientById(cid); if (c) c.logo_url = url; closeModal(); toast("اتحفظ اللوجو ✓"); render(); } catch(e){ toast("ماتحفظش: " + (e.message || e)); } }
+async function saveLogo(cid, url, small){ try { await q(sb.from("clients").update({ logo_url: url, logo_data: small || null }).eq("id", cid), "logo"); const c = clientById(cid); if (c) c.logo_url = url; closeModal(); toast("اتحفظ اللوجو ✓"); render(); } catch(e){ toast("ماتحفظش: " + (e.message || e)); } }
 async function saveMyPhoto(url){ try { await q(sb.from("profiles").update({ avatar_url: url }).eq("id", me.id), "photo"); me.avatar_url = url; const p = profileById(me.id); if (p) p.avatar_url = url; closeModal(); toast("اتحفظت الصورة ✓"); render(); } catch(e){ toast("ماتحفظتش: " + (e.message || e)); } }
-async function removeLogo(cid){ try { await q(sb.from("clients").update({ logo_url: null }).eq("id", cid), "logo"); const c = clientById(cid); if (c) c.logo_url = null; render(); toast("اتشال"); } catch(e){ toast("ماتشالش"); } }
+async function removeLogo(cid){ try { await q(sb.from("clients").update({ logo_url: null, logo_data: null }).eq("id", cid), "logo"); const c = clientById(cid); if (c) c.logo_url = null; render(); toast("اتشال"); } catch(e){ toast("ماتشالش"); } }
 async function removeMyPhoto(){ try { await q(sb.from("profiles").update({ avatar_url: null }).eq("id", me.id), "photo"); me.avatar_url = null; const p = profileById(me.id); if (p) p.avatar_url = null; render(); toast("اتشالت"); } catch(e){ toast("ماتشالتش"); } }
 
 /* cropper: drag to move, slider/wheel to zoom; logos can show the whole image with a background */
@@ -1745,7 +1745,8 @@ function crDraw(){ const cv = $("#crCv"); if (!cv) return; const ctx = cv.getCon
 function crSave(){
   const out = document.createElement("canvas"), size = CR.logo ? 512 : 400; out.width = out.height = size;
   crPaint(out.getContext("2d"), size);
-  out.toBlob(b => { if (!b) return toast("ماتحفظتش"); CR.opt.onDone(b); }, CR.logo ? "image/png" : "image/jpeg", 0.9);
+  let small = null; if (CR.logo) { const sm = document.createElement("canvas"); sm.width = sm.height = 256; crPaint(sm.getContext("2d"), 256); small = sm.toDataURL("image/png"); }
+  out.toBlob(b => { if (!b) return toast("ماتحفظتش"); CR.opt.onDone(b, small); }, CR.logo ? "image/png" : "image/jpeg", 0.9);
 }
 
 const APP_SHELL = "<div class=\"wrap\"><header class=\"top\"><span class=\"brand\" aria-label=\"\u0632\u064a\u0627\u062f \u0625\u0628\u0631\u0627\u0647\u064a\u0645\"><svg width=\"28\" height=\"28\" viewBox=\"0 0 48 48\" aria-hidden=\"true\"><rect class=\"zm-ink\" x=\"0\" y=\"28\" width=\"12\" height=\"20\" rx=\"2\"/><rect class=\"zm-brand\" x=\"18\" y=\"16\" width=\"12\" height=\"32\" rx=\"2\"/><rect class=\"zm-signal\" x=\"36\" y=\"0\" width=\"12\" height=\"12\" rx=\"2\"/><rect class=\"zm-brand\" x=\"36\" y=\"15\" width=\"12\" height=\"33\" rx=\"2\"/></svg><span class=\"nm\">\u0632\u064a\u0627\u062f \u0625\u0628\u0631\u0627\u0647\u064a\u0645</span><span class=\"sub\">\u00b7 \u0633\u064a\u0633\u062a\u0645 \u0627\u0644\u0634\u063a\u0644</span></span><nav class=\"tabs\" id=\"tabs\"></nav><span class=\"spacer\"></span><div id=\"who\"></div></header><main id=\"view\"><div class=\"card empty\">\u0628\u064a\u062d\u0645\u0651\u0644\u2026</div></main></div>";
