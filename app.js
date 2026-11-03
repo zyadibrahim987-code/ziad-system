@@ -1760,8 +1760,8 @@ const SCHED = { start:"مقدم أول الشهر", end:"آخر الشهر", hal
 const PART = { full:"دفعة كاملة", first:"النص الأول", second:"النص التاني" };
 async function loadFinance(force){
   if (!isAdmin()) return; if (FINload && !force) return FINload;
-  FINload = (async () => { try { const [b, p] = await Promise.all([q(sb.from("client_billing").select("*"), "billing"), q(sb.from("payments").select("*").order("ym"), "payments")]);
-    FIN = { billing: Object.fromEntries(b.map(x => [x.client_id, x])), pay: p }; } catch(e){ FIN = { billing:{}, pay:[], err: e.message }; } render(); })();
+  FINload = (async () => { try { const [b, p, st] = await Promise.all([q(sb.from("client_billing").select("*"), "billing"), q(sb.from("payments").select("*").order("ym"), "payments"), q(sb.from("app_settings").select("*").eq("k", "fx"), "fx").catch(() => [])]);
+    FIN = { billing: Object.fromEntries(b.map(x => [x.client_id, x])), pay: p, fx: (st[0] && st[0].v) || {} }; } catch(e){ FIN = { billing:{}, pay:[], err: e.message }; } render(); })();
   return FINload;
 }
 const lastDayOf = ym => daysOfMonth(ym).length;
@@ -1799,11 +1799,7 @@ function viewFinance(){
   const exp = sumByCur(real), got = sumByCur(real.filter(p => p.paid)), left = sumByCur(real.filter(p => !p.paid)), late = real.filter(p => partStatus(p).k === "late");
   let h = pageHead("Finance", "مين دفع، ومين لسه، وليك كام", `<button class="btn sm" onclick="copyFinanceSummary('${ym}')">📋 انسخ ملخص الشهر</button>`);
   h += `<div class="row" style="margin-bottom:14px"><div class="monthnav"><button class="btn sm" onclick="ui.finM=ymAdd('${ym}',1);saveUi();render()" aria-label="الشهر اللي بعده">›</button><div class="m">${monthLabel(ym)}</div><button class="btn sm" onclick="ui.finM=ymAdd('${ym}',-1);saveUi();render()" aria-label="الشهر اللي قبله">‹</button></div>${ym !== ymOf(todayK()) ? `<button class="btn xs ghost" onclick="ui.finM=null;saveUi();render()">الشهر ده</button>` : ""}</div>`;
-  h += `<div class="stats">
-    <div class="stat"><div class="l">المفروض يتحصل</div><div class="n fin-n">${curList(exp)}</div><div class="d muted">${payAr(real.length)} من ${withB.length === 1 ? "عميل واحد" : withB.length === 2 ? "عميلين" : withB.length + (withB.length <= 10 ? " عملاء" : " عميل")}</div></div>
-    <div class="stat"><div class="l">اتحصل</div><div class="n fin-n" style="color:var(--ok-ink)">${curList(got)}</div><div class="d muted">${payAr(real.filter(p => p.paid).length)}</div></div>
-    <div class="stat"><div class="l">فاضل</div><div class="n fin-n">${curList(left)}</div><div class="d muted">${payAr(real.filter(p => !p.paid).length)}</div></div>
-    <div class="stat"><div class="l">متأخر</div><div class="n fin-n" style="color:${late.length ? "var(--bad-ink)" : "inherit"}">${late.length ? curList(sumByCur(late)) : "مفيش"}</div><div class="d muted">${late.length ? late.map(p => esc(clientById(p.cid).name)).filter((v, i, a) => a.indexOf(v) === i).join("، ") : "كله في ميعاده"}</div></div></div>`;
+  h += finSummary(real, late);
   h += `<div class="section-title"><h3>العملاء</h3><span class="tiny muted">دوس «اتحصل» لما الفلوس توصلك</span></div>`;
   h += withB.length ? withB.map(c => { const b = FIN.billing[c.id], parts = monthParts(c, ym);
     return `<div class="card fin-row"><div class="fin-h">${clientLogo(c, 32)}<div style="flex:1;min-width:0"><b>${esc(c.name)}</b><div class="tiny muted">${curAmt(b.fee, b.currency)} في الشهر · ${SCHED[b.schedule]}</div></div><button class="btn xs ghost" onclick="openBilling('${c.id}')">⚙︎ الإعداد</button></div>
@@ -1894,7 +1890,11 @@ function copyFinanceSummary(ym){
   const live = clients.filter(c => !c.is_test && FIN.billing[c.id] && FIN.billing[c.id].active);
   const all = live.flatMap(c => monthParts(c, ym)).filter(p => !p.skipped);
   const plain = o => Object.keys(o).length ? Object.entries(o).map(([k, v]) => `${fmt(v)} ${CUR_AR[k]}`).join(" + ") : "0";
-  const lines = [`💰 تحصيل ${monthLabel(ym)}`, ``, `المفروض: ${plain(sumByCur(all))}`, `✅ اتحصل: ${plain(sumByCur(all.filter(p => p.paid)))}`, `⏳ فاضل: ${plain(sumByCur(all.filter(p => !p.paid)))}`, ``];
+  const fx = FIN.fx || {}, rt = k => k === "EGP" ? 1 : +fx[k] || 0, okFx = all.every(p => rt(p.currency));
+  const eg = list => fmt(list.reduce((a, p) => a + (+p.amount || 0) * rt(p.currency), 0));
+  const lines = [`💰 تحصيل ${monthLabel(ym)}`, ``, `المفروض: ${plain(sumByCur(all))}`, `✅ اتحصل: ${plain(sumByCur(all.filter(p => p.paid)))}`, `⏳ فاضل: ${plain(sumByCur(all.filter(p => !p.paid)))}`];
+  if (okFx && all.length) lines.push(``, `بالمصري: اتحصل ${eg(all.filter(p => p.paid))} ج.م من ${eg(all)} ج.م · فاضل ${eg(all.filter(p => !p.paid))} ج.م`);
+  lines.push(``);
   const paidL = all.filter(p => p.paid), lateL = all.filter(p => partStatus(p).k === "late"), soonL = all.filter(p => !p.paid && partStatus(p).k !== "late");
   const nm = p => `${clientById(p.cid).name}${p.part !== "full" ? ` (${PART[p.part]})` : ""}: ${fmt(p.amount)} ${CUR_AR[p.currency]}`;
   if (lateL.length) lines.push(`🔴 متأخر:`, ...lateL.map(p => `- ${nm(p)} · ${partStatus(p).t}`), ``);
@@ -1906,6 +1906,27 @@ function copyFinanceSummary(ym){
 }
 
 const payAr = n => n === 0 ? "ولا دفعة" : n === 1 ? "دفعة واحدة" : n === 2 ? "دفعتين" : n <= 10 ? `${n} دفعات` : `${n} دفعة`;
+
+
+/* finance summary: one row per currency + total in EGP */
+function finSummary(real, late){
+  const curs = ["SAR","USD","EGP"].filter(k => real.some(p => p.currency === k));
+  const sumK = (list, k) => list.filter(p => p.currency === k).reduce((a, p) => a + (+p.amount || 0), 0);
+  const got = real.filter(p => p.paid), left = real.filter(p => !p.paid);
+  let h = `<div class="fin-sum"><div class="fs-row fs-head"><span>العملة</span><span>المفروض</span><span>اتحصل</span><span>فاضل</span><span>متأخر</span></div>`;
+  h += curs.map(k => { const e = sumK(real, k), g = sumK(got, k), l = sumK(left, k), lt = sumK(late, k);
+    return `<div class="fs-row"><span class="fs-cur"><span class="fs-sym">${CUR_AR[k]}</span>${CUR_NAME[k]}</span><span>${curAmt(e, k)}</span><span class="ok">${g ? curAmt(g, k) : "—"}</span><span>${l ? curAmt(l, k) : "✓"}</span><span class="${lt ? "bad" : "muted"}">${lt ? curAmt(lt, k) : "مفيش"}</span></div>`; }).join("") || `<div class="fs-row"><span class="muted">مفيش دفعات في الشهر ده</span></div>`;
+  const fx = FIN.fx || {}, rate = k => k === "EGP" ? 1 : +fx[k] || 0, missing = curs.filter(k => !rate(k));
+  const egp = list => list.reduce((a, p) => a + (+p.amount || 0) * rate(p.currency), 0);
+  h += `<div class="fs-row fs-total"><span class="fs-cur"><span class="fs-sym">ج.م</span>التوتال بالمصري</span>${missing.length ? `<span style="grid-column:2 / -1" class="small">حط سعر ${missing.map(k => CUR_NAME[k]).join(" و ")} بالجنيه تحت عشان يحسب التوتال</span>` : `<span>${curAmt(egp(real), "EGP")}</span><span class="ok">${curAmt(egp(got), "EGP")}</span><span>${curAmt(egp(left), "EGP")}</span><span class="${late.length ? "bad" : "muted"}">${late.length ? curAmt(egp(late), "EGP") : "مفيش"}</span>`}</div>`;
+  h += `<div class="fs-fx"><span class="tiny muted">سعر التحويل:</span>${["SAR","USD"].map(k => `<label class="fx-in">1 ${CUR_NAME[k]} = <input class="inp" type="number" step="0.01" min="0" value="${fx[k] || ""}" placeholder="؟" onchange="saveFx('${k}', this.value)"> جنيه</label>`).join("")}${fx.updated ? `<span class="tiny muted">اتحدّث ${fmtShort(fx.updated)}</span>` : ""}</div></div>`;
+  return h;
+}
+async function saveFx(k, v){
+  const fx = Object.assign({}, FIN.fx || {}); const n = parseFloat(v); if (n > 0) fx[k] = n; else delete fx[k]; fx.updated = todayK();
+  try { await q(sb.from("app_settings").upsert({ k:"fx", v:fx, updated_at:new Date().toISOString() }), "fx"); FIN.fx = fx; render(); toast("اتحفظ السعر ✓"); }
+  catch(e){ toast("ماتحفظش: " + (e.message || e)); }
+}
 
 const APP_SHELL = "<div class=\"wrap\"><header class=\"top\"><span class=\"brand\" aria-label=\"\u0632\u064a\u0627\u062f \u0625\u0628\u0631\u0627\u0647\u064a\u0645\"><svg width=\"28\" height=\"28\" viewBox=\"0 0 48 48\" aria-hidden=\"true\"><rect class=\"zm-ink\" x=\"0\" y=\"28\" width=\"12\" height=\"20\" rx=\"2\"/><rect class=\"zm-brand\" x=\"18\" y=\"16\" width=\"12\" height=\"32\" rx=\"2\"/><rect class=\"zm-signal\" x=\"36\" y=\"0\" width=\"12\" height=\"12\" rx=\"2\"/><rect class=\"zm-brand\" x=\"36\" y=\"15\" width=\"12\" height=\"33\" rx=\"2\"/></svg><span class=\"nm\">\u0632\u064a\u0627\u062f \u0625\u0628\u0631\u0627\u0647\u064a\u0645</span><span class=\"sub\">\u00b7 \u0633\u064a\u0633\u062a\u0645 \u0627\u0644\u0634\u063a\u0644</span></span><nav class=\"tabs\" id=\"tabs\"></nav><span class=\"spacer\"></span><div id=\"who\"></div></header><main id=\"view\"><div class=\"card empty\">\u0628\u064a\u062d\u0645\u0651\u0644\u2026</div></main></div>";
 start();

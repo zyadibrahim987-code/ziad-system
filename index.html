@@ -492,6 +492,20 @@ img.av.avimg{object-fit:cover;padding:0;background:var(--grey-chip)}
 .sched-o{display:grid;grid-template-columns:auto 1fr;column-gap:8px;align-items:center;border:1px solid var(--line);border-radius:var(--radius);padding:9px 12px;cursor:pointer}
 .sched-o input{grid-row:span 2}
 .sched-o:has(input:checked){border-color:var(--accent);background:var(--accent-soft)}
+
+.fin-sum{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);margin-bottom:16px;overflow:hidden}
+.fs-row{display:grid;grid-template-columns:1.1fr 1fr 1fr 1fr 1fr;gap:10px;align-items:center;padding:12px 16px;border-bottom:1px solid var(--line);font-size:15px}
+.fs-row .money b{font-size:18px}
+.fs-head{font-size:12px;color:var(--muted);padding:9px 16px;background:var(--bg)}
+.fs-cur{display:flex;align-items:center;gap:8px;font-weight:600}
+.fs-sym{display:inline-flex;align-items:center;justify-content:center;min-width:34px;height:26px;border-radius:6px;background:var(--accent-soft);color:var(--accent);font-size:12px;font-weight:700;padding:0 6px}
+.fs-row .ok .money b,.fs-row .ok{color:var(--ok-ink)} .fs-row .bad,.fs-row .bad .money b{color:var(--bad-ink)}
+.fs-total{background:color-mix(in srgb,var(--accent-soft) 60%,transparent)}
+.fs-total .money b{font-size:20px}
+.fs-fx{display:flex;flex-wrap:wrap;align-items:center;gap:8px 18px;padding:10px 16px;font-size:13px}
+.fx-in{display:inline-flex;align-items:center;gap:6px}
+.fx-in .inp{width:84px;padding:4px 8px}
+@media (max-width:700px){.fs-row{grid-template-columns:1fr 1fr;row-gap:4px}.fs-head{display:none}}
 </style>
 </head>
 <body>
@@ -499,7 +513,7 @@ img.av.avimg{object-fit:cover;padding:0;background:var(--grey-chip)}
 <div class="modal-bg" id="modalBg" onmousedown="if(event.target.id==='modalBg')closeModal()"><div class="modal" id="modal"></div></div>
 <div class="toast" id="toast"></div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script>window.__APP_VERSION="20261103130723"</script>
-<script src="app.js?v=20261103130723"></script>
+<script>window.__APP_VERSION="20261103131637"</script>
+<script src="app.js?v=20261103131637"></script>
 </body>
 </html>
