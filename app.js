@@ -406,6 +406,7 @@ const ICONS = {
   today:'<path d="M4 6h16M4 12h10M4 18h7"/><circle cx="18" cy="17" r="3"/>',
   clients:'<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M8 14h3"/>',
   review:'<path d="M5 12l4 4L19 6"/>',
+  finance:'<rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18M16 15h2"/>',
   settings:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>'
 };
 const ico = k => `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[k]}</svg>`;
@@ -418,9 +419,9 @@ const pageHead = (title, sub, actions) => `<div class="ph"><div><h1>${title}</h1
 function render(){
   if (!me) return;
   if (ui.tab === "team") { ui.tab = "settings"; ui.stab = "team"; }
-  if (!isAdmin() && ui.tab === "review") ui.tab = "today";
+  if (!isAdmin() && (ui.tab === "review" || ui.tab === "finance")) ui.tab = "today";
   const pending = isAdmin() ? reviewCount() : 0;
-  const tabs = isAdmin() ? [["today","Today"],["clients","Clients"],["review","Review"],["settings","Settings"]] : [["today","My Tasks"],["clients","Clients"],["settings","Settings"]];
+  const tabs = isAdmin() ? [["today","Today"],["clients","Clients"],["review","Review"],["finance","Finance"],["settings","Settings"]] : [["today","My Tasks"],["clients","Clients"],["settings","Settings"]];
   const cur = ui.tab === "client" ? "clients" : ui.tab;
   const act = clients.filter(c => c.status !== "paused").sort((a,b) => (a.is_test - b.is_test) || a.name.localeCompare(b.name, "ar"));
   $("#tabs").innerHTML = tabs.map(([k,l]) => `<button data-tab="${k}" class="${cur === k ? "active" : ""}">${ico(k === "today" ? "today" : k)}<span>${l}</span>${k === "review" && pending ? `<span class="nb">${pending}</span>` : ""}</button>` +
@@ -431,6 +432,7 @@ function render(){
   else if (ui.tab === "clients") v.innerHTML = viewClients();
   else if (ui.tab === "review") v.innerHTML = viewReview();
   else if (ui.tab === "settings") v.innerHTML = viewSettings();
+  else if (ui.tab === "finance" && isAdmin()) v.innerHTML = viewFinance();
   else v.innerHTML = viewToday();
 }
 function go(tab, cid){ ui.tab = tab; if (cid) { ui.clientId = cid; ui.month = ymOf(addDaysK(todayK(), -1)); ui.selDay = null; loadMetrics(cid); } saveUi(); render(); window.scrollTo(0,0); }
@@ -1321,6 +1323,7 @@ function settingsClients(){
         </div>
         <div class="row" style="margin:12px 0 4px;gap:10px">${clientLogo(c, 56, true)}<div><b>لوجو العميل</b><div class="row" style="gap:6px;margin-top:4px"><button class="btn xs" onclick="pickClientLogo('${c.id}')">${c.logo_url ? "غيّر اللوجو" : "+ ارفع لوجو"}</button>${c.logo_url ? `<button class="btn xs ghost" onclick="removeLogo('${c.id}')">شيله</button>` : ""}</div></div></div>
         <div class="row" style="margin:10px 0 4px"><button class="btn sm primary" onclick="openSettings('${c.id}')">✏️ عدّل العميل (العملة، المنصات، التارجت…)</button><button class="btn sm" onclick="go('client','${c.id}')">افتح الداشبورد</button></div>
+        ${billingLine(c)}
         ${c.type === "leads" ? leadSheetEditor(c) : ""}
         ${clientTeamCard(c)}
       </div>` : ""}
@@ -1748,6 +1751,161 @@ function crSave(){
   let small = null; if (CR.logo) { const sm = document.createElement("canvas"); sm.width = sm.height = 256; crPaint(sm.getContext("2d"), 256); small = sm.toDataURL("image/png"); }
   out.toBlob(b => { if (!b) return toast("ماتحفظتش"); CR.opt.onDone(b, small); }, CR.logo ? "image/png" : "image/jpeg", 0.9);
 }
+
+
+/* ================= Finance (admin only) ================= */
+let FIN = null, FINload = null;
+const CUR_AR = { SAR:"ر.س", EGP:"ج.م", USD:"$" }, CUR_NAME = { SAR:"ريال", EGP:"جنيه", USD:"دولار" };
+const SCHED = { start:"مقدم أول الشهر", end:"آخر الشهر", half:"نص أول الشهر ونص آخره" };
+const PART = { full:"دفعة كاملة", first:"النص الأول", second:"النص التاني" };
+async function loadFinance(force){
+  if (!isAdmin()) return; if (FINload && !force) return FINload;
+  FINload = (async () => { try { const [b, p] = await Promise.all([q(sb.from("client_billing").select("*"), "billing"), q(sb.from("payments").select("*").order("ym"), "payments")]);
+    FIN = { billing: Object.fromEntries(b.map(x => [x.client_id, x])), pay: p }; } catch(e){ FIN = { billing:{}, pay:[], err: e.message }; } render(); })();
+  return FINload;
+}
+const lastDayOf = ym => daysOfMonth(ym).length;
+const dueKey = (ym, day) => `${ym}-${String(Math.min(day || lastDayOf(ym), lastDayOf(ym))).padStart(2,"0")}`;
+function expectedParts(b, ym){
+  if (!b || !b.active || ym < b.active_from || !(+b.fee > 0)) return [];
+  const f = +b.fee, end = b.end_day || 0;
+  if (b.schedule === "half") return [{ part:"first", amount: Math.round(f / 2 * 100) / 100, due: dueKey(ym, b.start_day) }, { part:"second", amount: Math.round(f / 2 * 100) / 100, due: dueKey(ym, end) }];
+  return [{ part:"full", amount: f, due: b.schedule === "end" ? dueKey(ym, end) : dueKey(ym, b.start_day) }];
+}
+function monthParts(c, ym){
+  const b = FIN.billing[c.id], exp = expectedParts(b, ym), stored = FIN.pay.filter(p => p.client_id === c.id && p.ym === ym);
+  const out = exp.map(e => { const s2 = stored.find(p => p.part === e.part); return { cid:c.id, ym, part:e.part, amount: s2 ? +s2.amount : e.amount, currency: s2 ? s2.currency : b.currency, due: (s2 && s2.due_date) || e.due, paid: !!(s2 && s2.paid), paid_date: s2 && s2.paid_date, skipped: !!(s2 && s2.skipped), note: s2 && s2.note }; });
+  for (const s2 of stored) if (!out.some(o => o.part === s2.part)) out.push({ cid:c.id, ym, part:s2.part, amount:+s2.amount, currency:s2.currency, due:s2.due_date, paid:s2.paid, paid_date:s2.paid_date, skipped:s2.skipped, note:s2.note });
+  return out.sort((a, b2) => ["full","first","second"].indexOf(a.part) - ["full","first","second"].indexOf(b2.part));
+}
+function partStatus(p){
+  const tk = todayK();
+  if (p.skipped) return { k:"skip", t:"مش هيتحصل", cls:"grey" };
+  if (p.paid) { const late = p.paid_date && p.due && p.paid_date > p.due ? daysBetween(p.due, p.paid_date) : 0;
+    return { k:"paid", t: late ? `اتحصل متأخر ${daysAr(late)}` : "اتحصل في ميعاده", cls: late ? "amb" : "ok", late }; }
+  if (p.due && p.due < tk) return { k:"late", t:`متأخر ${daysAr(daysBetween(p.due, tk))}`, cls:"bad" };
+  if (p.due && p.due === tk) return { k:"due", t:"مستحق النهارده", cls:"amb" };
+  return { k:"soon", t: p.due ? `مستحق ${fmtShort(p.due)}` : "مستحق", cls:"grey" };
+}
+const curAmt = (v, c3) => money("", v, CUR_AR[c3] || c3, (+v % 1) ? undefined : 0);
+function sumByCur(list){ const o = {}; for (const p of list) o[p.currency] = (o[p.currency] || 0) + (+p.amount || 0); return o; }
+const curList = o => Object.keys(o).length ? Object.entries(o).map(([k, v]) => curAmt(v, k)).join(" · ") : "—";
+
+function viewFinance(){
+  if (!FIN) { loadFinance(); return pageHead("Finance", "التحصيل من العملاء") + `<div class="card empty">بيحمّل…</div>`; }
+  const ym = ui.finM || ymOf(todayK());
+  const live = clients.filter(c => !c.is_test), withB = live.filter(c => FIN.billing[c.id] && FIN.billing[c.id].active), noB = live.filter(c => !FIN.billing[c.id]);
+  const all = withB.flatMap(c => monthParts(c, ym)), real = all.filter(p => !p.skipped);
+  const exp = sumByCur(real), got = sumByCur(real.filter(p => p.paid)), left = sumByCur(real.filter(p => !p.paid)), late = real.filter(p => partStatus(p).k === "late");
+  let h = pageHead("Finance", "مين دفع، ومين لسه، وليك كام", `<button class="btn sm" onclick="copyFinanceSummary('${ym}')">📋 انسخ ملخص الشهر</button>`);
+  h += `<div class="row" style="margin-bottom:14px"><div class="monthnav"><button class="btn sm" onclick="ui.finM=ymAdd('${ym}',1);saveUi();render()" aria-label="الشهر اللي بعده">›</button><div class="m">${monthLabel(ym)}</div><button class="btn sm" onclick="ui.finM=ymAdd('${ym}',-1);saveUi();render()" aria-label="الشهر اللي قبله">‹</button></div>${ym !== ymOf(todayK()) ? `<button class="btn xs ghost" onclick="ui.finM=null;saveUi();render()">الشهر ده</button>` : ""}</div>`;
+  h += `<div class="stats">
+    <div class="stat"><div class="l">المفروض يتحصل</div><div class="n fin-n">${curList(exp)}</div><div class="d muted">${payAr(real.length)} من ${withB.length === 1 ? "عميل واحد" : withB.length === 2 ? "عميلين" : withB.length + (withB.length <= 10 ? " عملاء" : " عميل")}</div></div>
+    <div class="stat"><div class="l">اتحصل</div><div class="n fin-n" style="color:var(--ok-ink)">${curList(got)}</div><div class="d muted">${payAr(real.filter(p => p.paid).length)}</div></div>
+    <div class="stat"><div class="l">فاضل</div><div class="n fin-n">${curList(left)}</div><div class="d muted">${payAr(real.filter(p => !p.paid).length)}</div></div>
+    <div class="stat"><div class="l">متأخر</div><div class="n fin-n" style="color:${late.length ? "var(--bad-ink)" : "inherit"}">${late.length ? curList(sumByCur(late)) : "مفيش"}</div><div class="d muted">${late.length ? late.map(p => esc(clientById(p.cid).name)).filter((v, i, a) => a.indexOf(v) === i).join("، ") : "كله في ميعاده"}</div></div></div>`;
+  h += `<div class="section-title"><h3>العملاء</h3><span class="tiny muted">دوس «اتحصل» لما الفلوس توصلك</span></div>`;
+  h += withB.length ? withB.map(c => { const b = FIN.billing[c.id], parts = monthParts(c, ym);
+    return `<div class="card fin-row"><div class="fin-h">${clientLogo(c, 32)}<div style="flex:1;min-width:0"><b>${esc(c.name)}</b><div class="tiny muted">${curAmt(b.fee, b.currency)} في الشهر · ${SCHED[b.schedule]}</div></div><button class="btn xs ghost" onclick="openBilling('${c.id}')">⚙︎ الإعداد</button></div>
+      ${parts.length ? `<div class="fin-parts">${parts.map(p => finPart(p)).join("")}</div>` : `<div class="small muted" style="margin-top:8px">مفيش تحصيل للعميل ده في ${monthLabel(ym)}${ym < b.active_from ? ` (التحصيل بيبدأ ${monthLabel(b.active_from)})` : ""}.</div>`}</div>`; }).join("")
+    : `<div class="card small muted">لسه مفيش عميل متحدد له تحصيل. اختار عميل من تحت وحدد المبلغ ونظام الدفع.</div>`;
+  const paused = live.filter(c => FIN.billing[c.id] && !FIN.billing[c.id].active);
+  if (noB.length || paused.length) h += `<div class="section-title"><h3>عملاء مالهمش تحصيل شغال</h3></div><div class="card" style="padding:4px 16px">${[...noB, ...paused].map(c => `<div class="trow">${clientLogo(c, 26)}<b style="flex:1">${esc(c.name)}</b>${FIN.billing[c.id] ? `<span class="chip grey">متوقف</span>` : ""}<button class="btn xs primary" onclick="openBilling('${c.id}')">${FIN.billing[c.id] ? "عدّل" : "+ حدد التحصيل"}</button></div>`).join("")}</div>`;
+  h += finYear(ym.slice(0,4), withB);
+  return h;
+}
+function finPart(p){
+  const st = partStatus(p), args = `'${p.cid}','${p.ym}','${p.part}'`;
+  return `<div class="fin-p st-${st.k}">
+    <div class="fin-p-top"><span class="tiny muted">${PART[p.part]}</span><span class="chip ${st.cls}">${st.t}</span></div>
+    <div class="fin-amt">${curAmt(p.amount, p.currency)}</div>
+    <div class="tiny muted">${p.due ? `ميعاده ${fmtDate(fromKey(p.due))}` : ""}${p.paid && p.paid_date ? ` · اتحصل ${fmtShort(p.paid_date)}` : ""}${p.note ? ` · ${esc(p.note)}` : ""}</div>
+    <div class="row" style="gap:6px;margin-top:8px">${p.skipped ? `<button class="btn xs" onclick="setSkip(${args},false)">رجّعها</button>` : p.paid ? `<button class="btn xs ghost" onclick="unpay(${args})">↺ مااتحصلش</button>` : `<button class="btn xs primary" onclick="openPay(${args})">✓ اتحصل</button>`}<button class="btn xs ghost" onclick="openPartEdit(${args})">تعديل</button></div></div>`;
+}
+function finYear(y, withB){
+  const rows = [];
+  for (let m = 1; m <= 12; m++) { const ym = `${y}-${String(m).padStart(2,"0")}`; if (ym > ymOf(todayK())) break;
+    const real = withB.flatMap(c => monthParts(c, ym)).filter(p => !p.skipped); if (!real.length) continue;
+    rows.push(`<tr><td>${monthLabel(ym)}</td><td>${curList(sumByCur(real))}</td><td>${curList(sumByCur(real.filter(p => p.paid)))}</td><td>${real.some(p => !p.paid) ? curList(sumByCur(real.filter(p => !p.paid))) : "✓"}</td></tr>`); }
+  if (!rows.length) return "";
+  return `<div class="section-title"><h3>السنة دي (${y})</h3></div><div class="tscroll"><table class="t"><thead><tr><th>الشهر</th><th>المفروض</th><th>اتحصل</th><th>فاضل</th></tr></thead><tbody>${rows.reverse().join("")}</tbody></table></div>`;
+}
+async function upsertPay(cid, ym, part, patch){
+  const p = monthParts(clientById(cid), ym).find(x => x.part === part) || { amount:0, currency:"SAR", due:null };
+  const row = Object.assign({ client_id:cid, ym, part, amount:p.amount, currency:p.currency, due_date:p.due, paid:p.paid || false, paid_date:p.paid_date || null, skipped:p.skipped || false, note:p.note || null, updated_at:new Date().toISOString() }, patch);
+  try { await q(sb.from("payments").upsert(row, { onConflict:"client_id,ym,part" }), "pay"); const i = FIN.pay.findIndex(x => x.client_id === cid && x.ym === ym && x.part === part); if (i >= 0) FIN.pay[i] = Object.assign(FIN.pay[i], row); else FIN.pay.push(row); closeModal(); render(); return true; }
+  catch(e){ toast("ماتحفظش: " + (e.message || e)); return false; }
+}
+function openPay(cid, ym, part){
+  const c = clientById(cid), p = monthParts(c, ym).find(x => x.part === part);
+  openModal(`<h2>اتحصل من ${esc(c.name)}</h2><p class="small muted" style="margin:4px 0 0">${PART[part]} · ${monthLabel(ym)}</p>
+    <div class="two"><div><label class="f">المبلغ اللي وصل</label><input class="inp" id="pyAmt" type="number" step="0.01" value="${p.amount}"></div>
+      <div><label class="f">العملة</label><select class="inp" id="pyCur">${Object.keys(CUR_AR).map(k => `<option value="${k}" ${p.currency === k ? "selected" : ""}>${CUR_NAME[k]} (${CUR_AR[k]})</option>`).join("")}</select></div></div>
+    <label class="f">وصل يوم</label><input class="inp" id="pyDate" type="date" value="${todayK()}" max="${todayK()}">
+    <label class="f">ملاحظة (اختياري)</label><input class="inp" id="pyNote" placeholder="مثلاً: تحويل بنكي، فودافون كاش" value="${esc(p.note || "")}">
+    <div class="actions"><span class="spacer"></span><button class="btn" onclick="closeModal()">إلغاء</button><button class="btn primary" onclick="doPay('${cid}','${ym}','${part}')">✓ اتحصل</button></div>`);
+}
+async function doPay(cid, ym, part){ const amt = parseFloat($("#pyAmt").value); if (!(amt >= 0)) return toast("اكتب المبلغ");
+  if (await upsertPay(cid, ym, part, { paid:true, amount:amt, currency:$("#pyCur").value, paid_date:$("#pyDate").value || todayK(), note:$("#pyNote").value.trim() || null, skipped:false })) toast("اتسجل ✓"); }
+async function unpay(cid, ym, part){ if (await upsertPay(cid, ym, part, { paid:false, paid_date:null })) toast("اترجعت لمستني"); }
+async function setSkip(cid, ym, part, v){ if (await upsertPay(cid, ym, part, { skipped:v, paid:false, paid_date:null })) toast(v ? "اتعلمت إنها مش هتتحصل" : "رجعت"); }
+function openPartEdit(cid, ym, part){
+  const c = clientById(cid), p = monthParts(c, ym).find(x => x.part === part);
+  openModal(`<h2>${PART[part]} · ${esc(c.name)} · ${monthLabel(ym)}</h2><p class="small muted" style="margin:4px 0 0">التعديل هنا للشهر ده بس، زي خصم أو تأجيل ميعاد.</p>
+    <div class="two"><div><label class="f">المبلغ</label><input class="inp" id="peAmt" type="number" step="0.01" value="${p.amount}"></div>
+      <div><label class="f">العملة</label><select class="inp" id="peCur">${Object.keys(CUR_AR).map(k => `<option value="${k}" ${p.currency === k ? "selected" : ""}>${CUR_NAME[k]} (${CUR_AR[k]})</option>`).join("")}</select></div></div>
+    <label class="f">الميعاد</label><input class="inp" id="peDue" type="date" value="${p.due || ""}">
+    <label class="f">ملاحظة</label><input class="inp" id="peNote" value="${esc(p.note || "")}">
+    <label class="check"><input type="checkbox" id="peSkip" ${p.skipped ? "checked" : ""}> مش هيتحصل الشهر ده (إجازة، العميل وقف…)</label>
+    <div class="actions"><span class="spacer"></span><button class="btn" onclick="closeModal()">إلغاء</button><button class="btn primary" onclick="doPartEdit('${cid}','${ym}','${part}')">حفظ</button></div>`);
+}
+async function doPartEdit(cid, ym, part){ const sk = $("#peSkip").checked;
+  if (await upsertPay(cid, ym, part, { amount: parseFloat($("#peAmt").value) || 0, currency:$("#peCur").value, due_date:$("#peDue").value || null, note:$("#peNote").value.trim() || null, skipped:sk, ...(sk ? { paid:false, paid_date:null } : {}) })) toast("اتحفظ ✓"); }
+function openBilling(cid){
+  if (!FIN) { loadFinance().then(() => openBilling(cid)); return; }
+  const c = clientById(cid), b = FIN.billing[cid] || { fee:"", currency: c.currency === "EGP" ? "EGP" : "SAR", schedule:"start", start_day:1, end_day:0, active_from: ymOf(todayK()), active:true };
+  openModal(`<h2>تحصيل ${esc(c.name)}</h2>
+    <div class="two"><div><label class="f">المبلغ في الشهر</label><input class="inp" id="bFee" type="number" step="0.01" value="${b.fee}" placeholder="مثلاً 5000" autofocus></div>
+      <div><label class="f">العملة</label><select class="inp" id="bCur">${Object.keys(CUR_AR).map(k => `<option value="${k}" ${b.currency === k ? "selected" : ""}>${CUR_NAME[k]} (${CUR_AR[k]})</option>`).join("")}</select></div></div>
+    <label class="f">بيدفع إمتى؟</label>
+    <div class="sched">${Object.entries(SCHED).map(([k, l]) => `<label class="sched-o"><input type="radio" name="bSch" value="${k}" ${b.schedule === k ? "checked" : ""} onchange="schedFields()"><b>${l}</b><span class="tiny muted">${k === "start" ? "دفعة واحدة كاملة في أول الشهر" : k === "end" ? "دفعة واحدة كاملة في آخر الشهر" : "دفعتين: كل نص بيتعلّم لوحده اتحصل ولا لا"}</span></label>`).join("")}</div>
+    <div class="two" id="bDays"></div>
+    <div class="two"><div><label class="f">التحصيل بيبدأ من شهر</label><input class="inp" id="bFrom" type="month" value="${b.active_from}"></div><div><label class="f">ملاحظة</label><input class="inp" id="bNote" value="${esc(b.note || "")}" placeholder="مثلاً: بيحوّل على حساب البنك"></div></div>
+    <label class="check"><input type="checkbox" id="bActive" ${b.active ? "checked" : ""}> التحصيل شغال (شيل العلامة لو العميل وقف)</label>
+    <div class="actions"><span class="spacer"></span><button class="btn" onclick="closeModal()">إلغاء</button><button class="btn primary" onclick="saveBilling('${cid}')">حفظ</button></div>`);
+  openBilling._b = b; schedFields();
+}
+function schedFields(){ const b = openBilling._b, sch = (document.querySelector('input[name="bSch"]:checked') || {}).value || "start";
+  const sd = `<div><label class="f">${sch === "half" ? "ميعاد النص الأول (يوم كام)" : "يوم كام في الشهر"}</label><input class="inp" id="bStart" type="number" min="1" max="28" value="${b.start_day || 1}"></div>`;
+  const ed = `<div><label class="f">${sch === "half" ? "ميعاد النص التاني" : "يوم كام"}</label><select class="inp" id="bEnd"><option value="0">آخر يوم في الشهر</option>${Array.from({ length:28 }, (_, i) => i + 1).map(d => `<option value="${d}" ${+b.end_day === d ? "selected" : ""}>يوم ${d}</option>`).join("")}</select></div>`;
+  $("#bDays").innerHTML = sch === "start" ? sd : sch === "end" ? ed : sd + ed; }
+async function saveBilling(cid){
+  const fee = parseFloat($("#bFee").value); if (!(fee > 0)) return toast("اكتب المبلغ");
+  const sch = (document.querySelector('input[name="bSch"]:checked') || {}).value || "start";
+  const row = { client_id:cid, fee, currency:$("#bCur").value, schedule:sch, start_day: Math.max(1, Math.min(28, parseInt(($("#bStart") || {}).value) || 1)), end_day: parseInt(($("#bEnd") || {}).value) || 0, active_from: $("#bFrom").value || ymOf(todayK()), active:$("#bActive").checked, note:$("#bNote").value.trim() || null, updated_at:new Date().toISOString() };
+  try { await q(sb.from("client_billing").upsert(row), "billing"); FIN.billing[cid] = row; closeModal(); render(); toast("اتحفظ ✓"); } catch(e){ toast("ماتحفظش: " + (e.message || e)); }
+}
+function billingLine(c){
+  if (!FIN) { loadFinance(); return ""; }
+  const b = FIN.billing[c.id];
+  return `<div class="row lsh" style="gap:10px"><b>التحصيل</b><span class="small muted" style="flex:1">${b ? `${curAmt(b.fee, b.currency)} في الشهر · ${SCHED[b.schedule]}${b.active ? "" : " · متوقف"}` : "مش متحدد"}</span><button class="btn xs" onclick="openBilling('${c.id}')">${b ? "عدّل" : "+ حدد التحصيل"}</button></div>`;
+}
+function copyFinanceSummary(ym){
+  const live = clients.filter(c => !c.is_test && FIN.billing[c.id] && FIN.billing[c.id].active);
+  const all = live.flatMap(c => monthParts(c, ym)).filter(p => !p.skipped);
+  const plain = o => Object.keys(o).length ? Object.entries(o).map(([k, v]) => `${fmt(v)} ${CUR_AR[k]}`).join(" + ") : "0";
+  const lines = [`💰 تحصيل ${monthLabel(ym)}`, ``, `المفروض: ${plain(sumByCur(all))}`, `✅ اتحصل: ${plain(sumByCur(all.filter(p => p.paid)))}`, `⏳ فاضل: ${plain(sumByCur(all.filter(p => !p.paid)))}`, ``];
+  const paidL = all.filter(p => p.paid), lateL = all.filter(p => partStatus(p).k === "late"), soonL = all.filter(p => !p.paid && partStatus(p).k !== "late");
+  const nm = p => `${clientById(p.cid).name}${p.part !== "full" ? ` (${PART[p.part]})` : ""}: ${fmt(p.amount)} ${CUR_AR[p.currency]}`;
+  if (lateL.length) lines.push(`🔴 متأخر:`, ...lateL.map(p => `- ${nm(p)} · ${partStatus(p).t}`), ``);
+  if (soonL.length) lines.push(`🕐 لسه مستحق:`, ...soonL.map(p => `- ${nm(p)} · ميعاده ${fmtShort(p.due)}`), ``);
+  if (paidL.length) lines.push(`✅ اتحصل:`, ...paidL.map(p => `- ${nm(p)}${p.paid_date ? ` · ${fmtShort(p.paid_date)}` : ""}`));
+  const txt = lines.join("\n").trim();
+  openModal(`<h2>ملخص تحصيل ${monthLabel(ym)}</h2><p class="small muted" style="margin:4px 0 8px">اتنسخ. تقدر تلصقه في الواتساب أو أي مكان.</p><textarea class="inp" id="crTxt" style="min-height:260px;font-size:14px" readonly>${esc(txt)}</textarea><div class="actions"><span class="spacer"></span><button class="btn" onclick="copyText(document.getElementById('crTxt').value)">📋 انسخ تاني</button><button class="btn primary" onclick="closeModal()">تمام</button></div>`);
+  copyText(txt);
+}
+
+const payAr = n => n === 0 ? "ولا دفعة" : n === 1 ? "دفعة واحدة" : n === 2 ? "دفعتين" : n <= 10 ? `${n} دفعات` : `${n} دفعة`;
 
 const APP_SHELL = "<div class=\"wrap\"><header class=\"top\"><span class=\"brand\" aria-label=\"\u0632\u064a\u0627\u062f \u0625\u0628\u0631\u0627\u0647\u064a\u0645\"><svg width=\"28\" height=\"28\" viewBox=\"0 0 48 48\" aria-hidden=\"true\"><rect class=\"zm-ink\" x=\"0\" y=\"28\" width=\"12\" height=\"20\" rx=\"2\"/><rect class=\"zm-brand\" x=\"18\" y=\"16\" width=\"12\" height=\"32\" rx=\"2\"/><rect class=\"zm-signal\" x=\"36\" y=\"0\" width=\"12\" height=\"12\" rx=\"2\"/><rect class=\"zm-brand\" x=\"36\" y=\"15\" width=\"12\" height=\"33\" rx=\"2\"/></svg><span class=\"nm\">\u0632\u064a\u0627\u062f \u0625\u0628\u0631\u0627\u0647\u064a\u0645</span><span class=\"sub\">\u00b7 \u0633\u064a\u0633\u062a\u0645 \u0627\u0644\u0634\u063a\u0644</span></span><nav class=\"tabs\" id=\"tabs\"></nav><span class=\"spacer\"></span><div id=\"who\"></div></header><main id=\"view\"><div class=\"card empty\">\u0628\u064a\u062d\u0645\u0651\u0644\u2026</div></main></div>";
 start();

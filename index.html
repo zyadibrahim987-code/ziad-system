@@ -476,6 +476,22 @@ img.av.avimg{object-fit:cover;padding:0;background:var(--grey-chip)}
 .crop-cv.circ{border-radius:50%}
 .crop-cv.sq{border-radius:12px}
 .crop-cv:active{cursor:grabbing}
+
+/* finance */
+.fin-n{font-size:19px !important;line-height:1.35}
+.fin-row{margin-bottom:10px}
+.fin-h{display:flex;align-items:center;gap:10px}
+.fin-parts{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;margin-top:12px}
+.fin-p{border:1px solid var(--line);border-radius:var(--radius);padding:10px 12px;border-inline-start:4px solid var(--line)}
+.fin-p.st-paid{border-inline-start-color:var(--ok)} .fin-p.st-late{border-inline-start-color:var(--danger);background:color-mix(in srgb,var(--bad-cell) 45%,transparent)}
+.fin-p.st-due{border-inline-start-color:var(--warn)} .fin-p.st-skip{opacity:.55}
+.fin-p-top{display:flex;align-items:center;justify-content:space-between;gap:6px}
+.fin-amt{font-size:20px;font-weight:700;margin:4px 0 2px}
+.chip.bad{background:var(--bad-cell);color:var(--bad-ink)}
+.sched{display:flex;flex-direction:column;gap:6px;margin-top:4px}
+.sched-o{display:grid;grid-template-columns:auto 1fr;column-gap:8px;align-items:center;border:1px solid var(--line);border-radius:var(--radius);padding:9px 12px;cursor:pointer}
+.sched-o input{grid-row:span 2}
+.sched-o:has(input:checked){border-color:var(--accent);background:var(--accent-soft)}
 </style>
 </head>
 <body>
@@ -483,7 +499,7 @@ img.av.avimg{object-fit:cover;padding:0;background:var(--grey-chip)}
 <div class="modal-bg" id="modalBg" onmousedown="if(event.target.id==='modalBg')closeModal()"><div class="modal" id="modal"></div></div>
 <div class="toast" id="toast"></div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script>window.__APP_VERSION="20261102133356"</script>
-<script src="app.js?v=20261102133356"></script>
+<script>window.__APP_VERSION="20261103130723"</script>
+<script src="app.js?v=20261103130723"></script>
 </body>
 </html>
