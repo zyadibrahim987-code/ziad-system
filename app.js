@@ -681,7 +681,7 @@ function viewClients(){
   for (const c of list) if (canSeeNumbers(c.id) && !Mload[c.id]) loadMetrics(c.id);
   h += `<div class="grid">${list.map(c => { const a = M[c.id] && canSeeNumbers(c.id) ? agg(monthRows(c.id, ym)) : null, al = clientAlerts(c).length, team = members.filter(m => m.client_id === c.id).map(m => m.user_id);
     return `<div class="card client" onclick="go('client','${c.id}')">
-      <div class="row">${clientLogo(c, 34)}<div class="name">${esc(c.name)}</div><span class="spacer"></span>${c.status === "paused" ? `<span class="chip grey">متوقف</span>` : ""}<span class="chip grey">${c.type === "store" ? "🛒 متجر" : "📞 ليدز"}</span></div>
+      <div class="row">${clientLogo(c, 34)}<div class="name">${esc(c.name)}</div><span class="spacer"></span>${isAdmin() ? clientPayBadge(c) : ""}${c.status === "paused" ? `<span class="chip grey">متوقف</span>` : ""}<span class="chip grey">${c.type === "store" ? "🛒 متجر" : "📞 ليدز"}</span></div>
       <div class="row" style="gap:4px">${plats(c).map(p => badge(p.name)).join("")}<span class="spacer"></span>${isAdmin() ? team.map(pid => avatar(pid, 22)).join("") : ""}</div>
       ${a && (a.s || a.sl) ? `<div class="small">${MONTHS[+ym.slice(5)-1]}: صرف <b class="num">${fmt(a.s)}</b> · ${c.type === "store" ? `ROAS <b class="num">${fmt2(a.roas)}</b>` : `تحويلات <b class="num">${fmt(a.conv)}</b> · CPA <b class="num">${fmt2(a.cpl)}</b>`}</div>` : canSeeNumbers(c.id) ? `<div class="small muted">مفيش أرقام الشهر ده لسه</div>` : `<div class="small muted">${myPlatforms(c).length ? "بتسجّل أرقام: " + myPlatforms(c).map(esc).join("، ") : "تاسكات بس"}</div>`}
       ${al ? `<div class="small" style="color:var(--warn)">⚠️ ${al} تنبيه</div>` : ""}</div>`; }).join("")}</div>`;
@@ -1800,11 +1800,8 @@ function viewFinance(){
   let h = pageHead("Finance", "مين دفع، ومين لسه، وليك كام", `<button class="btn sm" onclick="copyFinanceSummary('${ym}')">📋 انسخ ملخص الشهر</button>`);
   h += `<div class="row" style="margin-bottom:14px"><div class="monthnav"><button class="btn sm" onclick="ui.finM=ymAdd('${ym}',1);saveUi();render()" aria-label="الشهر اللي بعده">›</button><div class="m">${monthLabel(ym)}</div><button class="btn sm" onclick="ui.finM=ymAdd('${ym}',-1);saveUi();render()" aria-label="الشهر اللي قبله">‹</button></div>${ym !== ymOf(todayK()) ? `<button class="btn xs ghost" onclick="ui.finM=null;saveUi();render()">الشهر ده</button>` : ""}</div>`;
   h += finSummary(real, late);
-  h += `<div class="section-title"><h3>العملاء</h3><span class="tiny muted">دوس «اتحصل» لما الفلوس توصلك</span></div>`;
-  h += withB.length ? withB.map(c => { const b = FIN.billing[c.id], parts = monthParts(c, ym);
-    return `<div class="card fin-row"><div class="fin-h">${clientLogo(c, 32)}<div style="flex:1;min-width:0"><b>${esc(c.name)}</b><div class="tiny muted">${curAmt(b.fee, b.currency)} في الشهر · ${SCHED[b.schedule]}</div></div><button class="btn xs ghost" onclick="openBilling('${c.id}')">⚙︎ الإعداد</button></div>
-      ${parts.length ? `<div class="fin-parts">${parts.map(p => finPart(p)).join("")}</div>` : `<div class="small muted" style="margin-top:8px">مفيش تحصيل للعميل ده في ${monthLabel(ym)}${ym < b.active_from ? ` (التحصيل بيبدأ ${monthLabel(b.active_from)})` : ""}.</div>`}</div>`; }).join("")
-    : `<div class="card small muted">لسه مفيش عميل متحدد له تحصيل. اختار عميل من تحت وحدد المبلغ ونظام الدفع.</div>`;
+  h += `<div class="section-title"><h3>العملاء</h3><span class="tiny muted">الأخضر دفع، والأحمر متأخر، والرمادي لسه ميعاده ماجاش</span></div>`;
+  h += withB.length ? `<div class="fin-list">${withB.map(c => finClientRow(c, ym)).join("")}</div>` : `<div class="card small muted">لسه مفيش عميل متحدد له تحصيل. اختار عميل من تحت وحدد المبلغ ونظام الدفع.</div>`;
   const paused = live.filter(c => FIN.billing[c.id] && !FIN.billing[c.id].active);
   if (noB.length || paused.length) h += `<div class="section-title"><h3>عملاء مالهمش تحصيل شغال</h3></div><div class="card" style="padding:4px 16px">${[...noB, ...paused].map(c => `<div class="trow">${clientLogo(c, 26)}<b style="flex:1">${esc(c.name)}</b>${FIN.billing[c.id] ? `<span class="chip grey">متوقف</span>` : ""}<button class="btn xs primary" onclick="openBilling('${c.id}')">${FIN.billing[c.id] ? "عدّل" : "+ حدد التحصيل"}</button></div>`).join("")}</div>`;
   h += finYear(ym.slice(0,4), withB);
@@ -1926,6 +1923,38 @@ async function saveFx(k, v){
   const fx = Object.assign({}, FIN.fx || {}); const n = parseFloat(v); if (n > 0) fx[k] = n; else delete fx[k]; fx.updated = todayK();
   try { await q(sb.from("app_settings").upsert({ k:"fx", v:fx, updated_at:new Date().toISOString() }), "fx"); FIN.fx = fx; render(); toast("اتحفظ السعر ✓"); }
   catch(e){ toast("ماتحفظش: " + (e.message || e)); }
+}
+
+
+/* one line per client: fee + status of each installment */
+function clientPayState(c, ym){
+  if (!FIN || !FIN.billing[c.id] || !FIN.billing[c.id].active) return null;
+  const parts = monthParts(c, ym).filter(p => !p.skipped); if (!parts.length) return { k:"none", parts };
+  const st = parts.map(partStatus);
+  const k = st.every(x => x.k === "paid") ? "paid" : st.some(x => x.k === "late") ? "late" : st.some(x => x.k === "paid") ? "part" : st.some(x => x.k === "due") ? "due" : "soon";
+  return { k, parts, st };
+}
+const PAY_LABEL = { paid:"دفع ✓", late:"متأخر", part:"دفع جزء", due:"مستحق النهارده", soon:"لسه ميعاده ماجاش", none:"مفيش الشهر ده" };
+function finClientRow(c, ym){
+  const b = FIN.billing[c.id], ps = clientPayState(c, ym) || { k:"none", parts:[] };
+  const pills = ps.parts.map(p => { const st = partStatus(p), args = `'${c.id}','${ym}','${p.part}'`;
+    return `<div class="fl-pill st-${st.k}">
+      <div class="fl-pill-t">${p.part === "full" ? "" : `<span class="tiny">${PART[p.part]}</span>`}<b class="num">${curAmt(p.amount, p.currency)}</b></div>
+      <div class="tiny">${st.k === "paid" ? `اتحصل ${fmtShort(p.paid_date || p.due)}${st.late ? ` · متأخر ${daysAr(st.late)}` : ""}` : st.t}</div>
+      <div class="fl-act">${st.k === "skip" ? `<button class="btn xs" onclick="setSkip(${args},false)">رجّعها</button>` : p.paid ? `<button class="btn xs ghost" title="رجّعها مااتحصلتش" onclick="unpay(${args})">↺</button>` : `<button class="btn xs primary" onclick="openPay(${args})">✓ اتحصل</button>`}<button class="btn xs ghost" title="تعديل الشهر ده" onclick="openPartEdit(${args})">✎</button></div></div>`; }).join("");
+  return `<div class="fl-row pay-${ps.k}">
+    <div class="fl-client">${clientLogo(c, 34)}<div style="min-width:0"><b>${esc(c.name)}</b><div class="tiny muted">${SCHED[b.schedule]}</div></div></div>
+    <div class="fl-fee"><span class="tiny muted">في الشهر</span><b class="num">${curAmt(b.fee, b.currency)}</b></div>
+    <div class="fl-state"><span class="pay-badge pb-${ps.k}">${PAY_LABEL[ps.k]}</span></div>
+    <div class="fl-pills">${pills || `<span class="tiny muted">${ym < b.active_from ? `التحصيل بيبدأ ${monthLabel(b.active_from)}` : "مفيش تحصيل الشهر ده"}</span>`}</div>
+    <button class="btn xs ghost" title="إعداد التحصيل" onclick="openBilling('${c.id}')">⚙︎</button></div>`;
+}
+
+function clientPayBadge(c){
+  if (!FIN) { loadFinance(); return ""; }
+  const b = FIN.billing[c.id]; if (!b || !b.active) return "";
+  const ps = clientPayState(c, ymOf(todayK())) || { k:"none" };
+  return `<span class="pay-badge pb-${ps.k}" title="تحصيل الشهر ده" onclick="event.stopPropagation();go('finance')">${curAmt(b.fee, b.currency)} · ${PAY_LABEL[ps.k]}</span>`;
 }
 
 const APP_SHELL = "<div class=\"wrap\"><header class=\"top\"><span class=\"brand\" aria-label=\"\u0632\u064a\u0627\u062f \u0625\u0628\u0631\u0627\u0647\u064a\u0645\"><svg width=\"28\" height=\"28\" viewBox=\"0 0 48 48\" aria-hidden=\"true\"><rect class=\"zm-ink\" x=\"0\" y=\"28\" width=\"12\" height=\"20\" rx=\"2\"/><rect class=\"zm-brand\" x=\"18\" y=\"16\" width=\"12\" height=\"32\" rx=\"2\"/><rect class=\"zm-signal\" x=\"36\" y=\"0\" width=\"12\" height=\"12\" rx=\"2\"/><rect class=\"zm-brand\" x=\"36\" y=\"15\" width=\"12\" height=\"33\" rx=\"2\"/></svg><span class=\"nm\">\u0632\u064a\u0627\u062f \u0625\u0628\u0631\u0627\u0647\u064a\u0645</span><span class=\"sub\">\u00b7 \u0633\u064a\u0633\u062a\u0645 \u0627\u0644\u0634\u063a\u0644</span></span><nav class=\"tabs\" id=\"tabs\"></nav><span class=\"spacer\"></span><div id=\"who\"></div></header><main id=\"view\"><div class=\"card empty\">\u0628\u064a\u062d\u0645\u0651\u0644\u2026</div></main></div>";

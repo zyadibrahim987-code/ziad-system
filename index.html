@@ -506,6 +506,29 @@ img.av.avimg{object-fit:cover;padding:0;background:var(--grey-chip)}
 .fx-in{display:inline-flex;align-items:center;gap:6px}
 .fx-in .inp{width:84px;padding:4px 8px}
 @media (max-width:700px){.fs-row{grid-template-columns:1fr 1fr;row-gap:4px}.fs-head{display:none}}
+
+/* finance client list */
+.fin-list{display:flex;flex-direction:column;gap:8px}
+.fl-row{display:grid;grid-template-columns:minmax(170px,1.3fr) 130px 130px minmax(0,3fr) auto;gap:14px;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:12px 14px;border-inline-start:5px solid var(--line)}
+.fl-row.pay-paid{border-inline-start-color:var(--ok);background:color-mix(in srgb,var(--ok-cell) 55%,var(--card))}
+.fl-row.pay-late{border-inline-start-color:var(--danger);background:color-mix(in srgb,var(--bad-cell) 45%,var(--card))}
+.fl-row.pay-part,.fl-row.pay-due{border-inline-start-color:var(--warn)}
+.fl-client{display:flex;align-items:center;gap:10px;min-width:0}
+.fl-client b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fl-fee{display:flex;flex-direction:column;line-height:1.3}.fl-fee b{font-size:16px}
+.fl-pills{display:flex;flex-wrap:wrap;gap:8px}
+.fl-pill{display:grid;grid-template-columns:1fr auto;column-gap:10px;align-items:center;border:1px solid var(--line);border-radius:var(--radius);padding:6px 10px;background:var(--card);min-width:200px}
+.fl-pill .tiny{color:var(--muted)}
+.fl-pill-t{display:flex;align-items:baseline;gap:6px}
+.fl-act{grid-row:span 2;display:flex;gap:4px}
+.fl-pill.st-paid{border-color:var(--ok-line)} .fl-pill.st-paid .tiny{color:var(--ok-ink)}
+.fl-pill.st-late{border-color:var(--bad-line)} .fl-pill.st-late .tiny{color:var(--bad-ink)}
+.fl-pill.st-skip{opacity:.5}
+.pay-badge{display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:600;padding:3px 10px;border-radius:999px;background:var(--grey-chip);color:var(--muted);white-space:nowrap;cursor:default}
+.pay-badge.pb-paid{background:var(--ok-cell);color:var(--ok-ink)} .pay-badge.pb-late{background:var(--bad-cell);color:var(--bad-ink)}
+.pay-badge.pb-part,.pay-badge.pb-due{background:var(--amb-cell);color:var(--amb-ink)}
+.ccard .pay-badge,.row .pay-badge{cursor:pointer}
+@media (max-width:900px){.fl-row{grid-template-columns:1fr auto;row-gap:8px}.fl-pills{grid-column:1 / -1}.fl-fee,.fl-state{display:inline-flex}}
 </style>
 </head>
 <body>
@@ -513,7 +536,7 @@ img.av.avimg{object-fit:cover;padding:0;background:var(--grey-chip)}
 <div class="modal-bg" id="modalBg" onmousedown="if(event.target.id==='modalBg')closeModal()"><div class="modal" id="modal"></div></div>
 <div class="toast" id="toast"></div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script>window.__APP_VERSION="20261103131637"</script>
-<script src="app.js?v=20261103131637"></script>
+<script>window.__APP_VERSION="20261103132911"</script>
+<script src="app.js?v=20261103132911"></script>
 </body>
 </html>
