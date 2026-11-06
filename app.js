@@ -988,7 +988,7 @@ async function checkVersion(){
 function applyUpdate(v){
   let tried = ""; try { tried = sessionStorage.getItem("upd_" + v) || ""; } catch(e){}
   if (tried) return; // already reloaded once for this version; CDN may still be catching up
-  const busy = $("#modalBg") && $("#modalBg").classList.contains("show");
+  const busy = ($("#modalBg") && $("#modalBg").classList.contains("show")) || (typeof CPtimer !== "undefined" && CPtimer) || (document.activeElement && document.activeElement.closest && document.activeElement.closest(".cp-ed"));
   if (busy) { pendingVersion = v; showUpdateBar(); return; }
   try { sessionStorage.setItem("upd_" + v, "1"); } catch(e){}
   location.replace(location.pathname + "?v=" + encodeURIComponent(v) + location.hash);
@@ -1358,7 +1358,7 @@ function clientViews(c, see, mp){
   O.push({ k:"deliv", l:"Deliveries", sub: isAdmin() ? "التسليمات اللي اتعملت" : "تسليماتك على العميل" });
   O.push({ k:"tasks", l:"Tasks", sub: isAdmin() ? "كل مهام العميل" : "تاسكاتك على العميل" });
   const P = [];
-  if (canPlan(c.id)) P.push({ k:"mplan", l:"Media plan", sub:"الميزانية والحملات" });
+  if (canPlan(c.id)) { P.push({ k:"mplan", l:"Media plan", sub:"الميزانية والحملات" }); P.push({ k:"camps", l:"Campaigns", sub:"Search · PMax" }); }
   return { R, O, P };
 }
 function sliceMetric(c, sl, ym){
@@ -1373,7 +1373,7 @@ function clientBody(c, ym, see, mp){
   let k = ui.cv[c.id]; if (!all.some(v => v.k === k)) k = (R[0] || O[0]).k;
   const v = all.find(x => x.k === k);
   const item = x => `<button class="${x.k === k ? "on" : ""}" onclick="ui.cv=ui.cv||{};ui.cv['${c.id}']='${x.k}';ui.selDay=null;saveUi();render()">
-      ${x.av ? avatar(x.av, 22) : `<span class="cv-ic">${x.k === "total" ? "Σ" : x.k === "files" ? "⌗" : x.k === "deliv" ? "↗" : x.k === "mplan" ? "▤" : "✓"}</span>`}
+      ${x.av ? avatar(x.av, 22) : `<span class="cv-ic">${x.k === "total" ? "Σ" : x.k === "files" ? "⌗" : x.k === "deliv" ? "↗" : x.k === "mplan" ? "▤" : x.k === "camps" ? "◎" : "✓"}</span>`}
       <span class="cv-t"><b>${esc(x.l)}</b><span>${esc(x.sub)}</span></span>
       ${R.includes(x) ? `<span class="cv-m">${sliceMetric(c, x.sl, ym)}</span>` : ""}</button>`;
   const nav = `<nav class="cnav">${R.length ? `<div class="cnav-l">Results</div>${R.map(item).join("")}` : ""}${P.length ? `<div class="cnav-l">Plan</div>${P.map(item).join("")}` : ""}<div class="cnav-l">Client</div>${O.map(item).join("")}</nav>`;
@@ -1390,6 +1390,7 @@ function clientPanel(c, ym, v, see, mp){
   const head = (t, sub, av) => `<div class="cv-head">${av ? avatar(av, 30) : ""}<div><h2>${t}</h2>${sub ? `<div class="ph-sub">${sub}</div>` : ""}</div></div>`;
   if (v.k === "files") return head("Files", "لينكات درايف وملفات العميل، وأي حد على العميل يقدر يضيف ويعدّل") + filesBlock(c).replace(/^<div class="section-title">[\s\S]*?<\/div>/, "");
   if (v.k === "mplan") return mediaPlanView(c);
+  if (v.k === "camps") return campaignsView(c);
   if (v.k === "deliv") return head("Deliveries", "كل اللي اتسلّم على العميل ده: اللينكات والملفات، مين سلّمها وإمتى") + delivBlock(c);
   if (v.k === "tasks") {
     const ct = isAdmin() ? tasks.filter(t => t.clientId === c.id) : tasks.filter(t => t.clientId === c.id && t.assigneeId === me.id);
@@ -2114,6 +2115,219 @@ const linkRow = l => `<div class="dyn-row"><input class="inp dyn-k" data-k="labe
 const extraRow = x => `<div class="dyn-row ex"><input class="inp dyn-k" data-k="label" dir="auto" value="${esc(x.label || "")}" placeholder="اسم الخانة (مثلاً: الكوبون)"><textarea class="inp" data-k="value" dir="auto" rows="2" placeholder="اكتب هنا">${esc(x.value || "")}</textarea><button type="button" class="btn xs ghost" title="امسح الخانة" onclick="this.parentNode.remove()">✕</button></div>`;
 function dynAdd(id, html, focus){ const w = document.getElementById(id); w.insertAdjacentHTML("beforeend", html); const r = w.lastElementChild; const f = r.querySelector(focus ? "[data-k=label]" : "[data-k=url]") || r.querySelector("input"); f && f.focus(); }
 function dynRead(id, keys){ const w = document.getElementById(id); if (!w) return []; return [...w.children].map(r => Object.fromEntries(keys.map(k => [k, ((r.querySelector(`[data-k="${k}"]`) || {}).value || "").trim()]))); }
+
+/* ================= Campaigns (Search; PMax next) ================= */
+let CPN = {}, CPload = {}, CPedit = null, CPtimer = null;
+const gp = (o, p) => p.split(".").reduce((a, k) => a == null ? a : a[k], o);
+function sp(o, p, v){ const ks = p.split("."); let a = o; for (let i = 0; i < ks.length - 1; i++) { const k = ks[i]; if (a[k] == null) a[k] = /^\d+$/.test(ks[i + 1]) ? [] : {}; a = a[k]; } a[ks[ks.length - 1]] = v; }
+const TRACK_DEFAULT = ["Google tag / GA4 متركّب على الموقع","Conversion actions متعرّفة (Purchase / Lead)","Primary conversion goal متظبط صح","Enhanced conversions","Auto-tagging شغال","Final URL suffix / UTM","GA4 مربوط بـ Google Ads","Call tracking (لو فيه مكالمات)"];
+const BIDDING = ["Maximize conversions","Maximize conversion value","Target CPA","Target ROAS","Maximize clicks","Manual CPC"];
+const SNIP_H = ["Amenities","Brands","Courses","Degree programs","Destinations","Featured hotels","Insurance coverage","Models","Neighborhoods","Service catalog","Shows","Styles","Types"];
+const newGroup = n => ({ name: "Ad group " + n, kw:"", neg:"", url:"", path1:"", path2:"", h: Array.from({ length:15 }, () => ({ t:"", pin:"" })), d: Array.from({ length:4 }, () => ({ t:"", pin:"" })), extra:[] });
+const newSearch = () => ({ settings:{ budget:"", bidding:"Maximize conversions", target:"", locations:"", loc_opt:"Presence", languages:"Arabic, English", partners:false, display:false, schedule:"", start:"", end:"", url:"", extra:[] }, groups:[newGroup(1)], neg:"", sitelinks:[], callouts:[], snippets:[], phone:"", ext_extra:[], track: TRACK_DEFAULT.map(t => ({ t, done:false })), launch:"", tests:[], optim:"", extra:[] });
+
+async function loadCamps(cid, force){
+  if (CPload[cid] && !force) return CPload[cid];
+  CPload[cid] = (async () => { try { CPN[cid] = await q(sb.from("plan_campaigns").select("*").eq("client_id", cid).order("sort").order("updated_at"), "camps"); } catch(e){ CPN[cid] = []; toast("مقدرتش أجيب الحملات: " + (e.message || e)); } render(); })();
+  return CPload[cid];
+}
+function parseKw(txt){ return String(txt || "").split(/\n/).map(x => x.trim().replace(/^-\s*/, "")).filter(Boolean).map(x => /^\[.*\]$/.test(x) ? { t: x.slice(1, -1).trim(), m:"Exact" } : /^".*"$/.test(x) ? { t: x.slice(1, -1).trim(), m:"Phrase" } : { t: x, m:"Broad" }).filter(k => k.t); }
+const filled = a => (a || []).filter(x => (x.t || "").trim());
+function cpQA(c){
+  const d = c.data || {}, out = [], st = d.settings || {}, bad = t => out.push({ lv:"bad", t }), warn = t => out.push({ lv:"warn", t });
+  if (!+st.budget) warn("مفيش ميزانية يومية متحددة");
+  (d.groups || []).forEach((g, i) => {
+    const n = `«${g.name || "Ad group " + (i + 1)}»`, H = filled(g.h), D = filled(g.d), kw = parseKw(g.kw);
+    if (!kw.length) bad(`${n} مفيهوش كلمات بحث`);
+    if (H.length < 3) bad(`${n} محتاج 3 عناوين على الأقل (فيه ${H.length})`); else if (H.length < 10) warn(`${n} فيه ${H.length} عناوين بس. Google بيفضّل 10 أو أكتر عشان الـ Ad strength`);
+    if (D.length < 2) bad(`${n} محتاج وصفين على الأقل (فيه ${D.length})`);
+    const longH = H.filter(x => x.t.length > 30).length, longD = D.filter(x => x.t.length > 90).length;
+    if (longH) bad(`${n}: ${longH} عنوان أطول من 30 حرف`);
+    if (longD) bad(`${n}: ${longD} وصف أطول من 90 حرف`);
+    if ((g.path1 || "").length > 15 || (g.path2 || "").length > 15) bad(`${n}: الـ Path أطول من 15 حرف`);
+    const seen = {}, dup = H.filter(x => { const k = x.t.trim().toLowerCase(); if (seen[k]) return true; seen[k] = 1; }); if (dup.length) warn(`${n}: فيه عناوين متكررة`);
+    if (!(g.url || st.url)) bad(`${n} مفيهوش Final URL`);
+  });
+  const sl = d.sitelinks || [];
+  if (sl.some(x => (x.t || "").length > 25 || (x.d1 || "").length > 35 || (x.d2 || "").length > 35)) bad("فيه Sitelink أطول من المسموح (25 للنص، 35 للوصف)");
+  if (sl.length < 4) warn(`الـ Sitelinks ${sl.length} بس. يفضّل 4 على الأقل`);
+  const co = (d.callouts || []).filter(x => (x || "").trim());
+  if (co.some(x => x.length > 25)) bad("فيه Callout أطول من 25 حرف");
+  if (co.length < 4) warn(`الـ Callouts ${co.length} بس. يفضّل 4 على الأقل`);
+  if ((d.snippets || []).some(s => String(s.v || "").split("\n").some(x => x.trim().length > 25))) bad("فيه قيمة في الـ Snippets أطول من 25 حرف");
+  return out;
+}
+function campaignsView(c){
+  const edit = canEditPlan(c.id);
+  if (!(c.id in CPN)) { loadCamps(c.id); return `<div class="cv-head"><div><h2>Campaigns</h2></div></div><div class="card empty">بيحمّل…</div>`; }
+  const open = ui.cpOpen && CPN[c.id].find(x => x.id === ui.cpOpen);
+  if (open) return campaignEditor(c, open, edit);
+  CPedit = null;
+  const list = CPN[c.id];
+  let h = `<div class="cv-head"><div><h2>Campaigns</h2><div class="ph-sub">ستراكشر الحملات بالتفصيل${edit ? "" : " · للعرض بس"}</div></div>${edit ? `<div class="row" style="gap:6px"><button class="btn sm primary" onclick="newCamp('${c.id}','search')">+ حملة Search</button><button class="btn sm" disabled title="المرحلة الجاية">+ Performance Max · قريب</button></div>` : ""}</div>`;
+  if (!list.length) return h + `<div class="mp-empty"><h3>لسه مفيش حملات</h3><p class="small muted">كل حملة Search فيها: الإعدادات، والـ Ad groups بالكلمات والإعلانات، والـ Extensions، والتراكينج. السيستم بيعد الحروف وبيقولك لو فيه حاجة ناقصة، وفي الآخر تنزّلها ملف لـ Google Ads Editor.</p>${edit ? `<button class="btn primary" onclick="newCamp('${c.id}','search')">+ أول حملة Search</button>` : ""}</div>`;
+  h += `<div class="cp-list">` + list.map(x => {
+    const d = x.data || {}, G = d.groups || [], kw = G.reduce((a, g) => a + parseKw(g.kw).length, 0), qa = cpQA(x), nb = qa.filter(z => z.lv === "bad").length, nw = qa.length - nb, [sl, sc] = PSTATUS[x.status] || PSTATUS.planned;
+    return `<button class="cp-row" onclick="ui.cpOpen='${x.id}';ui.cpTab=ui.cpTab||'groups';render();window.scrollTo(0,0)">
+      <span class="cp-kind">${x.kind === "pmax" ? "PMax" : "Search"}</span>
+      <span class="cp-nm"><b dir="auto">${esc(x.name || "حملة")}</b><span class="tiny muted">${G.length} ad group${G.length === 1 ? "" : "s"} · ${kw} keyword${kw === 1 ? "" : "s"}${+((d.settings || {}).budget) ? " · " + money("", d.settings.budget, cur(c), 0) + " يومي" : ""}</span></span>
+      <span class="chip ${nb ? "warn" : nw ? "amb" : "ok"}">${nb ? `${nb} لازم تتصلّح` : nw ? `${nw} ملاحظات` : "جاهزة ✓"}</span>
+      <span class="chip ${sc}">${sl}</span></button>`;
+  }).join("") + `</div>`;
+  return h;
+}
+async function newCamp(cid, kind){
+  const c = clientById(cid), n = (CPN[cid] || []).filter(x => x.kind === kind).length + 1;
+  try { const r = await q(sb.from("plan_campaigns").insert({ client_id:cid, kind, name: `${c.name} · Search ${n}`, data: newSearch(), sort: (CPN[cid] || []).length }).select(), "campins");
+    await loadCamps(cid, true); const row = (r && r[0]) || CPN[cid][CPN[cid].length - 1]; ui.cpOpen = row.id; ui.cpTab = "settings"; render(); toast("اتعملت ✓ ابدأ من الإعدادات");
+  } catch(e){ toast("ماتعملتش: " + (e.message || e)); }
+}
+/* input builders: everything bound by data-p path, saves automatically */
+function cpIn(p, o){ o = o || {}; const v = String(gp(CPedit.data, p) ?? ""), lim = o.lim;
+  return `<div class="cpi${lim ? " lim" : ""}"><input class="inp" ${o.type ? `type="${o.type}"` : ""} dir="${o.dir || "auto"}" data-p="${p}" ${lim ? `data-lim="${lim}"` : ""} value="${esc(v)}" placeholder="${esc(o.ph || "")}" ${o.list ? `list="${o.list}"` : ""} oninput="cpSet(this)">${lim ? `<span class="cc${v.length > lim ? " over" : ""}">${v.length}/${lim}</span>` : ""}</div>`; }
+function cpTa(p, o){ o = o || {}; const v = String(gp(CPedit.data, p) ?? "");
+  return `<textarea class="inp" dir="${o.dir || "auto"}" rows="${o.rows || 3}" data-p="${p}" placeholder="${esc(o.ph || "")}" oninput="cpSet(this)">${esc(v)}</textarea>`; }
+const cpF = (label, inner, hint) => `<div class="cpf"><label class="f">${label}</label>${inner}${hint ? `<div class="tiny muted" style="margin-top:3px">${hint}</div>` : ""}</div>`;
+function cpExtra(p){ const arr = gp(CPedit.data, p) || [];
+  return `${arr.map((x, i) => `<div class="dyn-row ex"><input class="inp dyn-k" dir="auto" data-p="${p}.${i}.label" value="${esc(x.label || "")}" placeholder="اسم الخانة" oninput="cpSet(this)"><textarea class="inp" dir="auto" rows="2" data-p="${p}.${i}.value" placeholder="اكتب هنا" oninput="cpSet(this)">${esc(x.value || "")}</textarea><button type="button" class="btn xs ghost" title="امسح الخانة" onclick="cpDel('${p}',${i})">✕</button></div>`).join("")}
+    <button type="button" class="dyn-add" onclick="cpAdd('${p}',{label:'',value:''})">+ خانة جديدة <span class="tiny muted">(تسمّيها زي ما تحب)</span></button>`; }
+function cpSet(el){
+  const c = CPedit; if (!c) return; const p = el.dataset.p, v = el.type === "checkbox" ? el.checked : el.value;
+  if (p === "@name") c.name = v; else if (p === "@status") c.status = v; else sp(c.data, p, v);
+  const lim = +el.dataset.lim, cc = el.parentNode.querySelector(".cc"); if (lim && cc) { cc.textContent = `${v.length}/${lim}`; cc.classList.toggle("over", v.length > lim); }
+  cpLive(); cpQueue();
+}
+function cpAdd(p, tpl){ const a = gp(CPedit.data, p) || []; a.push(JSON.parse(JSON.stringify(tpl))); sp(CPedit.data, p, a); cpQueue(); render(); }
+function cpDel(p, i){ const a = gp(CPedit.data, p) || []; a.splice(i, 1); cpQueue(); render(); }
+function cpQueue(){ const ind = $("#cpSaved"); if (ind) { ind.textContent = "بيتحفظ…"; ind.className = "tiny muted"; } clearTimeout(CPtimer); CPtimer = setTimeout(cpFlush, 700); }
+async function cpFlush(){
+  clearTimeout(CPtimer); CPtimer = null; const c = CPedit; if (!c) return;
+  try { c.updated_at = new Date().toISOString(); await q(sb.from("plan_campaigns").update({ name: c.name, status: c.status, data: c.data, updated_at: c.updated_at }).eq("id", c.id), "campsave"); const ind = $("#cpSaved"); if (ind) { ind.textContent = "اتحفظ ✓"; ind.className = "tiny lv-ok"; } }
+  catch(e){ const ind = $("#cpSaved"); if (ind) { ind.textContent = "ماتحفظش! جرّب تاني"; ind.className = "tiny lv-bad"; } toast("ماتحفظش: " + (e.message || e)); }
+}
+async function cpClose(){ if (CPtimer) await cpFlush(); ui.cpOpen = null; CPedit = null; render(); window.scrollTo(0,0); }
+function cpLive(){ document.querySelectorAll("[data-live]").forEach(n => { n.innerHTML = cpFrag(n.dataset.live); isolateLatin && isolateLatin(n); }); }
+function cpFrag(k){
+  const c = CPedit; if (!c) return ""; const d = c.data;
+  if (k === "qa") { const qa = cpQA(c); return qa.length ? `<details ${qa.some(x => x.lv === "bad") ? "open" : ""}><summary><b>${qa.filter(x => x.lv === "bad").length ? `${qa.filter(x => x.lv === "bad").length} حاجة لازم تتصلّح` : "مفيش أخطاء"}</b>${qa.filter(x => x.lv === "warn").length ? ` · ${qa.filter(x => x.lv === "warn").length} ملاحظات` : ""} <span class="tiny muted">(اضغط للتفاصيل)</span></summary><ul>${qa.map(x => `<li class="lv-${x.lv}">${esc(x.t)}</li>`).join("")}</ul></details>` : `<b class="lv-ok">✓ الحملة جاهزة، مفيش أخطاء</b>`; }
+  if (k.startsWith("kw:")) { const kw = parseKw(d.groups[+k.slice(3)].kw), n = m => kw.filter(x => x.m === m).length; return `${kw.length} كلمة · Exact ${n("Exact")} · Phrase ${n("Phrase")} · Broad ${n("Broad")}`; }
+  if (k.startsWith("prev:")) {
+    const g = d.groups[+k.slice(5)], url = g.url || d.settings.url || "", dom = (url.replace(/^https?:\/\//, "").split("/")[0] || "example.com");
+    const H = filled(g.h), D = filled(g.d), pick = (arr, n) => { const out = [], used = new Set(); for (let pos = 1; pos <= n; pos++) { const p = arr.find(x => +x.pin === pos && !used.has(x)); if (p) { out.push(p); used.add(p); } else { const f = arr.find(x => !x.pin && !used.has(x)); if (f) { out.push(f); used.add(f); } } } return out.map(x => x.t); };
+    const hs = pick(H, 3), ds = pick(D, 2);
+    return `<div class="gad-s">Sponsored</div><div class="gad-u" dir="ltr">${esc(dom)}${g.path1 ? " › " + esc(g.path1) : ""}${g.path2 ? " › " + esc(g.path2) : ""}</div><div class="gad-h" dir="auto">${hs.length ? hs.map(esc).join(" | ") : "العنوان 1 | العنوان 2 | العنوان 3"}</div><div class="gad-d" dir="auto">${ds.length ? ds.map(esc).join(" ") : "الوصف هيظهر هنا"}</div>`;
+  }
+  return "";
+}
+function campaignEditor(c, x, edit){
+  CPedit = x; const d = x.data = Object.assign(newSearch(), x.data || {}); d.settings = Object.assign(newSearch().settings, d.settings || {});
+  const tab = ui.cpTab || "groups", TABS = [["settings","الإعدادات"],["groups","Ad groups"],["ext","Extensions"],["track","Tracking & launch"],["test","Testing & optimization"]];
+  let h = `<div class="cp-ed">
+    <div class="row" style="gap:8px;margin-bottom:10px"><button class="btn sm ghost" onclick="cpClose()">→ كل الحملات</button><span class="spacer"></span><span id="cpSaved" class="tiny muted">${edit ? "كل حاجة بتتحفظ لوحدها" : "للعرض بس"}</span>
+      <button class="btn sm" onclick="cpExport('${c.id}')" title="ملف تفتحه في Google Ads Editor">⬇ Google Ads Editor</button>
+      ${edit ? `<button class="btn sm ghost" onclick="cpDup('${c.id}')">⧉ نسخة</button><button class="btn sm ghost" onclick="cpAskDel('${c.id}')">🗑</button>` : ""}</div>
+    <fieldset class="cp-fs" ${edit ? "" : "disabled"}>
+    <div class="cp-top"><span class="cp-kind">Search</span><input class="inp cp-name" dir="auto" data-p="@name" value="${esc(x.name || "")}" placeholder="اسم الحملة" oninput="cpSet(this)">
+      <select class="mp-st st-${(PSTATUS[x.status] || PSTATUS.planned)[1]}" data-p="@status" onchange="cpSet(this);this.className='mp-st st-'+({planned:'amb',live:'ok'}[this.value]||'grey')">${Object.entries(PSTATUS).map(([k, [l]]) => `<option value="${k}" ${x.status === k ? "selected" : ""}>${l}</option>`).join("")}</select></div>
+    </fieldset>
+    <div class="cp-qa" data-live="qa">${cpFrag("qa")}</div>
+    <div class="cp-tabs">${TABS.map(([k, l]) => `<button class="${tab === k ? "on" : ""}" onclick="ui.cpTab='${k}';render()">${l}</button>`).join("")}</div>
+    <fieldset class="cp-fs" ${edit ? "" : "disabled"}>`;
+  if (tab === "settings") {
+    h += `<datalist id="dlBid">${BIDDING.map(b => `<option value="${b}">`).join("")}</datalist><div class="cp-card"><div class="cp-grid">
+      ${cpF(`الميزانية اليومية (${esc(cur(c))})`, cpIn("settings.budget", { type:"number", dir:"ltr", ph:"مثلاً 300" }))}
+      ${cpF("Bidding strategy", cpIn("settings.bidding", { list:"dlBid", dir:"ltr", ph:"اختار أو اكتب" }))}
+      ${cpF("Target CPA / ROAS", cpIn("settings.target", { dir:"ltr", ph:"لو فيه، مثلاً 45 أو 400%" }))}
+      ${cpF("Final URL الأساسي", cpIn("settings.url", { dir:"ltr", ph:"https://" }), "أي Ad group من غير لينك بياخد ده")}
+      ${cpF("الأماكن", cpIn("settings.locations", { ph:"مثلاً: الرياض، جدة، مكة" }))}
+      ${cpF("Location option", `<select class="inp" data-p="settings.loc_opt" onchange="cpSet(this)">${[["Presence","Presence · الناس اللي موجودة في المكان (المفضّل)"],["Presence or interest","Presence or interest · موجودة أو مهتمة"]].map(([k, l]) => `<option value="${k}" ${d.settings.loc_opt === k ? "selected" : ""}>${l}</option>`).join("")}</select>`)}
+      ${cpF("اللغات", cpIn("settings.languages", { ph:"Arabic, English" }))}
+      ${cpF("مواعيد الإعلانات", cpIn("settings.schedule", { ph:"مثلاً: كل يوم 10ص – 2ص" }))}
+      ${cpF("تاريخ البداية", cpIn("settings.start", { type:"date", dir:"ltr" }))}
+      ${cpF("تاريخ النهاية", cpIn("settings.end", { type:"date", dir:"ltr" }), "سيبه فاضي لو مفتوحة")}
+      </div>
+      <label class="f">Networks</label><div class="row" style="gap:14px"><label class="perm-c"><input type="checkbox" checked disabled> Google Search</label><label class="perm-c"><input type="checkbox" data-p="settings.partners" ${d.settings.partners ? "checked" : ""} onchange="cpSet(this)"> Search partners</label><label class="perm-c"><input type="checkbox" data-p="settings.display" ${d.settings.display ? "checked" : ""} onchange="cpSet(this)"> Display Network</label></div>
+      ${cpF("Negative keywords على مستوى الحملة", cpTa("neg", { dir:"ltr", rows:4, ph:"كلمة في كل سطر\n[مجاني]\n\"وظائف\"\nمستعمل" }), "سطر لكل كلمة · [ ] = Exact · \" \" = Phrase · من غيرهم = Broad")}
+      ${cpExtra("settings.extra")}</div>`;
+  }
+  if (tab === "groups") {
+    const og = ui.cpG == null ? 0 : ui.cpG;
+    d.groups.forEach((g, gi) => {
+      const open = og === gi, H = filled(g.h), D = filled(g.d);
+      h += `<div class="cp-card cp-g${open ? " open" : ""}"><div class="cp-gh" onclick="ui.cpG=${open ? -1 : gi};render()"><b dir="auto">${esc(g.name || "Ad group " + (gi + 1))}</b><span class="tiny muted">${parseKw(g.kw).length} كلمة · ${H.length}/15 عنوان · ${D.length}/4 وصف</span><span class="spacer"></span><span class="tiny muted">${open ? "▲" : "▼"}</span></div>`;
+      if (!open) { h += `</div>`; return; }
+      const pinSel = (p, max) => `<select class="pin" data-p="${p}" onchange="cpSet(this);cpLive()" title="تثبيت المكان">${["", ...Array.from({ length:max }, (_, i) => String(i + 1))].map(v => `<option value="${v}" ${String(gp(d, p) || "") === v ? "selected" : ""}>${v ? "📌 " + v : "—"}</option>`).join("")}</select>`;
+      h += `<div class="cp-gb"><div class="cp-grid">${cpF("اسم الـ Ad group", cpIn(`groups.${gi}.name`, { ph:"مثلاً: عيون · ليزك" }))}${cpF("Final URL", cpIn(`groups.${gi}.url`, { dir:"ltr", ph: d.settings.url || "https://" }), d.settings.url ? "لو فاضي بياخد لينك الحملة" : "")}
+        ${cpF("Path 1", cpIn(`groups.${gi}.path1`, { lim:15, dir:"auto", ph:"مثلاً: عروض" }))}${cpF("Path 2", cpIn(`groups.${gi}.path2`, { lim:15, dir:"auto", ph:"مثلاً: ليزك" }))}</div>
+        <div class="cp-two"><div>${cpF("الكلمات (Keywords)", cpTa(`groups.${gi}.kw`, { rows:9, ph:"كلمة في كل سطر\n[عملية ليزك]\n\"سعر الليزك\"\nليزك جدة" }), `<span data-live="kw:${gi}">${cpFrag("kw:" + gi)}</span><br>[ ] = Exact · " " = Phrase · من غيرهم = Broad`)}
+          ${cpF("Negative keywords للـ Ad group ده", cpTa(`groups.${gi}.neg`, { rows:3, ph:"اختياري" }))}</div>
+          <div><label class="f">شكل الإعلان على Google <span class="tiny muted">(تقريبي)</span></label><div class="gad" data-live="prev:${gi}">${cpFrag("prev:" + gi)}</div></div></div>
+        <label class="f">العناوين (Headlines) · لحد 15 · كل واحد 30 حرف</label><div class="cp-hl">${g.h.map((x, i) => `<div class="cp-li"><span class="n">${i + 1}</span>${cpIn(`groups.${gi}.h.${i}.t`, { lim:30, ph: i < 3 ? "مطلوب" : "" })}${pinSel(`groups.${gi}.h.${i}.pin`, 3)}</div>`).join("")}</div>
+        <label class="f">الوصف (Descriptions) · لحد 4 · كل واحد 90 حرف</label><div class="cp-hl one">${g.d.map((x, i) => `<div class="cp-li"><span class="n">${i + 1}</span>${cpIn(`groups.${gi}.d.${i}.t`, { lim:90, ph: i < 2 ? "مطلوب" : "" })}${pinSel(`groups.${gi}.d.${i}.pin`, 2)}</div>`).join("")}</div>
+        <div class="tiny muted" style="margin-top:4px">📌 التثبيت بيخلّي العنوان يظهر دايماً في مكان معيّن. استخدمه بس لو لازم، لأنه بيقلل الـ Ad strength.</div>
+        ${cpExtra(`groups.${gi}.extra`)}
+        <div class="row" style="gap:6px;margin-top:12px"><button class="btn xs ghost" onclick="cpDupGroup(${gi})">⧉ نسخة من الـ Ad group</button><span class="spacer"></span>${d.groups.length > 1 ? `<button class="btn xs ghost" onclick="cpDelGroup(${gi})">🗑 امسح الـ Ad group</button>` : ""}</div></div></div>`;
+    });
+    h += `<button class="mp-add" style="width:100%" onclick="CPedit.data.groups.push(newGroup(CPedit.data.groups.length+1));ui.cpG=CPedit.data.groups.length-1;cpQueue();render()">+ Ad group جديد</button>`;
+  }
+  if (tab === "ext") {
+    h += `<div class="cp-card"><h3 class="cp-h">Sitelinks <span class="tiny muted">· النص 25 حرف · كل وصف 35 · يفضّل 4 أو أكتر</span></h3>
+      ${d.sitelinks.map((x, i) => `<div class="cp-sl"><div class="cp-grid">${cpF("النص", cpIn(`sitelinks.${i}.t`, { lim:25 }))}${cpF("اللينك", cpIn(`sitelinks.${i}.url`, { dir:"ltr", ph:"https://" }))}${cpF("وصف 1", cpIn(`sitelinks.${i}.d1`, { lim:35 }))}${cpF("وصف 2", cpIn(`sitelinks.${i}.d2`, { lim:35 }))}</div><button class="btn xs ghost cp-x" title="امسح" onclick="cpDel('sitelinks',${i})">✕</button></div>`).join("")}
+      <button class="dyn-add" onclick="cpAdd('sitelinks',{t:'',url:'',d1:'',d2:''})">+ Sitelink</button></div>
+    <div class="cp-card"><h3 class="cp-h">Callouts <span class="tiny muted">· 25 حرف · يفضّل 4 أو أكتر</span></h3><div class="cp-hl">
+      ${d.callouts.map((x, i) => `<div class="cp-li">${cpIn(`callouts.${i}`, { lim:25, ph:"مثلاً: توصيل مجاني" })}<button class="btn xs ghost" onclick="cpDel('callouts',${i})">✕</button></div>`).join("")}</div>
+      <button class="dyn-add" onclick="cpAdd('callouts','')">+ Callout</button></div>
+    <div class="cp-card"><h3 class="cp-h">Structured snippets <span class="tiny muted">· كل قيمة 25 حرف</span></h3>
+      ${d.snippets.map((x, i) => `<div class="cp-sl"><div class="cp-grid">${cpF("النوع (Header)", `<select class="inp" data-p="snippets.${i}.h" onchange="cpSet(this)">${SNIP_H.map(o => `<option ${x.h === o ? "selected" : ""}>${o}</option>`).join("")}</select>`)}${cpF("القيم", cpTa(`snippets.${i}.v`, { rows:3, ph:"قيمة في كل سطر (3 على الأقل)" }))}</div><button class="btn xs ghost cp-x" onclick="cpDel('snippets',${i})">✕</button></div>`).join("")}
+      <button class="dyn-add" onclick="cpAdd('snippets',{h:'Service catalog',v:''})">+ Snippet</button></div>
+    <div class="cp-card">${cpF("رقم التليفون (Call)", cpIn("phone", { dir:"ltr", ph:"+966…" }))}${cpExtra("ext_extra")}</div>`;
+  }
+  if (tab === "track") {
+    const done = d.track.filter(t => t.done).length;
+    h += `<div class="cp-card"><h3 class="cp-h">Tracking checklist <span class="tiny muted">· ${done}/${d.track.length} اتعمل</span></h3>
+      ${d.track.map((t, i) => `<div class="cp-chk"><input type="checkbox" data-p="track.${i}.done" ${t.done ? "checked" : ""} onchange="cpSet(this);render()"><input class="inp ghost-in${t.done ? " done" : ""}" dir="auto" data-p="track.${i}.t" value="${esc(t.t)}" oninput="cpSet(this)"><button class="btn xs ghost" onclick="cpDel('track',${i})">✕</button></div>`).join("")}
+      <button class="dyn-add" onclick="cpAdd('track',{t:'',done:false})">+ بند جديد</button></div>
+    <div class="cp-card">${cpF("خطة الإطلاق", cpTa("launch", { rows:6, ph:"مثلاً:\nأول أسبوع Maximize clicks لحد ما نجمع داتا\nبعد 30 conversion نحوّل Maximize conversions\nبعدها Target CPA على متوسط آخر أسبوعين" }))}${cpExtra("extra")}</div>`;
+  }
+  if (tab === "test") {
+    h += `<div class="cp-card"><h3 class="cp-h">خطة الاختبار</h3>
+      ${d.tests.map((t, i) => `<div class="cp-sl"><div class="cp-grid three">${cpF("هنختبر إيه", cpIn(`tests.${i}.what`, { ph:"مثلاً: عنوان بالسعر vs عنوان بالعرض" }))}${cpF("متوقعين إيه", cpIn(`tests.${i}.exp`, { ph:"CTR أعلى" }))}${cpF("النتيجة", cpIn(`tests.${i}.res`, { ph:"تتكتب بعد الاختبار" }))}</div><button class="btn xs ghost cp-x" onclick="cpDel('tests',${i})">✕</button></div>`).join("")}
+      <button class="dyn-add" onclick="cpAdd('tests',{what:'',exp:'',res:''})">+ اختبار</button></div>
+    <div class="cp-card">${cpF("خطة الأوبتيمايز", cpTa("optim", { rows:7, ph:"مثلاً:\nكل يوم: Search terms ونضيف negatives\nكل أسبوع: نوقف الكلمات اللي صرفت من غير تحويل\nكل أسبوعين: نغيّر أضعف العناوين" }))}</div>`;
+  }
+  return h + `</fieldset></div>`;
+}
+function cpDupGroup(gi){ const g = JSON.parse(JSON.stringify(CPedit.data.groups[gi])); g.name = (g.name || "Ad group") + " (نسخة)"; CPedit.data.groups.splice(gi + 1, 0, g); ui.cpG = gi + 1; cpQueue(); render(); }
+function cpDelGroup(gi){ openModal(`<h2>تمسح «${esc(CPedit.data.groups[gi].name || "")}»؟</h2><p class="small muted">هتتمسح الكلمات والإعلانات اللي فيه.</p><div class="actions"><span class="spacer"></span><button class="btn" onclick="closeModal()">لا</button><button class="btn danger" onclick="CPedit.data.groups.splice(${gi},1);ui.cpG=0;closeModal();cpQueue();render()">امسح</button></div>`); }
+async function cpDup(cid){ if (CPtimer) await cpFlush(); const x = CPedit;
+  try { await q(sb.from("plan_campaigns").insert({ client_id:cid, kind:x.kind, name:(x.name || "") + " (نسخة)", status:"planned", data:x.data, sort:(CPN[cid] || []).length }), "campdup"); ui.cpOpen = null; CPedit = null; await loadCamps(cid, true); toast("اتعملت نسخة ✓"); } catch(e){ toast("ماتعملتش"); } }
+function cpAskDel(cid){ openModal(`<h2>تمسح الحملة «${esc(CPedit.name || "")}»؟</h2><p class="small muted">كل الـ Ad groups والإعلانات والإكستنشنز اللي فيها هتتمسح، ومش هينفع ترجعها.</p><div class="actions"><span class="spacer"></span><button class="btn" onclick="closeModal()">لا</button><button class="btn danger" onclick="cpDoDel('${cid}')">امسح</button></div>`); }
+async function cpDoDel(cid){ clearTimeout(CPtimer); CPtimer = null; try { await q(sb.from("plan_campaigns").delete().eq("id", CPedit.id), "campdel"); closeModal(); ui.cpOpen = null; CPedit = null; await loadCamps(cid, true); toast("اتمسحت"); } catch(e){ toast("ماتمسحتش"); } }
+function cpExport(cid){
+  const x = CPedit, d = x.data, st = d.settings, C = x.name || "Campaign", rows = [];
+  rows.push({ "Campaign":C, "Campaign Type":"Search", "Campaign Status":"Paused", "Budget": st.budget || "", "Budget type":"Daily", "Bid Strategy Type": st.bidding || "", "Networks": ["Google search", st.partners ? "Search Partners" : "", st.display ? "Display Network" : ""].filter(Boolean).join(";"), "Languages": String(st.languages || "").split(/[,،;]/).map(x => x.trim()).filter(Boolean).join(";"), "Start Date": st.start || "", "End Date": st.end || "" });
+  parseKw(d.neg).forEach(k => rows.push({ "Campaign":C, "Keyword":k.t, "Criterion Type":"Negative " + k.m }));
+  d.groups.forEach(g => { const A = g.name || "Ad group";
+    rows.push({ "Campaign":C, "Ad Group":A, "Ad Group Status":"Enabled" });
+    parseKw(g.kw).forEach(k => rows.push({ "Campaign":C, "Ad Group":A, "Keyword":k.t, "Criterion Type":k.m }));
+    parseKw(g.neg).forEach(k => rows.push({ "Campaign":C, "Ad Group":A, "Keyword":k.t, "Criterion Type":"Negative " + k.m }));
+    const H = filled(g.h), D = filled(g.d); if (!H.length && !D.length) return;
+    const ad = { "Campaign":C, "Ad Group":A, "Ad type":"Responsive search ad", "Final URL": g.url || st.url || "", "Path 1": g.path1 || "", "Path 2": g.path2 || "" };
+    H.forEach((h, i) => { ad[`Headline ${i + 1}`] = h.t; if (h.pin) ad[`Headline ${i + 1} position`] = h.pin; });
+    D.forEach((h, i) => { ad[`Description ${i + 1}`] = h.t; if (h.pin) ad[`Description ${i + 1} position`] = h.pin; });
+    rows.push(ad);
+  });
+  const cols = ["Campaign","Campaign Type","Campaign Status","Budget","Budget type","Bid Strategy Type","Networks","Languages","Start Date","End Date","Ad Group","Ad Group Status","Keyword","Criterion Type","Ad type","Final URL","Path 1","Path 2"];
+  for (let i = 1; i <= 15; i++) cols.push(`Headline ${i}`, `Headline ${i} position`); for (let i = 1; i <= 4; i++) cols.push(`Description ${i}`, `Description ${i} position`);
+  const cell = v => { v = String(v ?? ""); return /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v; };
+  const csv = "﻿" + [cols.join(","), ...rows.map(r => cols.map(k => cell(r[k])).join(","))].join("\r\n");
+  const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([csv], { type:"text/csv;charset=utf-8" })); a.download = C.replace(/[\\/:*?"<>|]/g, "-") + ".csv"; document.body.appendChild(a); a.click(); a.remove();
+  toast("نزل الملف ✓ افتحه من Google Ads Editor ← Import");
+}
+/* keep focus + cursor when the page re-renders while typing */
+(function(){ const _r = render; render = function(){ const a = document.activeElement, p = a && a.dataset && a.dataset.p, s = p && a.selectionStart, e = p && a.selectionEnd, y = window.scrollY;
+  _r.apply(this, arguments);
+  if (p) { const n = document.querySelector(`[data-p="${p}"]`); if (n && n !== a) { n.focus({ preventScroll:true }); try { n.setSelectionRange(s, e); } catch(_){} window.scrollTo(0, y); } } }; })();
 
 const APP_SHELL = "<div class=\"wrap\"><header class=\"top\"><span class=\"brand\" aria-label=\"\u0632\u064a\u0627\u062f \u0625\u0628\u0631\u0627\u0647\u064a\u0645\"><svg width=\"28\" height=\"28\" viewBox=\"0 0 48 48\" aria-hidden=\"true\"><rect class=\"zm-ink\" x=\"0\" y=\"28\" width=\"12\" height=\"20\" rx=\"2\"/><rect class=\"zm-brand\" x=\"18\" y=\"16\" width=\"12\" height=\"32\" rx=\"2\"/><rect class=\"zm-signal\" x=\"36\" y=\"0\" width=\"12\" height=\"12\" rx=\"2\"/><rect class=\"zm-brand\" x=\"36\" y=\"15\" width=\"12\" height=\"33\" rx=\"2\"/></svg><span class=\"nm\">\u0632\u064a\u0627\u062f \u0625\u0628\u0631\u0627\u0647\u064a\u0645</span><span class=\"sub\">\u00b7 \u0633\u064a\u0633\u062a\u0645 \u0627\u0644\u0634\u063a\u0644</span></span><nav class=\"tabs\" id=\"tabs\"></nav><span class=\"spacer\"></span><div id=\"who\"></div></header><main id=\"view\"><div class=\"card empty\">\u0628\u064a\u062d\u0645\u0651\u0644\u2026</div></main></div>";
 start();
