@@ -573,7 +573,10 @@ img.av.avimg{object-fit:cover;padding:0;background:var(--grey-chip)}
 .seg-pick label{cursor:pointer}
 .seg-pick input{display:none}
 .seg-pick span{display:inline-block;padding:6px 12px;border:1px solid var(--line);border-radius:99px;font-size:13px;background:var(--card)}
-.seg-pick input:checked+span{background:var(--ink,#222);color:#fff;border-color:var(--ink,#222)}
+.seg-pick input:checked+span{background:var(--accent);color:var(--on-accent);border-color:var(--accent);font-weight:600}
+.seg-pick input[name=piS][value=planned]:checked+span{background:#e0a020;border-color:#e0a020;color:#1a1a1a}
+.seg-pick input[name=piS][value=live]:checked+span{background:#2fa866;border-color:#2fa866;color:#fff}
+.seg-pick input[name=piS][value=paused]:checked+span,.seg-pick input[name=piS][value=done]:checked+span{background:#7a828c;border-color:#7a828c;color:#fff}
 .mp-form .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 @media(max-width:700px){.mp-sum{grid-template-columns:1fr 1fr}.mp-notes,.mp-form .two{grid-template-columns:1fr}.mp-f{grid-template-columns:1fr;gap:2px}}
 
@@ -591,7 +594,7 @@ img.av.avimg{object-fit:cover;padding:0;background:var(--grey-chip)}
 <div class="modal-bg" id="modalBg" onmousedown="if(event.target.id==='modalBg')closeModal()"><div class="modal" id="modal"></div></div>
 <div class="toast" id="toast"></div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script>window.__APP_VERSION="20261106155723"</script>
-<script src="app.js?v=20261106155723"></script>
+<script>window.__APP_VERSION="20261106155930"</script>
+<script src="app.js?v=20261106155930"></script>
 </body>
 </html>
