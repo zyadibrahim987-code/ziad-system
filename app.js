@@ -1251,13 +1251,15 @@ function permRow(m, c, label){
       ${P.length && (((profileById(m.user_id)||{}).job === "Media Buyer") || (m.platforms||[]).length) ? `<span class="perm-g" title="${PERM_HELP.plat}"><span class="tiny muted">يسجّل أرقام:</span>${P.map(pp => { const on = (m.platforms||[]).includes(pp.name); return `<button class="ptog${on ? " on" : ""}" title="${esc(pp.name)}" onclick="togPerm('${c.id}','${m.user_id}','plat','${jsq(pp.name)}')">${badge(pp.name)}</button>`; }).join("")}</span>` : ""}
       <label class="perm-c" title="${PERM_HELP.nums}"><input type="checkbox" ${m.see_numbers ? "checked" : ""} onchange="togPerm('${c.id}','${m.user_id}','see_numbers')"> يشوف نتايج العميل كلها</label>
       <label class="perm-c" title="${PERM_HELP.files}"><input type="checkbox" ${m.see_files ? "checked" : ""} onchange="togPerm('${c.id}','${m.user_id}','see_files')"> الملفات</label>
+      <label class="perm-c" title="الميديا بلان والحملات">الخطة: <select class="inp sm" style="width:auto;padding:2px 6px" onchange="togPerm('${c.id}','${m.user_id}','plan_access',this.value)">${[["none","مقفولة"],["view","يشوفها"],["edit","يعدّل فيها"]].map(([k,l]) => `<option value="${k}" ${(m.plan_access || "none") === k ? "selected" : ""}>${l}</option>`).join("")}</select></label>
       ${label !== "client" ? `<button class="btn xs ghost" title="شيله من العميل ده" onclick="unassign('${c.id}','${m.user_id}')">✕</button>` : ""}
     </div></div>`;
 }
 async function togPerm(cid, uid, what, val){
   const m = members.find(x => x.client_id === cid && x.user_id === uid); if (!m) return;
   const patch = {};
-  if (what === "plat") { const ps = (m.platforms||[]).includes(val) ? m.platforms.filter(x => x !== val) : [...(m.platforms||[]), val]; patch.platforms = ps; }
+  if (what === "plan_access") patch.plan_access = val;
+  else if (what === "plat") { const ps = (m.platforms||[]).includes(val) ? m.platforms.filter(x => x !== val) : [...(m.platforms||[]), val]; patch.platforms = ps; }
   else patch[what] = !m[what];
   const old = { ...m }; Object.assign(m, patch); render();
   try { await q(sb.from("client_members").update(patch).eq("client_id", cid).eq("user_id", uid), "perm"); toast("اتحفظ ✓"); }
@@ -1355,7 +1357,9 @@ function clientViews(c, see, mp){
   if (canFiles(c.id)) O.push({ k:"files", l:"Files", sub:"لينكات وملفات العميل" });
   O.push({ k:"deliv", l:"Deliveries", sub: isAdmin() ? "التسليمات اللي اتعملت" : "تسليماتك على العميل" });
   O.push({ k:"tasks", l:"Tasks", sub: isAdmin() ? "كل مهام العميل" : "تاسكاتك على العميل" });
-  return { R, O };
+  const P = [];
+  if (canPlan(c.id)) P.push({ k:"mplan", l:"Media plan", sub:"الميزانية والحملات" });
+  return { R, O, P };
 }
 function sliceMetric(c, sl, ym){
   if (!M[c.id]) return "";
@@ -1364,15 +1368,15 @@ function sliceMetric(c, sl, ym){
   const res = c.type === "store" ? x.po : x.conv; return res ? `${c.type === "store" ? "CPP" : "CPA"} ${fmt2(x.s/res)}` : "";
 }
 function clientBody(c, ym, see, mp){
-  const { R, O } = clientViews(c, see, mp), all = [...R, ...O];
+  const { R, O, P } = clientViews(c, see, mp), all = [...R, ...P, ...O];
   ui.cv = ui.cv || {};
   let k = ui.cv[c.id]; if (!all.some(v => v.k === k)) k = (R[0] || O[0]).k;
   const v = all.find(x => x.k === k);
   const item = x => `<button class="${x.k === k ? "on" : ""}" onclick="ui.cv=ui.cv||{};ui.cv['${c.id}']='${x.k}';ui.selDay=null;saveUi();render()">
-      ${x.av ? avatar(x.av, 22) : `<span class="cv-ic">${x.k === "total" ? "Σ" : x.k === "files" ? "⌗" : x.k === "deliv" ? "↗" : "✓"}</span>`}
+      ${x.av ? avatar(x.av, 22) : `<span class="cv-ic">${x.k === "total" ? "Σ" : x.k === "files" ? "⌗" : x.k === "deliv" ? "↗" : x.k === "mplan" ? "▤" : "✓"}</span>`}
       <span class="cv-t"><b>${esc(x.l)}</b><span>${esc(x.sub)}</span></span>
       ${R.includes(x) ? `<span class="cv-m">${sliceMetric(c, x.sl, ym)}</span>` : ""}</button>`;
-  const nav = `<nav class="cnav">${R.length ? `<div class="cnav-l">Results</div>${R.map(item).join("")}` : ""}<div class="cnav-l">Client</div>${O.map(item).join("")}</nav>`;
+  const nav = `<nav class="cnav">${R.length ? `<div class="cnav-l">Results</div>${R.map(item).join("")}` : ""}${P.length ? `<div class="cnav-l">Plan</div>${P.map(item).join("")}` : ""}<div class="cnav-l">Client</div>${O.map(item).join("")}</nav>`;
   return `<div class="cvw">${nav}<div class="cvbody">${clientPanel(c, ym, v, see, mp)}</div></div>`;
 }
 function pickDay(v){ if (!v) return; ui.month = v.slice(0,7); ui.selDay = v; saveUi(); render(); const c = clientById(ui.clientId); if (c) { const v2 = (ui.cv || {})[c.id]; openDay(c.id, v, v2 && v2 !== "total" ? 1 : 0); } }
@@ -1385,6 +1389,7 @@ function sliceAdvice(c, sl){
 function clientPanel(c, ym, v, see, mp){
   const head = (t, sub, av) => `<div class="cv-head">${av ? avatar(av, 30) : ""}<div><h2>${t}</h2>${sub ? `<div class="ph-sub">${sub}</div>` : ""}</div></div>`;
   if (v.k === "files") return head("Files", "لينكات درايف وملفات العميل، وأي حد على العميل يقدر يضيف ويعدّل") + filesBlock(c).replace(/^<div class="section-title">[\s\S]*?<\/div>/, "");
+  if (v.k === "mplan") return mediaPlanView(c);
   if (v.k === "deliv") return head("Deliveries", "كل اللي اتسلّم على العميل ده: اللينكات والملفات، مين سلّمها وإمتى") + delivBlock(c);
   if (v.k === "tasks") {
     const ct = isAdmin() ? tasks.filter(t => t.clientId === c.id) : tasks.filter(t => t.clientId === c.id && t.assigneeId === me.id);
@@ -1515,7 +1520,7 @@ function money(unit, v, cu, dec){
   const n = dec === 0 ? fmt(v) : fmt2(v);
   return `<bdi class="money" dir="rtl">${unit ? `<bdi class="mu">${unit}</bdi> ` : ""}<bdi><b class="num">${n}</b></bdi> <bdi class="mc">${cu}</bdi></bdi>`;
 }
-const LATIN_RUN = /[A-Za-z0-9$€£][A-Za-z0-9.,%×:+\-\/_@#&$€£]*(?:[  ]+(?:[&+\-–|][  ]+)?[A-Za-z0-9$€£][A-Za-z0-9.,%×:+\-\/_@#&$€£]*)*/g;
+const LATIN_RUN = /[A-Za-z0-9$€£][A-Za-z0-9.,%×:+\-\/_@#&$€£]*(?:[  ]+(?:[&+\-–|·][  ]+)?[A-Za-z0-9$€£][A-Za-z0-9.,%×:+\-\/_@#&$€£]*)*/g;
 const BIDI_SKIP = new Set(["SCRIPT","STYLE","TEXTAREA","INPUT","SELECT","OPTION","BDI","SVG","CODE","PRE"]);
 function isolateLatin(root){
   if (!root) return;
@@ -1976,6 +1981,128 @@ function rateFor(c, cur){
   const r = (c.cur_rates || {})[cur]; if (+r > 0) return +r;
   if (cur === "USD" && +c.usd_rate > 0) return +c.usd_rate;
   return null;
+}
+
+
+/* ================= Media plan ================= */
+const canPlan = cid => isAdmin() || ["view","edit"].includes((myMembership(cid) || {}).plan_access);
+const canEditPlan = cid => isAdmin() || (myMembership(cid) || {}).plan_access === "edit";
+let PLAN = {}, PLANload = {};
+const planKey = (cid, ym) => cid + "|" + ym;
+async function loadPlan(cid, ym, force){
+  const k = planKey(cid, ym); if (PLANload[k] && !force) return PLANload[k];
+  PLANload[k] = (async () => { try {
+    const [items, meta] = await Promise.all([q(sb.from("plan_items").select("*").eq("client_id", cid).eq("ym", ym).order("sort").order("updated_at"), "plan"), q(sb.from("plan_meta").select("*").eq("client_id", cid).eq("ym", ym), "planm")]);
+    PLAN[k] = { items, meta: meta[0] || { client_id:cid, ym, budgets:{}, notes:"", ideas:"" } };
+  } catch(e){ PLAN[k] = { items:[], meta:{ client_id:cid, ym, budgets:{} }, err: e.message }; } render(); })();
+  return PLANload[k];
+}
+const PSTATUS = { planned:["مخططة","amb"], live:["شغالة","ok"], paused:["متوقفة","grey"], done:["خلصت","grey"] };
+const FUNNEL = ["Top of funnel","Middle of funnel","Bottom of funnel"];
+const FUNNEL_AR = { "Top of funnel":"Top · وعي", "Middle of funnel":"Middle · اهتمام", "Bottom of funnel":"Bottom · ريتارجت" };
+const OBJECTIVES = { Meta:["Sales","Website conversions","Leads","Traffic","Engagement","Awareness"], TikTok:["Website conversions","Spark ads","Smart+","Leads","Traffic","Video views"], Snapchat:["Website conversions","Leads","Traffic","Awareness"], Google:["Search","Performance Max","Shopping","Demand Gen","YouTube","Display"], X:["Website conversions","Traffic","Engagement"] };
+function mediaPlanView(c){
+  const ym = ui.planM || ymOf(todayK()), k = planKey(c.id, ym), edit = canEditPlan(c.id), cu = cur(c);
+  const nav = `<div class="row" style="margin:0 0 14px"><div class="monthnav"><button class="btn sm" onclick="ui.planM=ymAdd('${ym}',1);saveUi();render()" aria-label="الشهر اللي بعده">›</button><div class="m">${monthLabel(ym)}</div><button class="btn sm" onclick="ui.planM=ymAdd('${ym}',-1);saveUi();render()" aria-label="الشهر اللي قبله">‹</button></div>${ym !== ymOf(todayK()) ? `<button class="btn xs ghost" onclick="ui.planM=null;saveUi();render()">الشهر ده</button>` : ""}<span class="spacer"></span>${edit ? `<button class="btn sm primary" onclick="openPlanItem('${c.id}','${ym}')">+ حملة</button>` : ""}</div>`;
+  let h = `<div class="cv-head"><div><h2>Media plan</h2><div class="ph-sub">الميزانية والحملات لكل منصة${edit ? "" : " · للعرض بس"}</div></div></div>` + nav;
+  if (!(k in PLAN)) { loadPlan(c.id, ym); if (!M[c.id]) loadMetrics(c.id); return h + `<div class="card empty">بيحمّل…</div>`; }
+  const P0 = PLAN[k], items = P0.items, budgets = P0.meta.budgets || {};
+  const platsAll = [...new Set([...plats(c).map(p => p.name), ...items.map(i => i.platform).filter(Boolean)])];
+  const used = platsAll.filter(p => items.some(i => i.platform === p) || +budgets[p] > 0);
+  const spentOf = p => M[c.id] ? agg(monthRows(c.id, ym).filter(r => r.p === p)).s : 0;
+  const budOf = p => +budgets[p] > 0 ? +budgets[p] : items.filter(i => i.platform === p).reduce((a, i) => a + (+i.budget || 0), 0);
+  const days = daysOfMonth(ym).length, tk = todayK(), elapsed = ym < ymOf(tk) ? 1 : ym > ymOf(tk) ? 0 : (+tk.slice(8) - 1) / days;
+  if (!items.length && !Object.keys(budgets).length) {
+    const prev = ymAdd(ym, -1);
+    return h + `<div class="mp-empty"><h3>لسه مفيش خطة لـ ${monthLabel(ym)}</h3><p class="small muted">الخطة بتتعمل في خطوتين: تحط ميزانية كل منصة، وتحت كل منصة تضيف الحملات (الهدف، والفانل، والأوديانس، والستراكشر).</p>
+      ${edit ? `<div class="row" style="justify-content:center;gap:8px;margin-top:10px"><button class="btn primary" onclick="openPlanItem('${c.id}','${ym}')">+ أضف أول حملة</button><button class="btn" onclick="copyPlan('${c.id}','${prev}','${ym}')">انسخ خطة ${monthLabel(prev)}</button></div>` : ""}</div>`;
+  }
+  const totB = used.reduce((a, p) => a + budOf(p), 0), totS = used.reduce((a, p) => a + spentOf(p), 0);
+  h += `<div class="mp-sum"><div><span class="tiny muted">ميزانية الشهر</span><b class="num">${money("", totB, cu, 0)}</b></div><div><span class="tiny muted">اتصرف لحد دلوقتي</span><b class="num">${money("", totS, cu, 0)}</b></div><div><span class="tiny muted">فاضل</span><b class="num">${money("", Math.max(0, totB - totS), cu, 0)}</b></div><div><span class="tiny muted">الشهر عدّى</span><b class="num">${fmt(elapsed * 100)}%</b></div></div>`;
+  for (const p of used) {
+    const b = budOf(p), sp = spentOf(p), pct = b ? sp / b : 0, list = items.filter(i => i.platform === p);
+    const lv = !b ? "grey" : pct > 1 ? "bad" : pct > elapsed + 0.15 ? "amb" : "ok";
+    const msg = !b ? "مفيش ميزانية متحددة" : pct > 1 ? `عدّى الميزانية بـ ${money("", sp - b, cu, 0)}` : pct > elapsed + 0.15 ? `بيصرف أسرع من الخطة (${fmt(pct * 100)}% والشهر ${fmt(elapsed * 100)}%)` : `ماشي مع الخطة (${fmt(pct * 100)}%)`;
+    h += `<div class="mp-plat"><div class="mp-ph">${badge(p)}<b>${esc(p)}</b><span class="tiny muted">${list.length ? `${list.length} ${list.length === 1 ? "حملة" : list.length === 2 ? "حملتين" : "حملات"}` : "مفيش حملات"}</span><span class="spacer"></span>
+        <span class="mp-bud">${edit ? `<button class="btn xs ghost" onclick="editPlatBudget('${c.id}','${ym}','${jsq(p)}')" title="عدّل ميزانية ${esc(p)}">` : "<span>"}<span class="tiny muted">الميزانية</span> <b class="num">${b ? money("", b, cu, 0) : "—"}</b>${edit ? " ✎</button>" : "</span>"}</span></div>
+      <div class="mp-bar"><i class="lv-${lv}" style="width:${Math.min(100, pct * 100)}%"></i><s style="inset-inline-start:${elapsed * 100}%" title="النهارده"></s></div>
+      <div class="tiny mp-msg lv-${lv}">اتصرف ${money("", sp, cu, 0)} · ${msg}</div>
+      <div class="mp-items">${list.map(i => planCard(c, i, edit)).join("")}${edit ? `<button class="mp-add" onclick="openPlanItem('${c.id}','${ym}',null,'${jsq(p)}')">+ حملة على ${esc(p)}</button>` : ""}</div></div>`;
+  }
+  h += `<div class="mp-notes"><div><label class="f" style="margin-top:0">ملاحظات الخطة</label><textarea class="inp" ${edit ? "" : "readonly"} placeholder="مثلاً: سناب خطة بديلة لو تيك توك ماجابش نتيجة" onchange="savePlanMeta('${c.id}','${ym}','notes',this.value)">${esc(P0.meta.notes || "")}</textarea></div>
+    <div><label class="f" style="margin-top:0">أفكار</label><textarea class="inp" ${edit ? "" : "readonly"} placeholder="مثلاً: عروض الجمعة البيضاء، كارتات لعملاء الواتساب" onchange="savePlanMeta('${c.id}','${ym}','ideas',this.value)">${esc(P0.meta.ideas || "")}</textarea></div></div>`;
+  return h;
+}
+function planCard(c, i, edit){
+  const [sl, sc] = PSTATUS[i.status] || PSTATUS.planned, open = (ui.mpOpen || {})[i.id];
+  const title = i.name || [i.objective, i.funnel && FUNNEL_AR[i.funnel] ? FUNNEL_AR[i.funnel].split(" · ")[0] : i.funnel].filter(Boolean).join(" · ") || "حملة";
+  const chips = [i.objective, i.funnel ? (FUNNEL_AR[i.funnel] || i.funnel) : "", i.ad_format, +i.budget ? money("", i.budget, cur(c), 0) : ""].filter(Boolean);
+  const field = (l, v, ltr) => v ? `<div class="mp-f"><span>${l}</span><div dir="auto" style="text-align:right">${ltr && /^https?:/.test(v) ? `<a href="${esc(normUrl(v))}" target="_blank" rel="noopener">${esc(v)}</a>` : esc(v)}</div></div>` : "";
+  return `<div class="mp-card${open ? " open" : ""}">
+    <div class="mp-ch" onclick="ui.mpOpen=ui.mpOpen||{};ui.mpOpen['${i.id}']=!ui.mpOpen['${i.id}'];render()">
+      <div style="flex:1;min-width:0"><b dir="auto" style="display:block;text-align:right">${esc(title)}</b><div class="mp-chips">${chips.map(x => `<span dir="auto">${x}</span>`).join("")}</div></div>
+      ${edit ? `<select class="mp-st st-${sc}" onclick="event.stopPropagation()" onchange="setPlanStatus('${i.id}','${c.id}','${i.ym}',this.value)">${Object.entries(PSTATUS).map(([k, [l]]) => `<option value="${k}" ${i.status === k ? "selected" : ""}>${l}</option>`).join("")}</select>` : `<span class="chip ${sc}">${sl}</span>`}
+      <span class="tiny muted">${open ? "▲" : "▼"}</span></div>
+    ${open ? `<div class="mp-body">${field("الهدف", i.goal)}${field("الأوديانس", i.audience)}${field("الستراكشر", i.structure)}${field("اللاندنج بيدج", i.landing_url, true)}${field("ملاحظات", i.notes)}
+      ${!(i.goal || i.audience || i.structure || i.landing_url || i.notes) ? `<div class="small muted">مفيش تفاصيل لسه.</div>` : ""}
+      ${edit ? `<div class="row" style="gap:6px;margin-top:10px"><button class="btn xs" onclick="openPlanItem('${c.id}','${i.ym}','${i.id}')">✏️ تعديل</button><button class="btn xs ghost" onclick="dupPlanItem('${c.id}','${i.ym}','${i.id}')">⧉ نسخة</button><span class="spacer"></span><button class="btn xs ghost" onclick="delPlanItem('${c.id}','${i.ym}','${i.id}')">🗑 مسح</button></div>` : ""}</div>` : ""}
+  </div>`;
+}
+function openPlanItem(cid, ym, id, plat){
+  const c = clientById(cid), P0 = PLAN[planKey(cid, ym)] || { items:[] }, i = id ? P0.items.find(x => x.id === id) : { platform: plat || (plats(c)[0] || {}).name || "", status:"planned" };
+  const pl = [...new Set([...plats(c).map(p => p.name), i.platform].filter(Boolean))];
+  const dl = (id2, list) => `<datalist id="${id2}">${list.map(x => `<option value="${esc(x)}">`).join("")}</datalist>`;
+  openModal(`<h2>${id ? "تعديل حملة" : "حملة جديدة"} · ${monthLabel(ym)}</h2>
+    <div class="mp-form">
+      <div class="two"><div><label class="f">المنصة</label><select class="inp" id="piP" onchange="document.getElementById('piObj').setAttribute('list','obj_'+this.value)">${pl.map(p => `<option ${i.platform === p ? "selected" : ""}>${esc(p)}</option>`).join("")}</select></div>
+        <div><label class="f">اسم الحملة <span class="tiny muted">(اختياري)</span></label><input class="inp" id="piName" dir="auto" value="${esc(i.name || "")}" placeholder="مثلاً: Retarget عروض الجمعة"></div></div>
+      <div class="two"><div><label class="f">الهدف</label><input class="inp" id="piGoal" dir="auto" value="${esc(i.goal || "")}" placeholder="مثلاً: Sales" list="goals">${dl("goals", ["Sales","Leads","Awareness","Traffic","App installs"])}</div>
+        <div><label class="f">Objective / نوع الحملة</label><input class="inp" id="piObj" dir="auto" value="${esc(i.objective || "")}" placeholder="اختار أو اكتب" list="obj_${esc(i.platform)}">${Object.entries(OBJECTIVES).map(([k, v]) => dl("obj_" + k, v)).join("")}</div></div>
+      <label class="f">مكانها في الفانل</label>
+      <div class="seg-pick">${FUNNEL.map(f => `<label><input type="radio" name="piF" value="${f}" ${i.funnel === f ? "checked" : ""}><span>${FUNNEL_AR[f]}</span></label>`).join("")}<label><input type="radio" name="piF" value="" ${!i.funnel ? "checked" : ""}><span>مش محدد</span></label></div>
+      <div class="two"><div><label class="f">نوع الإعلان / الكرييتف</label><input class="inp" id="piFmt" dir="auto" value="${esc(i.ad_format || "")}" placeholder="مثلاً: Single ad · Video" list="fmts">${dl("fmts", ["Single ad · Video","Single ad · Image","Carousel","Collection","UGC video","Spark ads","Story"])}</div>
+        <div><label class="f">ميزانية الحملة <span class="tiny muted">(${esc(cur(c))}، اختياري)</span></label><input class="inp" id="piBud" type="number" min="0" step="1" value="${i.budget ?? ""}" placeholder="لو فاضية بتتحسب من ميزانية المنصة"></div></div>
+      <label class="f">الأوديانس</label><textarea class="inp" id="piAud" dir="auto" rows="4" placeholder="Ad group 1: Broad · All genders · 24-47&#10;Location: جدة، مكة، الرياض&#10;Ad group 2: Retarget">${esc(i.audience || "")}</textarea>
+      <label class="f">الستراكشر</label><textarea class="inp" id="piStr" dir="auto" rows="3" placeholder="1 campaign&#10;2 ad sets: interest + broad&#10;1 ad لكل واحد">${esc(i.structure || "")}</textarea>
+      <label class="f">اللاندنج بيدج</label><input class="inp" id="piUrl" dir="ltr" value="${esc(i.landing_url || "")}" placeholder="https://">
+      <label class="f">ملاحظات</label><textarea class="inp" id="piNotes" dir="auto" rows="2" placeholder="أي حاجة تانية">${esc(i.notes || "")}</textarea>
+      <label class="f">الحالة</label><div class="seg-pick">${Object.entries(PSTATUS).map(([k, [l]]) => `<label><input type="radio" name="piS" value="${k}" ${(i.status || "planned") === k ? "checked" : ""}><span>${l}</span></label>`).join("")}</div>
+    </div>
+    <div class="actions"><span class="spacer"></span><button class="btn" onclick="closeModal()">إلغاء</button><button class="btn primary" onclick="savePlanItem('${cid}','${ym}','${id || ""}')">حفظ</button></div>`, true);
+}
+async function savePlanItem(cid, ym, id){
+  const v = sel => ($(sel) ? $(sel).value.trim() : "") || null, rv = n => (document.querySelector(`input[name="${n}"]:checked`) || {}).value || null;
+  const row = { client_id:cid, ym, platform: $("#piP").value, name: v("#piName"), goal: v("#piGoal"), objective: v("#piObj"), funnel: rv("piF"), ad_format: v("#piFmt"), budget: $("#piBud").value === "" ? null : +$("#piBud").value, audience: v("#piAud"), structure: v("#piStr"), landing_url: v("#piUrl"), notes: v("#piNotes"), status: rv("piS") || "planned", updated_at: new Date().toISOString() };
+  try {
+    if (id) await q(sb.from("plan_items").update(row).eq("id", id), "planupd");
+    else { row.sort = ((PLAN[planKey(cid, ym)] || { items:[] }).items.length); await q(sb.from("plan_items").insert(row), "planins"); }
+    closeModal(); toast("اتحفظت ✓"); await loadPlan(cid, ym, true);
+  } catch(e){ toast("ماتحفظتش: " + (e.message || e)); }
+}
+async function setPlanStatus(id, cid, ym, st){ try { await q(sb.from("plan_items").update({ status: st, updated_at: new Date().toISOString() }).eq("id", id), "planst"); const it = PLAN[planKey(cid, ym)].items.find(x => x.id === id); if (it) it.status = st; render(); toast("اتحفظ ✓"); } catch(e){ toast("ماتحفظش"); } }
+async function dupPlanItem(cid, ym, id){ const it = PLAN[planKey(cid, ym)].items.find(x => x.id === id); if (!it) return; const { id:_, created_by, updated_at, ...rest } = it;
+  try { await q(sb.from("plan_items").insert({ ...rest, name: (it.name || "حملة") + " (نسخة)", status:"planned" }), "plandup"); toast("اتعملت نسخة ✓"); await loadPlan(cid, ym, true); } catch(e){ toast("ماتعملتش"); } }
+function delPlanItem(cid, ym, id){ openModal(`<h2>تمسح الحملة دي من الخطة؟</h2><div class="actions"><span class="spacer"></span><button class="btn" onclick="closeModal()">لا</button><button class="btn danger" onclick="doDelPlanItem('${cid}','${ym}','${id}')">امسح</button></div>`); }
+async function doDelPlanItem(cid, ym, id){ try { await q(sb.from("plan_items").delete().eq("id", id), "plandel"); closeModal(); toast("اتمسحت"); await loadPlan(cid, ym, true); } catch(e){ toast("ماتمسحتش"); } }
+async function savePlanMeta(cid, ym, field, val){
+  const P0 = PLAN[planKey(cid, ym)]; const meta = Object.assign({}, P0.meta, { [field]: val, updated_at: new Date().toISOString() });
+  try { await q(sb.from("plan_meta").upsert({ client_id:cid, ym, budgets: meta.budgets || {}, notes: meta.notes || null, ideas: meta.ideas || null, updated_at: meta.updated_at }), "planmeta"); P0.meta = meta; toast("اتحفظ ✓"); } catch(e){ toast("ماتحفظش: " + (e.message || e)); }
+}
+function editPlatBudget(cid, ym, p){
+  const P0 = PLAN[planKey(cid, ym)], cur0 = (P0.meta.budgets || {})[p] || "", c = clientById(cid);
+  openModal(`<h2>ميزانية ${esc(p)} · ${monthLabel(ym)}</h2><p class="small muted" style="margin:4px 0 0">لو سبتها فاضية، الميزانية بتتحسب من مجموع ميزانيات حملات ${esc(p)}.</p>
+    <label class="f">الميزانية (${esc(cur(c))})</label><input class="inp" id="pbV" type="number" min="0" step="1" value="${cur0}" autofocus>
+    <div class="actions"><span class="spacer"></span><button class="btn" onclick="closeModal()">إلغاء</button><button class="btn primary" onclick="savePlatBudget('${cid}','${ym}','${jsq(p)}')">حفظ</button></div>`);
+}
+async function savePlatBudget(cid, ym, p){ const P0 = PLAN[planKey(cid, ym)], v = $("#pbV").value, b = Object.assign({}, P0.meta.budgets || {}); if (v === "" || !(+v > 0)) delete b[p]; else b[p] = +v;
+  P0.meta.budgets = b; closeModal(); await savePlanMeta(cid, ym, "budgets", b); render(); }
+async function copyPlan(cid, from, to){
+  try { const items = await q(sb.from("plan_items").select("*").eq("client_id", cid).eq("ym", from), "plancp"); const meta = await q(sb.from("plan_meta").select("*").eq("client_id", cid).eq("ym", from), "plancpm");
+    if (!items.length && !meta.length) return toast(`مفيش خطة في ${monthLabel(from)}`);
+    if (items.length) await q(sb.from("plan_items").insert(items.map(({ id, created_by, updated_at, ...r }) => ({ ...r, ym: to, status: r.status === "done" ? "planned" : r.status }))), "plancpi");
+    if (meta[0]) await q(sb.from("plan_meta").upsert({ client_id:cid, ym:to, budgets: meta[0].budgets || {}, notes: meta[0].notes, ideas: meta[0].ideas }), "plancpmm");
+    toast(`اتنسخت خطة ${monthLabel(from)} ✓`); await loadPlan(cid, to, true);
+  } catch(e){ toast("ماتنسختش: " + (e.message || e)); }
 }
 
 const APP_SHELL = "<div class=\"wrap\"><header class=\"top\"><span class=\"brand\" aria-label=\"\u0632\u064a\u0627\u062f \u0625\u0628\u0631\u0627\u0647\u064a\u0645\"><svg width=\"28\" height=\"28\" viewBox=\"0 0 48 48\" aria-hidden=\"true\"><rect class=\"zm-ink\" x=\"0\" y=\"28\" width=\"12\" height=\"20\" rx=\"2\"/><rect class=\"zm-brand\" x=\"18\" y=\"16\" width=\"12\" height=\"32\" rx=\"2\"/><rect class=\"zm-signal\" x=\"36\" y=\"0\" width=\"12\" height=\"12\" rx=\"2\"/><rect class=\"zm-brand\" x=\"36\" y=\"15\" width=\"12\" height=\"33\" rx=\"2\"/></svg><span class=\"nm\">\u0632\u064a\u0627\u062f \u0625\u0628\u0631\u0627\u0647\u064a\u0645</span><span class=\"sub\">\u00b7 \u0633\u064a\u0633\u062a\u0645 \u0627\u0644\u0634\u063a\u0644</span></span><nav class=\"tabs\" id=\"tabs\"></nav><span class=\"spacer\"></span><div id=\"who\"></div></header><main id=\"view\"><div class=\"card empty\">\u0628\u064a\u062d\u0645\u0651\u0644\u2026</div></main></div>";

@@ -532,6 +532,50 @@ img.av.avimg{object-fit:cover;padding:0;background:var(--grey-chip)}
 
 .rates-box{margin-top:10px;padding:10px 12px;background:var(--bg);border-radius:var(--radius);display:flex;flex-direction:column;gap:6px}
 .rates-box .fx-in .inp{width:100px}
+
+/* media plan */
+.mp-empty{background:var(--card);border:1px dashed var(--line);border-radius:14px;padding:34px 20px;text-align:center}
+.mp-empty h3{margin:6px 0}
+.mp-sum{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:12px;overflow:hidden;margin-bottom:14px}
+.mp-sum>div{background:var(--card);padding:10px 14px;display:flex;flex-direction:column;gap:2px}
+.mp-sum b{font-size:17px}
+.mp-plat{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px}
+.mp-ph{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.mp-ph>b{font-size:15px}
+.mp-bud .btn{display:inline-flex;gap:6px;align-items:center}
+.mp-bar{position:relative;height:8px;background:var(--soft,#eef0f3);border-radius:99px;margin:10px 0 6px;overflow:visible}
+.mp-bar i{display:block;height:100%;border-radius:99px}
+.mp-bar s{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--ink,#222);opacity:.45;border-radius:2px}
+.lv-ok{color:#1f8a4c}.mp-bar i.lv-ok{background:#2fa866}
+.lv-amb{color:#a86a00}.mp-bar i.lv-amb{background:#e0a020}
+.lv-bad{color:#c0392b}.mp-bar i.lv-bad{background:#d9534f}
+.lv-grey{color:var(--muted)}.mp-bar i.lv-grey{background:#c9cdd3}
+.mp-msg{margin-bottom:10px}
+.mp-items{display:flex;flex-direction:column;gap:8px}
+.mp-card{border:1px solid var(--line);border-radius:10px;background:var(--bg)}
+.mp-card.open{box-shadow:0 2px 10px rgba(0,0,0,.05)}
+.mp-ch{display:flex;align-items:center;gap:10px;padding:10px 12px;cursor:pointer}
+.mp-chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
+.mp-chips span{font-size:11.5px;padding:2px 8px;border-radius:99px;background:var(--card);border:1px solid var(--line);color:var(--muted)}
+.mp-st{border:1px solid var(--line);border-radius:99px;padding:3px 8px;font:inherit;font-size:12px;background:var(--card);cursor:pointer}
+.mp-st.st-ok{background:#e6f6ec;color:#1f8a4c;border-color:#bfe5cd}
+.mp-st.st-amb{background:#fff4dc;color:#a86a00;border-color:#f1d9a0}
+.mp-body{padding:0 12px 12px;border-top:1px solid var(--line)}
+.mp-f{display:grid;grid-template-columns:110px 1fr;gap:10px;padding:8px 0;border-bottom:1px dashed var(--line);font-size:13.5px}
+.mp-f:last-of-type{border-bottom:0}
+.mp-f>span{color:var(--muted);font-size:12.5px}
+.mp-f>div{white-space:pre-wrap;word-break:break-word}
+.mp-add{border:1px dashed var(--line);background:transparent;border-radius:10px;padding:9px;color:var(--muted);font:inherit;cursor:pointer}
+.mp-add:hover{color:var(--ink);border-color:var(--muted)}
+.mp-notes{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:4px}
+.mp-notes textarea{min-height:90px}
+.seg-pick{display:flex;flex-wrap:wrap;gap:6px}
+.seg-pick label{cursor:pointer}
+.seg-pick input{display:none}
+.seg-pick span{display:inline-block;padding:6px 12px;border:1px solid var(--line);border-radius:99px;font-size:13px;background:var(--card)}
+.seg-pick input:checked+span{background:var(--ink,#222);color:#fff;border-color:var(--ink,#222)}
+.mp-form .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media(max-width:700px){.mp-sum{grid-template-columns:1fr 1fr}.mp-notes,.mp-form .two{grid-template-columns:1fr}.mp-f{grid-template-columns:1fr;gap:2px}}
 </style>
 </head>
 <body>
@@ -539,7 +583,7 @@ img.av.avimg{object-fit:cover;padding:0;background:var(--grey-chip)}
 <div class="modal-bg" id="modalBg" onmousedown="if(event.target.id==='modalBg')closeModal()"><div class="modal" id="modal"></div></div>
 <div class="toast" id="toast"></div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script>window.__APP_VERSION="20261106140702"</script>
-<script src="app.js?v=20261106140702"></script>
+<script>window.__APP_VERSION="20261106150431"</script>
+<script src="app.js?v=20261106150431"></script>
 </body>
 </html>
