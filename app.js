@@ -2043,8 +2043,8 @@ function planCard(c, i, edit){
       <div style="flex:1;min-width:0"><b dir="auto" style="display:block;text-align:right">${esc(title)}</b><div class="mp-chips">${chips.map(x => `<span dir="auto">${x}</span>`).join("")}</div></div>
       ${edit ? `<select class="mp-st st-${sc}" onclick="event.stopPropagation()" onchange="setPlanStatus('${i.id}','${c.id}','${i.ym}',this.value)">${Object.entries(PSTATUS).map(([k, [l]]) => `<option value="${k}" ${i.status === k ? "selected" : ""}>${l}</option>`).join("")}</select>` : `<span class="chip ${sc}">${sl}</span>`}
       <span class="tiny muted">${open ? "▲" : "▼"}</span></div>
-    ${open ? `<div class="mp-body">${field("الهدف", i.goal)}${field("الأوديانس", i.audience)}${field("الستراكشر", i.structure)}${field("اللاندنج بيدج", i.landing_url, true)}${field("ملاحظات", i.notes)}
-      ${!(i.goal || i.audience || i.structure || i.landing_url || i.notes) ? `<div class="small muted">مفيش تفاصيل لسه.</div>` : ""}
+    ${open ? `<div class="mp-body">${field("الهدف", i.goal)}${field("الأوديانس", i.audience)}${field("الستراكشر", i.structure)}${planLinks(i).filter(l => l.url).map((l, n, a) => field(l.label || (a.length > 1 ? `لاندنج بيدج ${n + 1}` : "اللاندنج بيدج"), l.url, true)).join("")}${field("ملاحظات", i.notes)}${(i.extra || []).map(x => field(x.label || "خانة", x.value)).join("")}
+      ${!(i.goal || i.audience || i.structure || planLinks(i).some(l => l.url) || i.notes || (i.extra || []).length) ? `<div class="small muted">مفيش تفاصيل لسه.</div>` : ""}
       ${edit ? `<div class="row" style="gap:6px;margin-top:10px"><button class="btn xs" onclick="openPlanItem('${c.id}','${i.ym}','${i.id}')">✏️ تعديل</button><button class="btn xs ghost" onclick="dupPlanItem('${c.id}','${i.ym}','${i.id}')">⧉ نسخة</button><span class="spacer"></span><button class="btn xs ghost" onclick="delPlanItem('${c.id}','${i.ym}','${i.id}')">🗑 مسح</button></div>` : ""}</div>` : ""}
   </div>`;
 }
@@ -2064,15 +2064,18 @@ function openPlanItem(cid, ym, id, plat){
         <div><label class="f">ميزانية الحملة <span class="tiny muted">(${esc(cur(c))}، اختياري)</span></label><input class="inp" id="piBud" type="number" min="0" step="1" value="${i.budget ?? ""}" placeholder="لو فاضية بتتحسب من ميزانية المنصة"></div></div>
       <label class="f">الأوديانس</label><textarea class="inp" id="piAud" dir="auto" rows="4" placeholder="Ad group 1: Broad · All genders · 24-47&#10;Location: جدة، مكة، الرياض&#10;Ad group 2: Retarget">${esc(i.audience || "")}</textarea>
       <label class="f">الستراكشر</label><textarea class="inp" id="piStr" dir="auto" rows="3" placeholder="1 campaign&#10;2 ad sets: interest + broad&#10;1 ad لكل واحد">${esc(i.structure || "")}</textarea>
-      <label class="f">اللاندنج بيدج</label><input class="inp" id="piUrl" dir="ltr" value="${esc(i.landing_url || "")}" placeholder="https://">
+      <label class="f">اللاندنج بيدج</label><div id="piLinks" class="dyn">${planLinks(i).map(linkRow).join("")}</div>
+      <button type="button" class="dyn-add" onclick="dynAdd('piLinks', linkRow({}))">+ لاندنج بيدج تانية</button>
       <label class="f">ملاحظات</label><textarea class="inp" id="piNotes" dir="auto" rows="2" placeholder="أي حاجة تانية">${esc(i.notes || "")}</textarea>
+      <div id="piExtra" class="dyn">${(i.extra || []).map(extraRow).join("")}</div>
+      <button type="button" class="dyn-add" onclick="dynAdd('piExtra', extraRow({}), true)">+ خانة جديدة <span class="tiny muted">(تسمّيها زي ما تحب)</span></button>
       <label class="f">الحالة</label><div class="seg-pick">${Object.entries(PSTATUS).map(([k, [l]]) => `<label><input type="radio" name="piS" value="${k}" ${(i.status || "planned") === k ? "checked" : ""}><span>${l}</span></label>`).join("")}</div>
     </div>
     <div class="actions"><span class="spacer"></span><button class="btn" onclick="closeModal()">إلغاء</button><button class="btn primary" onclick="savePlanItem('${cid}','${ym}','${id || ""}')">حفظ</button></div>`, true);
 }
 async function savePlanItem(cid, ym, id){
   const v = sel => ($(sel) ? $(sel).value.trim() : "") || null, rv = n => (document.querySelector(`input[name="${n}"]:checked`) || {}).value || null;
-  const row = { client_id:cid, ym, platform: $("#piP").value, name: v("#piName"), goal: v("#piGoal"), objective: v("#piObj"), funnel: rv("piF"), ad_format: v("#piFmt"), budget: $("#piBud").value === "" ? null : +$("#piBud").value, audience: v("#piAud"), structure: v("#piStr"), landing_url: v("#piUrl"), notes: v("#piNotes"), status: rv("piS") || "planned", updated_at: new Date().toISOString() };
+  const row = { client_id:cid, ym, platform: $("#piP").value, name: v("#piName"), goal: v("#piGoal"), objective: v("#piObj"), funnel: rv("piF"), ad_format: v("#piFmt"), budget: $("#piBud").value === "" ? null : +$("#piBud").value, audience: v("#piAud"), structure: v("#piStr"), links: dynRead("piLinks", ["label","url"]).filter(x => x.url), landing_url: (dynRead("piLinks", ["label","url"]).find(x => x.url) || {}).url || null, extra: dynRead("piExtra", ["label","value"]).filter(x => x.value || x.label), notes: v("#piNotes"), status: rv("piS") || "planned", updated_at: new Date().toISOString() };
   try {
     if (id) await q(sb.from("plan_items").update(row).eq("id", id), "planupd");
     else { row.sort = ((PLAN[planKey(cid, ym)] || { items:[] }).items.length); await q(sb.from("plan_items").insert(row), "planins"); }
@@ -2104,6 +2107,13 @@ async function copyPlan(cid, from, to){
     toast(`اتنسخت خطة ${monthLabel(from)} ✓`); await loadPlan(cid, to, true);
   } catch(e){ toast("ماتنسختش: " + (e.message || e)); }
 }
+
+/* dynamic rows: add as many fields as you want, rename freely */
+const planLinks = i => (i.links && i.links.length) ? i.links : [{ label:"", url: i.landing_url || "" }];
+const linkRow = l => `<div class="dyn-row"><input class="inp dyn-k" data-k="label" dir="auto" value="${esc(l.label || "")}" placeholder="الاسم (مثلاً: صفحة العروض)"><input class="inp" data-k="url" dir="ltr" value="${esc(l.url || "")}" placeholder="https://"><button type="button" class="btn xs ghost" title="امسح" onclick="this.parentNode.remove()">✕</button></div>`;
+const extraRow = x => `<div class="dyn-row ex"><input class="inp dyn-k" data-k="label" dir="auto" value="${esc(x.label || "")}" placeholder="اسم الخانة (مثلاً: الكوبون)"><textarea class="inp" data-k="value" dir="auto" rows="2" placeholder="اكتب هنا">${esc(x.value || "")}</textarea><button type="button" class="btn xs ghost" title="امسح الخانة" onclick="this.parentNode.remove()">✕</button></div>`;
+function dynAdd(id, html, focus){ const w = document.getElementById(id); w.insertAdjacentHTML("beforeend", html); const r = w.lastElementChild; const f = r.querySelector(focus ? "[data-k=label]" : "[data-k=url]") || r.querySelector("input"); f && f.focus(); }
+function dynRead(id, keys){ const w = document.getElementById(id); if (!w) return []; return [...w.children].map(r => Object.fromEntries(keys.map(k => [k, ((r.querySelector(`[data-k="${k}"]`) || {}).value || "").trim()]))); }
 
 const APP_SHELL = "<div class=\"wrap\"><header class=\"top\"><span class=\"brand\" aria-label=\"\u0632\u064a\u0627\u062f \u0625\u0628\u0631\u0627\u0647\u064a\u0645\"><svg width=\"28\" height=\"28\" viewBox=\"0 0 48 48\" aria-hidden=\"true\"><rect class=\"zm-ink\" x=\"0\" y=\"28\" width=\"12\" height=\"20\" rx=\"2\"/><rect class=\"zm-brand\" x=\"18\" y=\"16\" width=\"12\" height=\"32\" rx=\"2\"/><rect class=\"zm-signal\" x=\"36\" y=\"0\" width=\"12\" height=\"12\" rx=\"2\"/><rect class=\"zm-brand\" x=\"36\" y=\"15\" width=\"12\" height=\"33\" rx=\"2\"/></svg><span class=\"nm\">\u0632\u064a\u0627\u062f \u0625\u0628\u0631\u0627\u0647\u064a\u0645</span><span class=\"sub\">\u00b7 \u0633\u064a\u0633\u062a\u0645 \u0627\u0644\u0634\u063a\u0644</span></span><nav class=\"tabs\" id=\"tabs\"></nav><span class=\"spacer\"></span><div id=\"who\"></div></header><main id=\"view\"><div class=\"card empty\">\u0628\u064a\u062d\u0645\u0651\u0644\u2026</div></main></div>";
 start();
