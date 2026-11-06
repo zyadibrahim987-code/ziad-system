@@ -426,7 +426,7 @@ function render(){
   const act = clients.filter(c => c.status !== "paused").sort((a,b) => (a.is_test - b.is_test) || a.name.localeCompare(b.name, "ar"));
   $("#tabs").innerHTML = tabs.map(([k,l]) => `<button data-tab="${k}" class="${cur === k ? "active" : ""}">${ico(k === "today" ? "today" : k)}<span>${l}</span>${k === "review" && pending ? `<span class="nb">${pending}</span>` : ""}</button>` +
     (k === "clients" && act.length ? `<div class="snav-sub">${act.map(c => `<a href="#" class="${ui.tab === "client" && ui.clientId === c.id ? "on" : ""}" onclick="go('client','${c.id}');return false">${c.logo_url ? clientLogo(c, 18) : `<span class="cdot ${c.type}"></span>`}${esc(c.name)}</a>`).join("")}</div>` : "")).join("");
-  $("#who").innerHTML = `<button class="whob" onclick="go('settings');ui.stab='account';render()">${avatar(me.id, 30)}<span><b>${esc(me.name || me.email)}</b><span class="tiny muted">${isAdmin() ? "Admin" : esc(me.job || "Team")}</span></span></button>`;
+  $("#who").innerHTML = `<button class="whob" onclick="go('settings');ui.stab='account';render()">${avatar(me.id, 30)}<span><b>${esc(me.name || me.email)}</b><span class="tiny muted">${isAdmin() ? "Admin" : esc(me.job || "Team")}</span>${verLabel()}</span></button>`;
   const v = $("#view");
   if (ui.tab === "client") v.innerHTML = viewClient();
   else if (ui.tab === "clients") v.innerHTML = viewClients();
@@ -2328,6 +2328,9 @@ function cpExport(cid){
 (function(){ const _r = render; render = function(){ const a = document.activeElement, p = a && a.dataset && a.dataset.p, s = p && a.selectionStart, e = p && a.selectionEnd, y = window.scrollY;
   _r.apply(this, arguments);
   if (p) { const n = document.querySelector(`[data-p="${p}"]`); if (n && n !== a) { n.focus({ preventScroll:true }); try { n.setSelectionRange(s, e); } catch(_){} window.scrollTo(0, y); } } }; })();
+
+function verLabel(){ const v = String(window.__APP_VERSION || ""); if (!/^\d{14}$/.test(v)) return ""; const d = new Date(Date.UTC(+v.slice(0,4), +v.slice(4,6) - 1, +v.slice(6,8), +v.slice(8,10), +v.slice(10,12)));
+  return `<span class="tiny muted" style="opacity:.6;font-size:10.5px">نسخة ${d.getDate()}/${d.getMonth() + 1} · ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}</span>`; }
 
 const APP_SHELL = "<div class=\"wrap\"><header class=\"top\"><span class=\"brand\" aria-label=\"\u0632\u064a\u0627\u062f \u0625\u0628\u0631\u0627\u0647\u064a\u0645\"><svg width=\"28\" height=\"28\" viewBox=\"0 0 48 48\" aria-hidden=\"true\"><rect class=\"zm-ink\" x=\"0\" y=\"28\" width=\"12\" height=\"20\" rx=\"2\"/><rect class=\"zm-brand\" x=\"18\" y=\"16\" width=\"12\" height=\"32\" rx=\"2\"/><rect class=\"zm-signal\" x=\"36\" y=\"0\" width=\"12\" height=\"12\" rx=\"2\"/><rect class=\"zm-brand\" x=\"36\" y=\"15\" width=\"12\" height=\"33\" rx=\"2\"/></svg><span class=\"nm\">\u0632\u064a\u0627\u062f \u0625\u0628\u0631\u0627\u0647\u064a\u0645</span><span class=\"sub\">\u00b7 \u0633\u064a\u0633\u062a\u0645 \u0627\u0644\u0634\u063a\u0644</span></span><nav class=\"tabs\" id=\"tabs\"></nav><span class=\"spacer\"></span><div id=\"who\"></div></header><main id=\"view\"><div class=\"card empty\">\u0628\u064a\u062d\u0645\u0651\u0644\u2026</div></main></div>";
 start();
