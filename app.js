@@ -1702,7 +1702,7 @@ function pickMyPhoto(){ pickImage(f => openCropper(f, { kind:"avatar", title:"ص
 async function uploadImage(blob, folder, ext, done){
   const path = `${folder}/${Date.now()}.${ext}`;
   toast("بيرفع الصورة…");
-  const { error } = await sb.storage.from("avatars").upload(path, blob, { contentType: ext === "png" ? "image/png" : "image/jpeg", upsert: true, cacheControl: "31536000" });
+  const { error } = await sb.storage.from("avatars").upload(path, blob, { contentType: ext === "png" ? "image/png" : "image/jpeg", upsert: false, cacheControl: "31536000" });
   if (error) return toast("ماترفعتش: " + error.message);
   const { data } = sb.storage.from("avatars").getPublicUrl(path);
   done(data.publicUrl);
