@@ -711,12 +711,12 @@ function renderEntry(){
   const c = clientById(E.cid), d = E.d, ex = (M[c.id]||[]).filter(r => r.d === d), rate = c.usdRate || c.usd_rate || 1;
   const allowed = myPlatforms(c), P = plats(c).filter(p => allowed.includes(p.name)), admin = isAdmin();
   const get = (p, dep, f) => { const r = ex.find(x => x.p === p && (x.dep||"") === (dep||"")); return r && r[f] ? r[f] : ""; };
-  const sIn = (p, dep) => { const v = get(p.name, dep, "s"), usd = p.cur !== c.currency; return `<input class="inp n" data-p="${esc(p.name)}" data-dep="${esc(dep)}" data-f="s" data-cur="${usd?1:0}" type="number" step="0.01" min="0" value="${v && usd ? r2(v/rate) : v}" placeholder="${usd ? esc(p.cur) : ""}">`; };
+  const sIn = (p, dep) => { const v = get(p.name, dep, "s"), fx = p.cur && p.cur !== c.currency, rt = rateFor(c, p.cur) || 1; return `<input class="inp n" data-p="${esc(p.name)}" data-dep="${esc(dep)}" data-f="s" data-rate="${fx ? rt : 1}" type="number" step="0.01" min="0" value="${v && fx ? r2(v/rt) : v}" placeholder="${fx ? esc(p.cur) : ""}">`; };
   let body;
   if (!P.length && !admin) body = `<div class="note">مفيش منصات مسموحلك تسجّلها للعميل ده.</div>`;
   else if (c.type === "store") {
     body = `<h3 style="margin-bottom:4px">١- الإعلانات</h3><table class="t entry"><thead><tr><th>المنصة</th><th>الصرف</th><th>الأوردرات <span class="tiny muted">(حسب المنصة)</span></th></tr></thead><tbody>
-      ${P.map(p => `<tr><td>${pname(p.name)} ${p.cur !== c.currency ? `<span class="tiny muted">(الصرف بالـ ${esc(p.cur)})</span>` : ""}</td><td>${sIn(p,"")}</td><td><input class="inp n" data-p="${esc(p.name)}" data-dep="" data-f="o" type="number" min="0" value="${get(p.name,"","o")}"></td></tr>`).join("")}</tbody></table>
+      ${P.map(p => `<tr><td>${pname(p.name)} ${p.cur && p.cur !== c.currency ? `<span class="tiny muted">(الصرف بالـ ${esc(p.cur)}${rateFor(c, p.cur) ? ` · 1 = ${fmt2(rateFor(c, p.cur))} ${esc(c.currency)}` : ""})</span>` : ""}</td><td>${sIn(p,"")}</td><td><input class="inp n" data-p="${esc(p.name)}" data-dep="" data-f="o" type="number" min="0" value="${get(p.name,"","o")}"></td></tr>`).join("")}</tbody></table>
       ${admin ? `<div class="section"><h3>٢- المتجر ${c.store_platform ? `(${esc(c.store_platform)})` : "(زد / سلة)"}</h3><div class="two">
         <div><label class="f">الـ Value — المبيعات (${esc(c.currency)})</label><input class="inp" data-p="_store" data-f="sl" type="number" step="0.01" min="0" value="${get("_store","","sl")}"></div>
         <div><label class="f">أوردرات المتجر الفعلية <span class="tiny">(اختياري)</span></label><input class="inp" data-p="_store" data-f="o" type="number" min="0" value="${get("_store","","o")}"></div></div>
@@ -724,7 +724,7 @@ function renderEntry(){
   } else {
     const D = (c.depts||[]).length ? c.depts : [""];
     body = `<div class="tscroll" style="border:0"><table class="t entry"><thead><tr><th>${D[0] ? "القسم" : ""}</th><th>صرف</th><th>مكالمات</th><th>رسائل</th><th>Leads</th></tr></thead><tbody>
-      ${P.map(p => `<tr class="ph"><td colspan="5">${pname(p.name)} ${p.cur !== c.currency ? `<span class="tiny muted">(الصرف بالـ ${esc(p.cur)})</span>` : ""}</td></tr>` + D.map(dep => `<tr><td class="small">${esc(dep)}</td><td>${sIn(p, dep)}</td>
+      ${P.map(p => `<tr class="ph"><td colspan="5">${pname(p.name)} ${p.cur && p.cur !== c.currency ? `<span class="tiny muted">(الصرف بالـ ${esc(p.cur)}${rateFor(c, p.cur) ? ` · 1 = ${fmt2(rateFor(c, p.cur))} ${esc(c.currency)}` : ""})</span>` : ""}</td></tr>` + D.map(dep => `<tr><td class="small">${esc(dep)}</td><td>${sIn(p, dep)}</td>
           <td><input class="inp n" data-p="${esc(p.name)}" data-dep="${esc(dep)}" data-f="ca" type="number" min="0" value="${get(p.name,dep,"ca")}"></td>
           <td><input class="inp n" data-p="${esc(p.name)}" data-dep="${esc(dep)}" data-f="ms" type="number" min="0" value="${get(p.name,dep,"ms")}"></td>
           <td><input class="inp n" data-p="${esc(p.name)}" data-dep="${esc(dep)}" data-f="ld" type="number" min="0" value="${get(p.name,dep,"ld")}"></td></tr>`).join("")).join("")}</tbody></table></div>
@@ -744,7 +744,7 @@ async function saveEntry(){
     const v = parseFloat(inp.value); if (!isFinite(v) || v <= 0) return;
     const p = inp.dataset.p, dep = inp.dataset.dep || "", f = inp.dataset.f, k = p + "|" + dep;
     map[k] = map[k] || { client_id:c.id, d:E.d, p, dep, entered_by:me.id, reviewed: admin || me.job === "Media Buyer", updated_at:new Date().toISOString() };
-    map[k][f === "in" ? "ins" : f] = inp.dataset.cur === "1" ? r2(v * rate) : v;
+    map[k][f === "in" ? "ins" : f] = inp.dataset.rate && +inp.dataset.rate !== 1 ? Math.round(v * +inp.dataset.rate * 10000) / 10000 : v;
   });
   const editable = admin ? null : myPlatforms(c);
   $("#enBtn").disabled = true;
@@ -770,14 +770,14 @@ async function saveSalesTarget(cid, ym){
 let F = {};
 function openSettings(id){
   const c = id ? clientById(id) : null;
-  F = { id, type: c?.type || "leads", platforms: c ? JSON.parse(JSON.stringify(plats(c))) : [{name:"Meta",cur:"SAR"},{name:"TikTok",cur:"SAR"},{name:"Snapchat",cur:"SAR"}], depts: c ? (c.depts||[]).slice() : [], links: c ? JSON.parse(JSON.stringify(c.links||[])) : [], currency: c?.currency || "SAR" };
+  F = { rates: Object.assign({}, c && c.usd_rate ? { USD: +c.usd_rate } : {}, (c && c.cur_rates) || {}), id, type: c?.type || "leads", platforms: c ? JSON.parse(JSON.stringify(plats(c))) : [{name:"Meta",cur:"SAR"},{name:"TikTok",cur:"SAR"},{name:"Snapchat",cur:"SAR"}], depts: c ? (c.depts||[]).slice() : [], links: c ? JSON.parse(JSON.stringify(c.links||[])) : [], currency: c?.currency || "SAR" };
   const tg = c?.targets || {};
   openModal(`<h2>${c ? "إعدادات " + esc(c.name) : "عميل جديد"}</h2>
     <div class="two">
       <div><label class="f">اسم العميل</label><input class="inp" id="sName" value="${esc(c?.name||"")}" autofocus></div>
       <div><label class="f">نوع العميل</label><select class="inp" id="sType" onchange="F.type=this.value;drawSettingsDyn()"><option value="leads" ${F.type==="leads"?"selected":""}>📞 ليدز</option><option value="store" ${F.type==="store"?"selected":""}>🛒 متجر</option></select></div>
       <div><label class="f">عملة الحساب</label><select class="inp" id="sCur" onchange="F.currency=this.value;drawSettingsDyn()">${["SAR","USD","EGP","AED","KWD","QAR"].map(x => `<option ${F.currency===x?"selected":""}>${x}</option>`).join("")}</select></div>
-      <div><label class="f">سعر الدولار بعملة الحساب</label><input class="inp" id="sRate" type="number" step="0.01" value="${c?.usd_rate ?? 3.75}"></div></div>
+      <div></div></div>
     <div id="sDyn"></div>
     <div class="section"><h3>التارجت <span class="tiny muted">(كله اختياري)</span></h3><div class="two">
       <div class="only-store"><label class="f">تارجت المبيعات الشهري</label><input class="inp" id="tSales" type="number" value="${tg.sales ?? ""}"></div>
@@ -794,8 +794,8 @@ function openSettings(id){
 }
 function drawSettingsDyn(){
   $("#sDyn").innerHTML = `<div class="section"><h3>المنصات</h3>
-    ${F.platforms.map((p,i) => `<div class="lrow">${badge(p.name)}<input class="inp" style="max-width:220px" value="${esc(p.name)}" oninput="F.platforms[${i}].name=this.value"><select class="inp" style="max-width:110px" onchange="F.platforms[${i}].cur=this.value"><option ${p.cur===F.currency?"selected":""}>${F.currency}</option>${F.currency!=="USD"?`<option ${p.cur==="USD"?"selected":""}>USD</option>`:""}</select><button class="btn ghost sm" onclick="F.platforms.splice(${i},1);drawSettingsDyn()" aria-label="شيل">✕</button></div>`).join("")}
-    <div class="row" style="gap:4px;margin-top:4px">${PLATFORM_PRESETS.filter(n => !F.platforms.some(p => p.name.toLowerCase() === n.toLowerCase())).map(n => `<button class="btn xs" onclick="F.platforms.push({name:'${n}',cur:F.currency});drawSettingsDyn()">${badge(n)} ${n}</button>`).join("")}<button class="btn xs" onclick="F.platforms.push({name:'',cur:F.currency});drawSettingsDyn()">+ منصة تانية</button></div></div>
+    ${F.platforms.map((p,i) => `<div class="lrow">${badge(p.name)}<input class="inp" style="max-width:220px" value="${esc(p.name)}" oninput="F.platforms[${i}].name=this.value"><select class="inp" style="max-width:160px;min-width:150px" onchange="F.platforms[${i}].cur=this.value;drawSettingsDyn()" title="عملة الصرف على المنصة دي">${CURS.map(x => `<option value="${x}" ${(p.cur || F.currency) === x ? "selected" : ""}>${x}${x === F.currency ? " (الحساب)" : ""}</option>`).join("")}</select><button class="btn ghost sm" onclick="F.platforms.splice(${i},1);drawSettingsDyn()" aria-label="شيل">✕</button></div>`).join("")}
+    <div class="row" style="gap:4px;margin-top:4px">${PLATFORM_PRESETS.filter(n => !F.platforms.some(p => p.name.toLowerCase() === n.toLowerCase())).map(n => `<button class="btn xs" onclick="F.platforms.push({name:'${n}',cur:F.currency});drawSettingsDyn()">${badge(n)} ${n}</button>`).join("")}<button class="btn xs" onclick="F.platforms.push({name:'',cur:F.currency});drawSettingsDyn()">+ منصة تانية</button></div></div>${ratesBlock()}
   ${F.type === "leads" ? `<div class="section"><h3>الأقسام</h3>${F.depts.map((d,i) => `<div class="lrow"><input class="inp" style="max-width:260px" value="${esc(d)}" oninput="F.depts[${i}]=this.value"><button class="btn ghost sm" onclick="F.depts.splice(${i},1);drawSettingsDyn()" aria-label="شيل">✕</button></div>`).join("")}<button class="btn xs" onclick="F.depts.push('');drawSettingsDyn()">+ قسم</button></div>` : ""}`;
   document.querySelectorAll("#modal .only-leads").forEach(x => x.style.display = F.type === "leads" ? "" : "none");
   document.querySelectorAll("#modal .only-store").forEach(x => x.style.display = F.type === "store" ? "" : "none");
@@ -805,7 +805,10 @@ async function saveSettings(){
   const name = $("#sName").value.trim(); if (!name) { toast("اكتب اسم العميل"); return; }
   const pn = sel => { const v = parseFloat($(sel)?.value); return isFinite(v) && v > 0 ? v : undefined; };
   const old = F.id ? clientById(F.id) : null;
-  const data = { name, type: F.type, currency: $("#sCur").value, usd_rate: parseFloat($("#sRate").value) || 1,
+  const curNow = $("#sCur").value, need = [...new Set(F.platforms.filter(p => p.name.trim()).map(p => p.cur || curNow))].filter(x => x !== curNow);
+  const missing = need.filter(x => !(+F.rates[x] > 0)); if (missing.length) { toast(`حط سعر ${missing.join(" و ")} بالـ ${curNow}`); return; }
+  const rates = {}; need.forEach(x => rates[x] = +F.rates[x]);
+  const data = { name, type: F.type, currency: curNow, usd_rate: rates.USD || (old && old.usd_rate) || 3.75, cur_rates: rates,
     platforms: F.platforms.map(p => ({ name: p.name.trim(), cur: p.cur || F.currency })).filter(p => p.name),
     depts: F.type === "leads" ? F.depts.map(d => d.trim()).filter(Boolean) : [],
     targets: F.type === "store" ? { sales: pn("#tSales"), salesMonths: (old && old.targets && old.targets.salesMonths) || {}, minRoas: pn("#tRoas"), maxCpp: pn("#tCpp") } : { cpl: pn("#tCpl") },
@@ -1317,7 +1320,7 @@ function settingsClients(){
         <span class="tiny muted">${open ? "▲" : "▼"}</span></div>
       ${open ? `<div class="scl-b">
         <div class="kvs">
-          <div><span>العملة</span><b>${esc(c.currency || "SAR")}${(c.usd_rate && c.usd_rate !== 1) ? ` · الدولار = ${fmt2(c.usd_rate)}` : ""}</b></div>
+          <div><span>العملة</span><b>${esc(c.currency || "SAR")}${Object.entries(c.cur_rates || {}).filter(([k]) => plats(c).some(p => p.cur === k)).map(([k, v]) => ` · 1 ${esc(k)} = ${fmt2(v)}`).join("")}</b></div>
           <div><span>المنصات</span><b>${plats(c).map(p => esc(p.name) + (p.cur !== c.currency ? ` (${esc(p.cur)})` : "")).join("، ") || "—"}</b></div>
           ${c.type === "store" ? `<div><span>التارجت</span><b>${[c.targets?.sales ? "مبيعات " + fmt(c.targets.sales) : "", c.targets?.minRoas ? "ROAS " + fmt2(c.targets.minRoas) : "", c.targets?.maxCpp ? "CPP " + fmt2(c.targets.maxCpp) : ""].filter(Boolean).join(" · ") || "—"}</b></div>` : `<div><span>الأقسام</span><b>${(c.depts||[]).map(esc).join("، ") || "—"}</b></div><div><span>التارجت</span><b>${c.targets?.cpl ? "CPA " + fmt2(c.targets.cpl) : "—"}</b></div>`}
         </div>
@@ -1955,6 +1958,24 @@ function clientPayBadge(c){
   const b = FIN.billing[c.id]; if (!b || !b.active) return "";
   const ps = clientPayState(c, ymOf(todayK())) || { k:"none" };
   return `<span class="pay-badge pb-${ps.k}" title="تحصيل الشهر ده" onclick="event.stopPropagation();go('finance')">${curAmt(b.fee, b.currency)} · ${PAY_LABEL[ps.k]}</span>`;
+}
+
+
+/* ================= Per-platform currencies ================= */
+const CURS = ["SAR","USD","EGP","AED","KWD","QAR","EUR"];
+const CUR_LABEL = { SAR:"ريال سعودي", USD:"دولار", EGP:"جنيه مصري", AED:"درهم إماراتي", KWD:"دينار كويتي", QAR:"ريال قطري", EUR:"يورو" };
+function ratesBlock(){
+  const need = [...new Set(F.platforms.filter(p => p.name.trim()).map(p => p.cur || F.currency))].filter(x => x !== F.currency);
+  if (need.includes("USD") && !(+F.rates.USD > 0) && F.currency === "SAR") F.rates.USD = 3.75;
+  if (!need.length) return `<div class="tiny muted" style="margin-top:6px">كل المنصات بتصرف بالـ ${F.currency}، فمش محتاج سعر تحويل.</div>`;
+  return `<div class="rates-box"><div class="small" style="margin-bottom:6px"><b>أسعار التحويل</b> <span class="tiny muted">الصرف بيتكتب بعملة المنصة، والسيستم بيحوّله لـ ${F.currency} بالسعر ده</span></div>
+    ${need.map(x => `<label class="fx-in">1 ${CUR_LABEL[x] || x} (${x}) = <input class="inp" type="number" step="0.0001" min="0" value="${F.rates[x] || ""}" placeholder="؟" oninput="F.rates['${x}']=parseFloat(this.value)||0"> ${F.currency}</label>`).join("")}</div>`;
+}
+function rateFor(c, cur){
+  if (!cur || cur === c.currency) return 1;
+  const r = (c.cur_rates || {})[cur]; if (+r > 0) return +r;
+  if (cur === "USD" && +c.usd_rate > 0) return +c.usd_rate;
+  return null;
 }
 
 const APP_SHELL = "<div class=\"wrap\"><header class=\"top\"><span class=\"brand\" aria-label=\"\u0632\u064a\u0627\u062f \u0625\u0628\u0631\u0627\u0647\u064a\u0645\"><svg width=\"28\" height=\"28\" viewBox=\"0 0 48 48\" aria-hidden=\"true\"><rect class=\"zm-ink\" x=\"0\" y=\"28\" width=\"12\" height=\"20\" rx=\"2\"/><rect class=\"zm-brand\" x=\"18\" y=\"16\" width=\"12\" height=\"32\" rx=\"2\"/><rect class=\"zm-signal\" x=\"36\" y=\"0\" width=\"12\" height=\"12\" rx=\"2\"/><rect class=\"zm-brand\" x=\"36\" y=\"15\" width=\"12\" height=\"33\" rx=\"2\"/></svg><span class=\"nm\">\u0632\u064a\u0627\u062f \u0625\u0628\u0631\u0627\u0647\u064a\u0645</span><span class=\"sub\">\u00b7 \u0633\u064a\u0633\u062a\u0645 \u0627\u0644\u0634\u063a\u0644</span></span><nav class=\"tabs\" id=\"tabs\"></nav><span class=\"spacer\"></span><div id=\"who\"></div></header><main id=\"view\"><div class=\"card empty\">\u0628\u064a\u062d\u0645\u0651\u0644\u2026</div></main></div>";
