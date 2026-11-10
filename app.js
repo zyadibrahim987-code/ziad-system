@@ -1355,6 +1355,7 @@ function clientViews(c, see, mp){
     if (see) R.push({ k:"total", l:"Total", sub:"العميل كله" });
   }
   if (canFiles(c.id)) O.push({ k:"files", l:"Files", sub:"لينكات وملفات العميل" });
+  O.push({ k:"notes", l:"Notes", sub: isAdmin() ? "التأخيرات والمشاكل بالتاريخ" : "ملاحظاتك على العميل" });
   O.push({ k:"deliv", l:"Deliveries", sub: isAdmin() ? "التسليمات اللي اتعملت" : "تسليماتك على العميل" });
   O.push({ k:"tasks", l:"Tasks", sub: isAdmin() ? "كل مهام العميل" : "تاسكاتك على العميل" });
   const P = [];
@@ -1373,7 +1374,7 @@ function clientBody(c, ym, see, mp){
   let k = ui.cv[c.id]; if (!all.some(v => v.k === k)) k = (R[0] || O[0]).k;
   const v = all.find(x => x.k === k);
   const item = x => `<button class="${x.k === k ? "on" : ""}" onclick="ui.cv=ui.cv||{};ui.cv['${c.id}']='${x.k}';ui.selDay=null;saveUi();render()">
-      ${x.av ? avatar(x.av, 22) : `<span class="cv-ic">${x.k === "total" ? "Σ" : x.k === "files" ? "⌗" : x.k === "deliv" ? "↗" : x.k === "mplan" ? "▤" : x.k === "camps" ? "◎" : "✓"}</span>`}
+      ${x.av ? avatar(x.av, 22) : `<span class="cv-ic">${x.k === "total" ? "Σ" : x.k === "files" ? "⌗" : x.k === "deliv" ? "↗" : x.k === "mplan" ? "▤" : x.k === "camps" ? "◎" : x.k === "notes" ? "✎" : "✓"}</span>`}
       <span class="cv-t"><b>${esc(x.l)}</b><span>${esc(x.sub)}</span></span>
       ${R.includes(x) ? `<span class="cv-m">${sliceMetric(c, x.sl, ym)}</span>` : ""}</button>`;
   const nav = `<nav class="cnav">${R.length ? `<div class="cnav-l">Results</div>${R.map(item).join("")}` : ""}${P.length ? `<div class="cnav-l">Plan</div>${P.map(item).join("")}` : ""}<div class="cnav-l">Client</div>${O.map(item).join("")}</nav>`;
@@ -1391,6 +1392,7 @@ function clientPanel(c, ym, v, see, mp){
   if (v.k === "files") return head("Files", "لينكات درايف وملفات العميل، وأي حد على العميل يقدر يضيف ويعدّل") + filesBlock(c).replace(/^<div class="section-title">[\s\S]*?<\/div>/, "");
   if (v.k === "mplan") return mediaPlanView(c);
   if (v.k === "camps") return campaignsView(c);
+  if (v.k === "notes") return clientNotesView(c);
   if (v.k === "deliv") return head("Deliveries", "كل اللي اتسلّم على العميل ده: اللينكات والملفات، مين سلّمها وإمتى") + delivBlock(c);
   if (v.k === "tasks") {
     const ct = isAdmin() ? tasks.filter(t => t.clientId === c.id) : tasks.filter(t => t.clientId === c.id && t.assigneeId === me.id);
@@ -2331,6 +2333,93 @@ function cpExport(cid){
 
 function verLabel(){ const v = String(window.__APP_VERSION || ""); if (!/^\d{14}$/.test(v)) return ""; const d = new Date(Date.UTC(+v.slice(0,4), +v.slice(4,6) - 1, +v.slice(6,8), +v.slice(8,10), +v.slice(10,12)));
   return `<span class="tiny muted" style="opacity:.6;font-size:10.5px">نسخة ${d.getDate()}/${d.getMonth() + 1} · ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}</span>`; }
+
+
+/* ================= Side notes (timestamped client log for reports) ================= */
+const NKINDS = { client_delay:["تأخير من العميل","amb","مثلاً: مش بيرد من الصبح · اتأخر في شحن الفيزا · الكرييتف لسه مجاش"], account:["مشكلة أكونت","bad","مثلاً: أكونت سناب اتحظر · الإعلانات اترفضت"], payment:["دفع / فيزا","bad","مثلاً: الفيزا اترفضت والحملات وقفت"], site:["الموقع / التراكينج","blue","مثلاً: الموقع واقع · البيكسل مش بيسجل"], action:["أكشن اتعمل","ok","مثلاً: زوّدت ميزانية جوجل 20% · نزّلت كرييتف جديد"], note:["ملاحظة","grey","اكتب أي حاجة"] };
+const NISSUE = k => ["client_delay","account","payment","site"].includes(k);
+let NOTES = null, NOTESload = null;
+async function loadNotes(force){
+  if (NOTESload && !force) return NOTESload;
+  NOTESload = (async () => { try { const since = new Date(Date.now() - 400 * 864e5).toISOString(); NOTES = await q(sb.from("client_notes").select("*").gte("at", since).order("at", { ascending:false }).limit(2000), "notes"); } catch(e){ NOTES = []; toast("مقدرتش أجيب النوتس: " + (e.message || e)); } render(); })();
+  return NOTESload;
+}
+const nDayK = iso => { const d = new Date(iso); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
+const nTime = iso => { const d = new Date(iso); let h = d.getHours(), m = String(d.getMinutes()).padStart(2,"0"); const ap = h < 12 ? "ص" : "م"; h = h % 12 || 12; return `${h}:${m} ${ap}`; };
+const nDayLabel = k => { const tk = todayK(); return k === tk ? "النهارده" : k === addDaysK(tk, -1) ? "امبارح" : fmtDate(fromKey(k)) + (k.slice(0,4) !== tk.slice(0,4) ? " " + k.slice(0,4) : ""); };
+function nDur(a, b){ const ms = new Date(b) - new Date(a), hrs = Math.round(ms / 36e5); if (hrs < 1) return "أقل من ساعة"; if (hrs < 24) return hrs === 1 ? "ساعة" : hrs === 2 ? "ساعتين" : `${hrs} ساعات`; return daysAr(Math.round(hrs / 24)); }
+function noteForm(fixedCid){
+  const cl = clients.filter(c => c.status !== "archived"), sel = fixedCid || ui.noteCid || (cl[0] || {}).id, k = ui.noteKind || "client_delay";
+  if (!cl.length) return "";
+  return `<div class="nform">
+    ${fixedCid ? "" : `<select class="inp sm" id="nfC" onchange="ui.noteCid=this.value">${cl.map(c => `<option value="${c.id}" ${c.id === sel ? "selected" : ""}>${esc(c.name)}</option>`).join("")}</select>`}
+    <div class="nkinds">${Object.entries(NKINDS).map(([kk, [l, col]]) => `<button type="button" class="nk ${col}${kk === k ? " on" : ""}" onclick="ui.noteKind='${kk}';document.querySelectorAll('.nk').forEach(b=>b.classList.remove('on'));this.classList.add('on');document.getElementById('nfB').placeholder=NKINDS['${kk}'][2]">${l}</button>`).join("")}</div>
+    <textarea class="inp" id="nfB" dir="auto" rows="2" placeholder="${esc(NKINDS[k][2])}" oninput="ui.noteDraft=this.value" onkeydown="if(event.key==='Enter'&&(event.metaKey||event.ctrlKey)){addNote('${fixedCid || ""}')}">${esc(ui.noteDraft || "")}</textarea>
+    <div class="row" style="gap:6px"><span class="tiny muted" id="nfT">${ui.noteAt ? "" : "هتتسجل بالوقت دلوقتي"}</span>${ui.noteAt ? `<input class="inp sm" type="datetime-local" id="nfAt" value="${ui.noteAt}" onchange="ui.noteAt=this.value" style="width:auto">` : `<a href="#" class="tiny" onclick="ui.noteAt=new Date(Date.now()-new Date().getTimezoneOffset()*6e4).toISOString().slice(0,16);render();return false">وقت تاني؟</a>`}<span class="spacer"></span><button class="btn sm primary" onclick="addNote('${fixedCid || ""}')">سجّل</button></div></div>`;
+}
+async function addNote(fixedCid){
+  const body = ($("#nfB").value || "").trim(); if (!body) { $("#nfB").focus(); return toast("اكتب الملاحظة الأول"); }
+  const cid = fixedCid || ($("#nfC") || {}).value; if (!cid) return toast("اختار العميل");
+  const at = ui.noteAt ? new Date(ui.noteAt).toISOString() : new Date().toISOString();
+  try { await q(sb.from("client_notes").insert({ client_id: cid, kind: ui.noteKind || "client_delay", body, at }), "noteins"); ui.noteAt = null; ui.noteDraft = ""; $("#nfB").value = ""; toast("اتسجلت ✓"); await loadNotes(true); }
+  catch(e){ toast("ماتسجلتش: " + (e.message || e)); }
+}
+function noteItem(n, showClient){
+  const [l, col] = NKINDS[n.kind] || NKINDS.note, c = clientById(n.client_id), mine = isAdmin() || n.created_by === me.id;
+  const res = NISSUE(n.kind) ? (n.resolved_at ? `<span class="tiny lv-ok">✓ اتحلّت بعد ${nDur(n.at, n.resolved_at)}</span>` : (mine ? `<button class="btn xs ghost" onclick="resolveNote('${n.id}')">اتحلّت؟</button>` : `<span class="tiny lv-amb">لسه مفتوحة</span>`)) : "";
+  return `<div class="nitem k-${col}"><div class="nmeta"><span class="num tiny">${nTime(n.at)}</span>${showClient && c ? `<a href="#" class="ncl" onclick="go('client','${c.id}');ui.cv=ui.cv||{};ui.cv['${c.id}']='notes';render();return false">${clientLogo(c, 16)} ${esc(c.name)}</a>` : ""}<span class="nkc ${col}">${l}</span>${isAdmin() && n.created_by && n.created_by !== me.id ? `<span class="tiny muted">· ${esc(personName(n.created_by))}</span>` : ""}<span class="spacer"></span>${mine ? `<button class="nx" title="تعديل" onclick="editNote('${n.id}')">✎</button>` : ""}</div>
+    <div class="nbody" dir="auto">${esc(n.body)}</div>${res ? `<div style="margin-top:4px">${res}</div>` : ""}</div>`;
+}
+function noteFeed(list, showClient, emptyTxt){
+  if (!list.length) return `<div class="small muted" style="padding:14px 4px">${emptyTxt || "مفيش نوتس لسه."}</div>`;
+  const by = new Map(); list.slice().sort((a, b) => new Date(b.at) - new Date(a.at)).forEach(n => { const k = nDayK(n.at); if (!by.has(k)) by.set(k, []); by.get(k).push(n); });
+  return [...by.entries()].map(([k, ns]) => `<div class="nday"><div class="ndh">${nDayLabel(k)} <span class="muted num">· ${k.slice(8)}/${k.slice(5,7)}</span></div>${ns.map(n => noteItem(n, showClient)).join("")}</div>`).join("");
+}
+function notesSide(){
+  if (NOTES === null) { loadNotes(); return `<div class="nside"><h3>Side notes</h3><div class="small muted">بيحمّل…</div></div>`; }
+  const open = NOTES.filter(n => NISSUE(n.kind) && !n.resolved_at).sort((a, b) => new Date(b.at) - new Date(a.at)), recent = NOTES.filter(n => new Date(n.at) > Date.now() - 14 * 864e5);
+  return `<div class="nside"><div class="row"><h3 style="margin:0">Side notes</h3><span class="spacer"></span>${open.length ? `<span class="chip warn">${open.length} مفتوحة</span>` : ""}</div>
+    <div class="tiny muted" style="margin:2px 0 10px">اللي بيحصل مع كل عميل بالوقت والتاريخ، علشان يبان في الريبورت.</div>
+    ${noteForm()}
+    ${open.length ? `<div class="nopen"><div class="ndh">لسه مفتوحة</div>${open.map(n => noteItem(n, true)).join("")}</div>` : ""}
+    <div class="nfeed">${noteFeed(recent.filter(n => !open.includes(n)), true, "مفيش نوتس في آخر أسبوعين.")}</div></div>`;
+}
+function clientNotesView(c){
+  const ym = ui.noteM || ymOf(todayK());
+  let h = `<div class="cv-head"><div><h2>Notes</h2><div class="ph-sub">التأخيرات والمشاكل واللي اتعمل، بالتاريخ والوقت</div></div></div>`;
+  if (NOTES === null) { loadNotes(); return h + `<div class="card empty">بيحمّل…</div>`; }
+  const all = NOTES.filter(n => n.client_id === c.id), list = all.filter(n => nDayK(n.at).slice(0,7) === ym), f = ui.noteF || "";
+  const shown = f ? list.filter(n => n.kind === f) : list;
+  const cnt = k => list.filter(n => n.kind === k).length;
+  const issues = list.filter(n => NISSUE(n.kind)), openN = all.filter(n => NISSUE(n.kind) && !n.resolved_at);
+  h += `<div class="row" style="margin:0 0 12px"><div class="monthnav"><button class="btn sm" onclick="ui.noteM=ymAdd('${ym}',1);render()" aria-label="الشهر اللي بعده">›</button><div class="m">${monthLabel(ym)}</div><button class="btn sm" onclick="ui.noteM=ymAdd('${ym}',-1);render()" aria-label="الشهر اللي قبله">‹</button></div>${ym !== ymOf(todayK()) ? `<button class="btn xs ghost" onclick="ui.noteM=null;render()">الشهر ده</button>` : ""}<span class="spacer"></span><button class="btn sm" onclick="copyNotes('${c.id}','${ym}')">⧉ انسخ ملخص الشهر</button></div>`;
+  if (list.length) h += `<div class="nsum">${Object.entries(NKINDS).filter(([k]) => cnt(k)).map(([k, [l, col]]) => `<button class="nfilt ${col}${f === k ? " on" : ""}" onclick="ui.noteF=ui.noteF==='${k}'?'':'${k}';render()"><b class="num">${cnt(k)}</b> ${l}</button>`).join("")}${f ? `<button class="btn xs ghost" onclick="ui.noteF='';render()">اعرض الكل</button>` : ""}</div>`;
+  if (issues.length) { const dur = issues.filter(n => n.resolved_at).reduce((a, n) => a + (new Date(n.resolved_at) - new Date(n.at)), 0); h += `<div class="tiny muted" style="margin:-4px 0 10px">${issues.length} مشكلة/تأخير الشهر ده${dur ? ` · اللي اتحلّ منهم أخد ${nDur(0, dur)} في المجموع` : ""}${openN.length ? ` · <b class="lv-amb">${openN.length} لسه مفتوحة</b>` : ""}</div>`; }
+  h += `<div class="cv-notes"><div class="cp-card">${noteForm(c.id)}</div><div>${noteFeed(shown, false, `مفيش نوتس في ${monthLabel(ym)}.`)}</div></div>`;
+  return h;
+}
+async function resolveNote(id){ try { await q(sb.from("client_notes").update({ resolved_at: new Date().toISOString() }).eq("id", id), "noteres"); toast("تمام ✓ اتسجّل إنها اتحلّت"); await loadNotes(true); } catch(e){ toast("ماتسجلش"); } }
+function editNote(id){
+  const n = NOTES.find(x => x.id === id); if (!n) return; const loc = iso => iso ? new Date(new Date(iso) - new Date(iso).getTimezoneOffset() * 6e4).toISOString().slice(0,16) : "";
+  openModal(`<h2>تعديل النوت</h2>
+    <label class="f">النوع</label><select class="inp" id="neK">${Object.entries(NKINDS).map(([k, [l]]) => `<option value="${k}" ${n.kind === k ? "selected" : ""}>${l}</option>`).join("")}</select>
+    <label class="f">الملاحظة</label><textarea class="inp" id="neB" dir="auto" rows="3">${esc(n.body)}</textarea>
+    <div class="two"><div><label class="f">حصلت إمتى</label><input class="inp" type="datetime-local" id="neAt" value="${loc(n.at)}"></div><div><label class="f">اتحلّت إمتى <span class="tiny muted">(فاضية = لسه)</span></label><input class="inp" type="datetime-local" id="neR" value="${loc(n.resolved_at)}"></div></div>
+    <div class="actions"><button class="btn ghost danger" onclick="delNote('${id}')">🗑 امسح</button><span class="spacer"></span><button class="btn" onclick="closeModal()">إلغاء</button><button class="btn primary" onclick="saveNoteEdit('${id}')">حفظ</button></div>`);
+}
+async function saveNoteEdit(id){ const b = $("#neB").value.trim(); if (!b) return toast("الملاحظة فاضية");
+  try { await q(sb.from("client_notes").update({ kind: $("#neK").value, body: b, at: $("#neAt").value ? new Date($("#neAt").value).toISOString() : undefined, resolved_at: $("#neR").value ? new Date($("#neR").value).toISOString() : null }).eq("id", id), "noteupd"); closeModal(); toast("اتحفظ ✓"); await loadNotes(true); } catch(e){ toast("ماتحفظش: " + (e.message || e)); } }
+async function delNote(id){ if (!confirm2("تمسح النوت دي؟")) return; try { await q(sb.from("client_notes").delete().eq("id", id), "notedel"); closeModal(); toast("اتمسحت"); await loadNotes(true); } catch(e){ toast("ماتمسحتش"); } }
+function confirm2(t){ return window.confirm(t); }
+function copyNotes(cid, ym){
+  const c = clientById(cid), list = (NOTES || []).filter(n => n.client_id === cid && nDayK(n.at).slice(0,7) === ym).slice().reverse();
+  if (!list.length) return toast("مفيش نوتس في الشهر ده");
+  const lines = list.map(n => { const k = nDayK(n.at); return `• ${+k.slice(8)}/${+k.slice(5,7)} ${nTime(n.at)} — [${NKINDS[n.kind][0]}] ${n.body}${NISSUE(n.kind) ? (n.resolved_at ? ` (اتحلّت بعد ${nDur(n.at, n.resolved_at)})` : " (لسه مفتوحة)") : ""}`; });
+  const txt = `ملاحظات ${c.name} — ${monthLabel(ym)}\n` + lines.join("\n");
+  navigator.clipboard.writeText(txt).then(() => toast("اتنسخ ✓"), () => toast("مقدرتش أنسخ"));
+}
+/* Today page: notes on the side */
+(function(){ const _vt = viewToday; viewToday = function(){ const h = _vt.apply(this, arguments); return `<div class="today-wrap"><div class="tw-main">${h}</div><aside class="tw-side">${notesSide()}</aside></div>`; }; })();
 
 const APP_SHELL = "<div class=\"wrap\"><header class=\"top\"><span class=\"brand\" aria-label=\"\u0632\u064a\u0627\u062f \u0625\u0628\u0631\u0627\u0647\u064a\u0645\"><svg width=\"28\" height=\"28\" viewBox=\"0 0 48 48\" aria-hidden=\"true\"><rect class=\"zm-ink\" x=\"0\" y=\"28\" width=\"12\" height=\"20\" rx=\"2\"/><rect class=\"zm-brand\" x=\"18\" y=\"16\" width=\"12\" height=\"32\" rx=\"2\"/><rect class=\"zm-signal\" x=\"36\" y=\"0\" width=\"12\" height=\"12\" rx=\"2\"/><rect class=\"zm-brand\" x=\"36\" y=\"15\" width=\"12\" height=\"33\" rx=\"2\"/></svg><span class=\"nm\">\u0632\u064a\u0627\u062f \u0625\u0628\u0631\u0627\u0647\u064a\u0645</span><span class=\"sub\">\u00b7 \u0633\u064a\u0633\u062a\u0645 \u0627\u0644\u0634\u063a\u0644</span></span><nav class=\"tabs\" id=\"tabs\"></nav><span class=\"spacer\"></span><div id=\"who\"></div></header><main id=\"view\"><div class=\"card empty\">\u0628\u064a\u062d\u0645\u0651\u0644\u2026</div></main></div>";
 start();
