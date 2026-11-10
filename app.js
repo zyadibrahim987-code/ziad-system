@@ -1327,7 +1327,7 @@ function settingsClients(){
           ${c.type === "store" ? `<div><span>التارجت</span><b>${[c.targets?.sales ? "مبيعات " + fmt(c.targets.sales) : "", c.targets?.minRoas ? "ROAS " + fmt2(c.targets.minRoas) : "", c.targets?.maxCpp ? "CPP " + fmt2(c.targets.maxCpp) : ""].filter(Boolean).join(" · ") || "—"}</b></div>` : `<div><span>الأقسام</span><b>${(c.depts||[]).map(esc).join("، ") || "—"}</b></div><div><span>التارجت</span><b>${c.targets?.cpl ? "CPA " + fmt2(c.targets.cpl) : "—"}</b></div>`}
         </div>
         <div class="row" style="margin:12px 0 4px;gap:10px">${clientLogo(c, 56, true)}<div><b>لوجو العميل</b><div class="row" style="gap:6px;margin-top:4px"><button class="btn xs" onclick="pickClientLogo('${c.id}')">${c.logo_url ? "غيّر اللوجو" : "+ ارفع لوجو"}</button>${c.logo_url ? `<button class="btn xs ghost" onclick="removeLogo('${c.id}')">شيله</button>` : ""}</div></div></div>
-        <div class="row" style="margin:10px 0 4px"><button class="btn sm primary" onclick="openSettings('${c.id}')">✏️ عدّل العميل (العملة، المنصات، التارجت…)</button><button class="btn sm" onclick="go('client','${c.id}')">افتح الداشبورد</button></div>
+        <div class="row" style="margin:10px 0 4px"><button class="btn sm primary" onclick="openSettings('${c.id}')">✏️ عدّل العميل (العملة، المنصات، التارجت…)</button><button class="btn sm" onclick="go('client','${c.id}')">افتح الداشبورد</button><span class="spacer"></span><span class="tiny muted">الحالة:</span> <span class="seg-pick">${[["active","شغال"],["paused","متوقف"]].map(([k, l]) => `<label><input type="radio" name="cst_${c.id}" ${(c.status === "paused" ? "paused" : "active") === k ? "checked" : ""} onchange="setClientStatus('${c.id}','${k}')"><span>${l}</span></label>`).join("")}</span></div>
         ${billingLine(c)}
         ${c.type === "leads" ? leadSheetEditor(c) : ""}
         ${clientTeamCard(c)}
@@ -2420,6 +2420,8 @@ function copyNotes(cid, ym){
 }
 /* Today page: notes on the side */
 (function(){ const _vt = viewToday; viewToday = function(){ const h = _vt.apply(this, arguments); return `<div class="today-wrap"><div class="tw-main">${h}</div><aside class="tw-side">${notesSide()}</aside></div>`; }; })();
+
+async function setClientStatus(cid, st){ const c = clientById(cid); try { await q(sb.from("clients").update({ status: st }).eq("id", cid), "cstatus"); c.status = st; toast(st === "paused" ? `${c.name} بقى متوقف` : `${c.name} رجع شغال ✓`); render(); } catch(e){ toast("ماتغيّرتش: " + (e.message || e)); render(); } }
 
 const APP_SHELL = "<div class=\"wrap\"><header class=\"top\"><span class=\"brand\" aria-label=\"\u0632\u064a\u0627\u062f \u0625\u0628\u0631\u0627\u0647\u064a\u0645\"><svg width=\"28\" height=\"28\" viewBox=\"0 0 48 48\" aria-hidden=\"true\"><rect class=\"zm-ink\" x=\"0\" y=\"28\" width=\"12\" height=\"20\" rx=\"2\"/><rect class=\"zm-brand\" x=\"18\" y=\"16\" width=\"12\" height=\"32\" rx=\"2\"/><rect class=\"zm-signal\" x=\"36\" y=\"0\" width=\"12\" height=\"12\" rx=\"2\"/><rect class=\"zm-brand\" x=\"36\" y=\"15\" width=\"12\" height=\"33\" rx=\"2\"/></svg><span class=\"nm\">\u0632\u064a\u0627\u062f \u0625\u0628\u0631\u0627\u0647\u064a\u0645</span><span class=\"sub\">\u00b7 \u0633\u064a\u0633\u062a\u0645 \u0627\u0644\u0634\u063a\u0644</span></span><nav class=\"tabs\" id=\"tabs\"></nav><span class=\"spacer\"></span><div id=\"who\"></div></header><main id=\"view\"><div class=\"card empty\">\u0628\u064a\u062d\u0645\u0651\u0644\u2026</div></main></div>";
 start();
