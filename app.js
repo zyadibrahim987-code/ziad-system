@@ -2118,7 +2118,7 @@ const extraRow = x => `<div class="dyn-row ex"><input class="inp dyn-k" data-k="
 function dynAdd(id, html, focus){ const w = document.getElementById(id); w.insertAdjacentHTML("beforeend", html); const r = w.lastElementChild; const f = r.querySelector(focus ? "[data-k=label]" : "[data-k=url]") || r.querySelector("input"); f && f.focus(); }
 function dynRead(id, keys){ const w = document.getElementById(id); if (!w) return []; return [...w.children].map(r => Object.fromEntries(keys.map(k => [k, ((r.querySelector(`[data-k="${k}"]`) || {}).value || "").trim()]))); }
 
-/* ================= Campaigns (Search; PMax next) ================= */
+/* ================= Campaigns (Search + PMax) ================= */
 let CPN = {}, CPload = {}, CPedit = null, CPtimer = null;
 const gp = (o, p) => p.split(".").reduce((a, k) => a == null ? a : a[k], o);
 function sp(o, p, v){ const ks = p.split("."); let a = o; for (let i = 0; i < ks.length - 1; i++) { const k = ks[i]; if (a[k] == null) a[k] = /^\d+$/.test(ks[i + 1]) ? [] : {}; a = a[k]; } a[ks[ks.length - 1]] = v; }
@@ -2127,6 +2127,10 @@ const BIDDING = ["Maximize conversions","Maximize conversion value","Target CPA"
 const SNIP_H = ["Amenities","Brands","Courses","Degree programs","Destinations","Featured hotels","Insurance coverage","Models","Neighborhoods","Service catalog","Shows","Styles","Types"];
 const newGroup = n => ({ name: "Ad group " + n, kw:"", neg:"", url:"", path1:"", path2:"", h: Array.from({ length:15 }, () => ({ t:"", pin:"" })), d: Array.from({ length:4 }, () => ({ t:"", pin:"" })), extra:[] });
 const newSearch = () => ({ settings:{ budget:"", bidding:"Maximize conversions", target:"", locations:"", loc_opt:"Presence", languages:"Arabic, English", partners:false, display:false, schedule:"", start:"", end:"", url:"", extra:[] }, groups:[newGroup(1)], neg:"", sitelinks:[], callouts:[], snippets:[], phone:"", ext_extra:[], track: TRACK_DEFAULT.map(t => ({ t, done:false })), launch:"", tests:[], optim:"", extra:[] });
+const CTAS = ["Automated","Shop now","Buy now","Order now","Learn more","Get quote","Sign up","Contact us","Book now","Apply now","Subscribe","Download","See more"];
+const newAG = n => ({ name: "Asset group " + n, url:"", biz:"", cta:"Automated", h: Array.from({ length:15 }, () => ({ t:"" })), lh: Array.from({ length:5 }, () => ({ t:"" })), d: Array.from({ length:5 }, () => ({ t:"" })), images:"", videos:"", themes:"", signals:"", extra:[] });
+const newPmax = () => ({ settings:{ budget:"", bidding:"Maximize conversion value", target:"", goal:"Purchases", locations:"", loc_opt:"Presence", languages:"Arabic, English", start:"", end:"", url:"", url_exp:false, merchant:false, extra:[] }, groups:[newAG(1)], sitelinks:[], callouts:[], snippets:[], phone:"", ext_extra:[], track: TRACK_DEFAULT.map(t => ({ t, done:false })), launch:"", tests:[], optim:"", extra:[] });
+const lines = t => String(t || "").split("\n").map(x => x.trim()).filter(Boolean);
 
 async function loadCamps(cid, force){
   if (CPload[cid] && !force) return CPload[cid];
@@ -2138,6 +2142,7 @@ const filled = a => (a || []).filter(x => (x.t || "").trim());
 function cpQA(c){
   const d = c.data || {}, out = [], st = d.settings || {}, bad = t => out.push({ lv:"bad", t }), warn = t => out.push({ lv:"warn", t });
   if (!+st.budget) warn("مفيش ميزانية يومية متحددة");
+  if (c.kind === "pmax") pmaxQA(d, bad, warn); else
   (d.groups || []).forEach((g, i) => {
     const n = `«${g.name || "Ad group " + (i + 1)}»`, H = filled(g.h), D = filled(g.d), kw = parseKw(g.kw);
     if (!kw.length) bad(`${n} مفيهوش كلمات بحث`);
@@ -2159,6 +2164,24 @@ function cpQA(c){
   if ((d.snippets || []).some(s => String(s.v || "").split("\n").some(x => x.trim().length > 25))) bad("فيه قيمة في الـ Snippets أطول من 25 حرف");
   return out;
 }
+function pmaxQA(d, bad, warn){
+  const st = d.settings || {};
+  (d.groups || []).forEach((g, i) => {
+    const n = `«${g.name || "Asset group " + (i + 1)}»`, H = filled(g.h), L = filled(g.lh), D = filled(g.d);
+    if (H.length < 3) bad(`${n} محتاج 3 عناوين على الأقل (فيه ${H.length})`); else if (H.length < 11) warn(`${n} فيه ${H.length} عناوين. يفضّل 11 أو أكتر`);
+    if (!H.some(x => x.t.length <= 15)) warn(`${n}: يفضّل عنوان واحد على الأقل 15 حرف أو أقل`);
+    if (L.length < 1) bad(`${n} محتاج عنوان طويل واحد على الأقل`);
+    if (D.length < 2) bad(`${n} محتاج وصفين على الأقل (فيه ${D.length})`);
+    if (D.length && !D.some(x => x.t.length <= 60)) bad(`${n}: لازم وصف واحد على الأقل 60 حرف أو أقل`);
+    const lH = H.filter(x => x.t.length > 30).length, lL = L.filter(x => x.t.length > 90).length, lD = D.filter(x => x.t.length > 90).length;
+    if (lH) bad(`${n}: ${lH} عنوان أطول من 30 حرف`); if (lL) bad(`${n}: ${lL} عنوان طويل أطول من 90 حرف`); if (lD) bad(`${n}: ${lD} وصف أطول من 90 حرف`);
+    if ((g.biz || "").length > 25) bad(`${n}: اسم البيزنس أطول من 25 حرف`);
+    if (!(g.url || st.url)) bad(`${n} مفيهوش Final URL`);
+    if (!lines(g.images).length) warn(`${n}: مفيش صور متسجلة`);
+    if (!lines(g.themes).length) warn(`${n}: مفيش Search themes`);
+    if (lines(g.themes).length > 50) bad(`${n}: الـ Search themes أكتر من 50`);
+  });
+}
 function campaignsView(c){
   const edit = canEditPlan(c.id);
   if (!(c.id in CPN)) { loadCamps(c.id); return `<div class="cv-head"><div><h2>Campaigns</h2></div></div><div class="card empty">بيحمّل…</div>`; }
@@ -2166,13 +2189,13 @@ function campaignsView(c){
   if (open) return campaignEditor(c, open, edit);
   CPedit = null;
   const list = CPN[c.id];
-  let h = `<div class="cv-head"><div><h2>Campaigns</h2><div class="ph-sub">ستراكشر الحملات بالتفصيل${edit ? "" : " · للعرض بس"}</div></div>${edit ? `<div class="row" style="gap:6px"><button class="btn sm primary" onclick="newCamp('${c.id}','search')">+ حملة Search</button><button class="btn sm" disabled title="المرحلة الجاية">+ Performance Max · قريب</button></div>` : ""}</div>`;
-  if (!list.length) return h + `<div class="mp-empty"><h3>لسه مفيش حملات</h3><p class="small muted">كل حملة Search فيها: الإعدادات، والـ Ad groups بالكلمات والإعلانات، والـ Extensions، والتراكينج. السيستم بيعد الحروف وبيقولك لو فيه حاجة ناقصة، وفي الآخر تنزّلها ملف لـ Google Ads Editor.</p>${edit ? `<button class="btn primary" onclick="newCamp('${c.id}','search')">+ أول حملة Search</button>` : ""}</div>`;
+  let h = `<div class="cv-head"><div><h2>Campaigns</h2><div class="ph-sub">ستراكشر الحملات بالتفصيل${edit ? "" : " · للعرض بس"}</div></div>${edit ? `<div class="row" style="gap:6px"><button class="btn sm primary" onclick="newCamp('${c.id}','search')">+ حملة Search</button><button class="btn sm primary" onclick="newCamp('${c.id}','pmax')">+ Performance Max</button></div>` : ""}</div>`;
+  if (!list.length) return h + `<div class="mp-empty"><h3>لسه مفيش حملات</h3><p class="small muted">كل حملة Search فيها: الإعدادات، والـ Ad groups بالكلمات والإعلانات، والـ Extensions، والتراكينج. السيستم بيعد الحروف وبيقولك لو فيه حاجة ناقصة، وفي الآخر تنزّلها ملف لـ Google Ads Editor.</p>${edit ? `<button class="btn primary" onclick="newCamp('${c.id}','search')">+ أول حملة Search</button> <button class="btn" onclick="newCamp('${c.id}','pmax')">+ أول Performance Max</button>` : ""}</div>`;
   h += `<div class="cp-list">` + list.map(x => {
-    const d = x.data || {}, G = d.groups || [], kw = G.reduce((a, g) => a + parseKw(g.kw).length, 0), qa = cpQA(x), nb = qa.filter(z => z.lv === "bad").length, nw = qa.length - nb, [sl, sc] = PSTATUS[x.status] || PSTATUS.planned;
+    const d = x.data || {}, G = d.groups || [], kw = x.kind === "pmax" ? 0 : G.reduce((a, g) => a + parseKw(g.kw).length, 0), qa = cpQA(x), nb = qa.filter(z => z.lv === "bad").length, nw = qa.length - nb, [sl, sc] = PSTATUS[x.status] || PSTATUS.planned;
     return `<button class="cp-row" onclick="ui.cpOpen='${x.id}';ui.cpTab=ui.cpTab||'groups';render();window.scrollTo(0,0)">
       <span class="cp-kind">${x.kind === "pmax" ? "PMax" : "Search"}</span>
-      <span class="cp-nm"><b dir="auto">${esc(x.name || "حملة")}</b><span class="tiny muted">${G.length} ad group${G.length === 1 ? "" : "s"} · ${kw} keyword${kw === 1 ? "" : "s"}${+((d.settings || {}).budget) ? " · " + money("", d.settings.budget, cur(c), 0) + " يومي" : ""}</span></span>
+      <span class="cp-nm"><b dir="auto">${esc(x.name || "حملة")}</b><span class="tiny muted">${x.kind === "pmax" ? `${G.length} asset group${G.length === 1 ? "" : "s"} · ${G.reduce((a, g) => a + lines(g.themes).length, 0)} search themes` : `${G.length} ad group${G.length === 1 ? "" : "s"} · ${kw} keyword${kw === 1 ? "" : "s"}`}${+((d.settings || {}).budget) ? " · " + money("", d.settings.budget, cur(c), 0) + " يومي" : ""}</span></span>
       <span class="chip ${nb ? "warn" : nw ? "amb" : "ok"}">${nb ? `${nb} لازم تتصلّح` : nw ? `${nw} ملاحظات` : "جاهزة ✓"}</span>
       <span class="chip ${sc}">${sl}</span></button>`;
   }).join("") + `</div>`;
@@ -2180,7 +2203,7 @@ function campaignsView(c){
 }
 async function newCamp(cid, kind){
   const c = clientById(cid), n = (CPN[cid] || []).filter(x => x.kind === kind).length + 1;
-  try { const r = await q(sb.from("plan_campaigns").insert({ client_id:cid, kind, name: `${c.name} · Search ${n}`, data: newSearch(), sort: (CPN[cid] || []).length }).select(), "campins");
+  try { const r = await q(sb.from("plan_campaigns").insert({ client_id:cid, kind, name: `${c.name} · ${kind === "pmax" ? "PMax" : "Search"} ${n}`, data: kind === "pmax" ? newPmax() : newSearch(), sort: (CPN[cid] || []).length }).select(), "campins");
     await loadCamps(cid, true); const row = (r && r[0]) || CPN[cid][CPN[cid].length - 1]; ui.cpOpen = row.id; ui.cpTab = "settings"; render(); toast("اتعملت ✓ ابدأ من الإعدادات");
   } catch(e){ toast("ماتعملتش: " + (e.message || e)); }
 }
@@ -2222,20 +2245,23 @@ function cpFrag(k){
   return "";
 }
 function campaignEditor(c, x, edit){
-  CPedit = x; const d = x.data = Object.assign(newSearch(), x.data || {}); d.settings = Object.assign(newSearch().settings, d.settings || {});
-  const tab = ui.cpTab || "groups", TABS = [["settings","الإعدادات"],["groups","Ad groups"],["ext","Extensions"],["track","Tracking & launch"],["test","Testing & optimization"]];
+  const PM = x.kind === "pmax", base = PM ? newPmax : newSearch;
+  CPedit = x; const d = x.data = Object.assign(base(), x.data || {}); d.settings = Object.assign(base().settings, d.settings || {});
+  if (PM) d.groups = d.groups.map((g, i) => Object.assign(newAG(i + 1), g));
+  const tab = ui.cpTab || "groups", TABS = [["settings","الإعدادات"],["groups", PM ? "Asset groups" : "Ad groups"],["ext","Extensions"],["track","Tracking & launch"],["test","Testing & optimization"]];
   let h = `<div class="cp-ed">
     <div class="row" style="gap:8px;margin-bottom:10px"><button class="btn sm ghost" onclick="cpClose()">→ كل الحملات</button><span class="spacer"></span><span id="cpSaved" class="tiny muted">${edit ? "كل حاجة بتتحفظ لوحدها" : "للعرض بس"}</span>
       <button class="btn sm" onclick="cpExport('${c.id}')" title="ملف تفتحه في Google Ads Editor">⬇ Google Ads Editor</button>
       ${edit ? `<button class="btn sm ghost" onclick="cpDup('${c.id}')">⧉ نسخة</button><button class="btn sm ghost" onclick="cpAskDel('${c.id}')">🗑</button>` : ""}</div>
     <fieldset class="cp-fs" ${edit ? "" : "disabled"}>
-    <div class="cp-top"><span class="cp-kind">Search</span><input class="inp cp-name" dir="auto" data-p="@name" value="${esc(x.name || "")}" placeholder="اسم الحملة" oninput="cpSet(this)">
+    <div class="cp-top"><span class="cp-kind">${PM ? "PMax" : "Search"}</span><input class="inp cp-name" dir="auto" data-p="@name" value="${esc(x.name || "")}" placeholder="اسم الحملة" oninput="cpSet(this)">
       <select class="mp-st st-${(PSTATUS[x.status] || PSTATUS.planned)[1]}" data-p="@status" onchange="cpSet(this);this.className='mp-st st-'+({planned:'amb',live:'ok'}[this.value]||'grey')">${Object.entries(PSTATUS).map(([k, [l]]) => `<option value="${k}" ${x.status === k ? "selected" : ""}>${l}</option>`).join("")}</select></div>
     </fieldset>
     <div class="cp-qa" data-live="qa">${cpFrag("qa")}</div>
     <div class="cp-tabs">${TABS.map(([k, l]) => `<button class="${tab === k ? "on" : ""}" onclick="ui.cpTab='${k}';render()">${l}</button>`).join("")}</div>
     <fieldset class="cp-fs" ${edit ? "" : "disabled"}>`;
-  if (tab === "settings") {
+  if (PM && (tab === "settings" || tab === "groups")) h += pmaxTab(c, d, tab);
+  else if (tab === "settings") {
     h += `<datalist id="dlBid">${BIDDING.map(b => `<option value="${b}">`).join("")}</datalist><div class="cp-card"><div class="cp-grid">
       ${cpF(`الميزانية اليومية (${esc(cur(c))})`, cpIn("settings.budget", { type:"number", dir:"ltr", ph:"مثلاً 300" }))}
       ${cpF("Bidding strategy", cpIn("settings.bidding", { list:"dlBid", dir:"ltr", ph:"اختار أو اكتب" }))}
@@ -2252,7 +2278,7 @@ function campaignEditor(c, x, edit){
       ${cpF("Negative keywords على مستوى الحملة", cpTa("neg", { dir:"ltr", rows:4, ph:"كلمة في كل سطر\n[مجاني]\n\"وظائف\"\nمستعمل" }), "سطر لكل كلمة · [ ] = Exact · \" \" = Phrase · من غيرهم = Broad")}
       ${cpExtra("settings.extra")}</div>`;
   }
-  if (tab === "groups") {
+  else if (tab === "groups") {
     const og = ui.cpG == null ? 0 : ui.cpG;
     d.groups.forEach((g, gi) => {
       const open = og === gi, H = filled(g.h), D = filled(g.d);
@@ -2299,6 +2325,46 @@ function campaignEditor(c, x, edit){
   }
   return h + `</fieldset></div>`;
 }
+function pmaxTab(c, d, tab){
+  let h = "";
+  if (tab === "settings") {
+    h += `<datalist id="dlBid">${BIDDING.map(b => `<option value="${b}">`).join("")}</datalist><div class="cp-card"><div class="cp-grid">
+      ${cpF(`الميزانية اليومية (${esc(cur(c))})`, cpIn("settings.budget", { type:"number", dir:"ltr", ph:"مثلاً 300" }))}
+      ${cpF("Conversion goal", cpIn("settings.goal", { ph:"مثلاً: Purchases" }))}
+      ${cpF("Bidding strategy", cpIn("settings.bidding", { list:"dlBid", dir:"ltr", ph:"اختار أو اكتب" }))}
+      ${cpF("Target CPA / ROAS", cpIn("settings.target", { dir:"ltr", ph:"لو فيه، مثلاً 400%" }))}
+      ${cpF("Final URL الأساسي", cpIn("settings.url", { dir:"ltr", ph:"https://" }), "أي Asset group من غير لينك بياخد ده")}
+      ${cpF("الأماكن", cpIn("settings.locations", { ph:"مثلاً: السعودية" }))}
+      ${cpF("Location option", `<select class="inp" data-p="settings.loc_opt" onchange="cpSet(this)">${[["Presence","Presence · الناس اللي موجودة في المكان (المفضّل)"],["Presence or interest","Presence or interest · موجودة أو مهتمة"]].map(([k, l]) => `<option value="${k}" ${d.settings.loc_opt === k ? "selected" : ""}>${l}</option>`).join("")}</select>`)}
+      ${cpF("اللغات", cpIn("settings.languages", { ph:"Arabic, English" }))}
+      ${cpF("تاريخ البداية", cpIn("settings.start", { type:"date", dir:"ltr" }))}
+      ${cpF("تاريخ النهاية", cpIn("settings.end", { type:"date", dir:"ltr" }), "سيبه فاضي لو مفتوحة")}
+      </div>
+      <div class="row" style="gap:14px;margin-top:6px"><label class="perm-c"><input type="checkbox" data-p="settings.url_exp" ${d.settings.url_exp ? "checked" : ""} onchange="cpSet(this)"> Final URL expansion</label><label class="perm-c"><input type="checkbox" data-p="settings.merchant" ${d.settings.merchant ? "checked" : ""} onchange="cpSet(this)"> منتجات Merchant Center</label></div>
+      ${cpExtra("settings.extra")}</div>`;
+  }
+  if (tab === "groups") {
+    const og = ui.cpG == null ? 0 : ui.cpG;
+    d.groups.forEach((g, gi) => {
+      const open = og === gi, H = filled(g.h), L = filled(g.lh), D = filled(g.d);
+      h += `<div class="cp-card cp-g${open ? " open" : ""}"><div class="cp-gh" onclick="ui.cpG=${open ? -1 : gi};render()"><b dir="auto">${esc(g.name || "Asset group " + (gi + 1))}</b><span class="tiny muted">${H.length}/15 عنوان · ${L.length}/5 طويل · ${D.length}/5 وصف · ${lines(g.images).length} صورة · ${lines(g.themes).length} theme</span><span class="spacer"></span><span class="tiny muted">${open ? "▲" : "▼"}</span></div>`;
+      if (!open) { h += `</div>`; return; }
+      h += `<div class="cp-gb"><div class="cp-grid">${cpF("اسم الـ Asset group", cpIn(`groups.${gi}.name`, { ph:"مثلاً: أكواد يلا لودو" }))}${cpF("Final URL", cpIn(`groups.${gi}.url`, { dir:"ltr", ph: d.settings.url || "https://" }), d.settings.url ? "لو فاضي بياخد لينك الحملة" : "")}
+        ${cpF("اسم البيزنس", cpIn(`groups.${gi}.biz`, { lim:25 }))}${cpF("Call to action", `<select class="inp" data-p="groups.${gi}.cta" onchange="cpSet(this)">${CTAS.map(o => `<option ${g.cta === o ? "selected" : ""}>${o}</option>`).join("")}</select>`)}</div>
+        <label class="f">العناوين (Headlines) · لحد 15 · كل واحد 30 حرف · واحد على الأقل 15 أو أقل</label><div class="cp-hl">${g.h.map((x, i) => `<div class="cp-li"><span class="n">${i + 1}</span>${cpIn(`groups.${gi}.h.${i}.t`, { lim:30, ph: i < 3 ? "مطلوب" : "" })}</div>`).join("")}</div>
+        <label class="f">العناوين الطويلة (Long headlines) · لحد 5 · كل واحد 90 حرف</label><div class="cp-hl one">${g.lh.map((x, i) => `<div class="cp-li"><span class="n">${i + 1}</span>${cpIn(`groups.${gi}.lh.${i}.t`, { lim:90, ph: i < 1 ? "مطلوب" : "" })}</div>`).join("")}</div>
+        <label class="f">الوصف (Descriptions) · لحد 5 · كل واحد 90 حرف · واحد على الأقل 60 أو أقل</label><div class="cp-hl one">${g.d.map((x, i) => `<div class="cp-li"><span class="n">${i + 1}</span>${cpIn(`groups.${gi}.d.${i}.t`, { lim: i === 0 ? 60 : 90, ph: i < 2 ? "مطلوب" : "" })}</div>`).join("")}</div>
+        <div class="cp-two"><div>${cpF("الصور", cpTa(`groups.${gi}.images`, { rows:6, ph:"صورة في كل سطر: الاسم أو اللينك والمقاس\nمثلاً: Artboard 6 · Square + Landscape" }), `${lines(g.images).length} صورة`)}</div>
+          <div>${cpF("الفيديوهات", cpTa(`groups.${gi}.videos`, { rows:6, dir:"auto", ph:"لينك يوتيوب في كل سطر" }))}</div></div>
+        <div class="cp-two"><div>${cpF("Search themes", cpTa(`groups.${gi}.themes`, { rows:8, ph:"كلمة في كل سطر · لحد 50" }), `${lines(g.themes).length}/50`)}</div>
+          <div>${cpF("Audience signals", cpTa(`groups.${gi}.signals`, { rows:8, ph:"سيجنال في كل سطر\nمثلاً: All converters · Website visitors" }))}</div></div>
+        ${cpExtra(`groups.${gi}.extra`)}
+        <div class="row" style="gap:6px;margin-top:12px"><button class="btn xs ghost" onclick="cpDupGroup(${gi})">⧉ نسخة من الـ Asset group</button><span class="spacer"></span>${d.groups.length > 1 ? `<button class="btn xs ghost" onclick="cpDelGroup(${gi})">🗑 امسح الـ Asset group</button>` : ""}</div></div></div>`;
+    });
+    h += `<button class="mp-add" style="width:100%" onclick="CPedit.data.groups.push(newAG(CPedit.data.groups.length+1));ui.cpG=CPedit.data.groups.length-1;cpQueue();render()">+ Asset group جديد</button>`;
+  }
+  return h;
+}
 function cpDupGroup(gi){ const g = JSON.parse(JSON.stringify(CPedit.data.groups[gi])); g.name = (g.name || "Ad group") + " (نسخة)"; CPedit.data.groups.splice(gi + 1, 0, g); ui.cpG = gi + 1; cpQueue(); render(); }
 function cpDelGroup(gi){ openModal(`<h2>تمسح «${esc(CPedit.data.groups[gi].name || "")}»؟</h2><p class="small muted">هتتمسح الكلمات والإعلانات اللي فيه.</p><div class="actions"><span class="spacer"></span><button class="btn" onclick="closeModal()">لا</button><button class="btn danger" onclick="CPedit.data.groups.splice(${gi},1);ui.cpG=0;closeModal();cpQueue();render()">امسح</button></div>`); }
 async function cpDup(cid){ if (CPtimer) await cpFlush(); const x = CPedit;
@@ -2306,6 +2372,7 @@ async function cpDup(cid){ if (CPtimer) await cpFlush(); const x = CPedit;
 function cpAskDel(cid){ openModal(`<h2>تمسح الحملة «${esc(CPedit.name || "")}»؟</h2><p class="small muted">كل الـ Ad groups والإعلانات والإكستنشنز اللي فيها هتتمسح، ومش هينفع ترجعها.</p><div class="actions"><span class="spacer"></span><button class="btn" onclick="closeModal()">لا</button><button class="btn danger" onclick="cpDoDel('${cid}')">امسح</button></div>`); }
 async function cpDoDel(cid){ clearTimeout(CPtimer); CPtimer = null; try { await q(sb.from("plan_campaigns").delete().eq("id", CPedit.id), "campdel"); closeModal(); ui.cpOpen = null; CPedit = null; await loadCamps(cid, true); toast("اتمسحت"); } catch(e){ toast("ماتمسحتش"); } }
 function cpExport(cid){
+  if (CPedit && CPedit.kind === "pmax") return pmaxExport();
   const x = CPedit, d = x.data, st = d.settings, C = x.name || "Campaign", rows = [];
   rows.push({ "Campaign":C, "Campaign Type":"Search", "Campaign Status":"Paused", "Budget": st.budget || "", "Budget type":"Daily", "Bid Strategy Type": st.bidding || "", "Networks": ["Google search", st.partners ? "Search Partners" : "", st.display ? "Display Network" : ""].filter(Boolean).join(";"), "Languages": String(st.languages || "").split(/[,،;]/).map(x => x.trim()).filter(Boolean).join(";"), "Start Date": st.start || "", "End Date": st.end || "" });
   parseKw(d.neg).forEach(k => rows.push({ "Campaign":C, "Keyword":k.t, "Criterion Type":"Negative " + k.m }));
@@ -2323,6 +2390,19 @@ function cpExport(cid){
   for (let i = 1; i <= 15; i++) cols.push(`Headline ${i}`, `Headline ${i} position`); for (let i = 1; i <= 4; i++) cols.push(`Description ${i}`, `Description ${i} position`);
   const cell = v => { v = String(v ?? ""); return /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v; };
   const csv = "﻿" + [cols.join(","), ...rows.map(r => cols.map(k => cell(r[k])).join(","))].join("\r\n");
+  const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([csv], { type:"text/csv;charset=utf-8" })); a.download = C.replace(/[\\/:*?"<>|]/g, "-") + ".csv"; document.body.appendChild(a); a.click(); a.remove();
+  toast("نزل الملف ✓ افتحه من Google Ads Editor ← Import");
+}
+function pmaxExport(){
+  const x = CPedit, d = x.data, st = d.settings, C = x.name || "Campaign", rows = [];
+  rows.push({ "Campaign":C, "Campaign Type":"Performance Max", "Campaign Status":"Paused", "Budget": st.budget || "", "Budget type":"Daily", "Bid Strategy Type": st.bidding || "", "Languages": String(st.languages || "").split(/[,،;]/).map(x => x.trim()).filter(Boolean).join(";"), "Start Date": st.start || "", "End Date": st.end || "" });
+  d.groups.forEach(g => { const r = { "Campaign":C, "Asset Group": g.name || "Asset group", "Asset Group Status":"Enabled", "Final URL": g.url || st.url || "", "Business name": g.biz || "", "Call to action": g.cta && g.cta !== "Automated" ? g.cta : "" };
+    filled(g.h).forEach((h, i) => r[`Headline ${i + 1}`] = h.t); filled(g.lh).forEach((h, i) => r[`Long headline ${i + 1}`] = h.t); filled(g.d).forEach((h, i) => r[`Description ${i + 1}`] = h.t);
+    rows.push(r); lines(g.themes).forEach(t => rows.push({ "Campaign":C, "Asset Group": g.name || "Asset group", "Search theme": t })); });
+  const cols = ["Campaign","Campaign Type","Campaign Status","Budget","Budget type","Bid Strategy Type","Languages","Start Date","End Date","Asset Group","Asset Group Status","Final URL","Business name","Call to action","Search theme"];
+  for (let i = 1; i <= 15; i++) cols.push(`Headline ${i}`); for (let i = 1; i <= 5; i++) cols.push(`Long headline ${i}`); for (let i = 1; i <= 5; i++) cols.push(`Description ${i}`);
+  const cell = v => { v = String(v ?? ""); return /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v; };
+  const csv = "\ufeff" + [cols.join(","), ...rows.map(r => cols.map(k => cell(r[k])).join(","))].join("\r\n");
   const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([csv], { type:"text/csv;charset=utf-8" })); a.download = C.replace(/[\\/:*?"<>|]/g, "-") + ".csv"; document.body.appendChild(a); a.click(); a.remove();
   toast("نزل الملف ✓ افتحه من Google Ads Editor ← Import");
 }
