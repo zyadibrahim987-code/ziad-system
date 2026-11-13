@@ -2006,7 +2006,7 @@ const FUNNEL_AR = { "Top of funnel":"Top · وعي", "Middle of funnel":"Middle 
 const OBJECTIVES = { Meta:["Sales","Website conversions","Leads","Traffic","Engagement","Awareness"], TikTok:["Website conversions","Spark ads","Smart+","Leads","Traffic","Video views"], Snapchat:["Website conversions","Leads","Traffic","Awareness"], Google:["Search","Performance Max","Shopping","Demand Gen","YouTube","Display"], X:["Website conversions","Traffic","Engagement"] };
 function mediaPlanView(c){
   const ym = ui.planM || ymOf(todayK()), k = planKey(c.id, ym), edit = canEditPlan(c.id), cu = cur(c);
-  const nav = `<div class="row" style="margin:0 0 14px"><div class="monthnav"><button class="btn sm" onclick="ui.planM=ymAdd('${ym}',1);saveUi();render()" aria-label="الشهر اللي بعده">›</button><div class="m">${monthLabel(ym)}</div><button class="btn sm" onclick="ui.planM=ymAdd('${ym}',-1);saveUi();render()" aria-label="الشهر اللي قبله">‹</button></div>${ym !== ymOf(todayK()) ? `<button class="btn xs ghost" onclick="ui.planM=null;saveUi();render()">الشهر ده</button>` : ""}<span class="spacer"></span>${edit ? `<button class="btn sm primary" onclick="openPlanItem('${c.id}','${ym}')">+ حملة</button>` : ""}</div>`;
+  const nav = `<div class="row" style="margin:0 0 14px"><div class="monthnav"><button class="btn sm" onclick="ui.planM=ymAdd('${ym}',1);saveUi();render()" aria-label="الشهر اللي بعده">›</button><div class="m">${monthLabel(ym)}</div><button class="btn sm" onclick="ui.planM=ymAdd('${ym}',-1);saveUi();render()" aria-label="الشهر اللي قبله">‹</button></div>${ym !== ymOf(todayK()) ? `<button class="btn xs ghost" onclick="ui.planM=null;saveUi();render()">الشهر ده</button>` : ""}<span class="spacer"></span><button class="btn sm" onclick="exportPlanPdf('${c.id}','${ym}')" title="PDF بهويتك فيه خريطة الحملات">⬇ PDF</button>${edit ? `<button class="btn sm primary" onclick="openPlanItem('${c.id}','${ym}')">+ حملة</button>` : ""}</div>`;
   let h = `<div class="cv-head"><div><h2>Media plan</h2><div class="ph-sub">الميزانية والحملات لكل منصة${edit ? "" : " · للعرض بس"}</div></div></div>` + nav;
   if (!(k in PLAN)) { loadPlan(c.id, ym); if (!M[c.id]) loadMetrics(c.id); return h + `<div class="card empty">بيحمّل…</div>`; }
   const P0 = PLAN[k], items = P0.items, budgets = P0.meta.budgets || {};
@@ -2502,6 +2502,83 @@ function copyNotes(cid, ym){
 (function(){ const _vt = viewToday; viewToday = function(){ const h = _vt.apply(this, arguments); return `<div class="today-wrap"><div class="tw-main">${h}</div><aside class="tw-side">${notesSide()}</aside></div>`; }; })();
 
 async function setClientStatus(cid, st){ const c = clientById(cid); try { await q(sb.from("clients").update({ status: st }).eq("id", cid), "cstatus"); c.status = st; toast(st === "paused" ? `${c.name} بقى متوقف` : `${c.name} رجع شغال ✓`); render(); } catch(e){ toast("ماتغيّرتش: " + (e.message || e)); render(); } }
+
+/* ===== Media plan → branded PDF (print) with a campaign tree per platform ===== */
+const ZMARK = (sz, dark) => `<svg width="${sz}" height="${sz}" viewBox="0 0 48 48"><rect fill="${dark ? "#eef1ec" : "#111a1f"}" x="0" y="28" width="12" height="20" rx="2"/><rect fill="${dark ? "#3fc1a9" : "#0b5d57"}" x="18" y="16" width="12" height="32" rx="2"/><rect fill="#c8f04a" x="36" y="0" width="12" height="12" rx="2"/><rect fill="${dark ? "#3fc1a9" : "#0b5d57"}" x="36" y="15" width="12" height="33" rx="2"/></svg>`;
+const ZLOCK = dark => `<div class="lock">${ZMARK(30, dark)}<div><b>زياد إبراهيم</b><span>Performance Media Buyer</span></div></div>`;
+const FUN_ORDER = { "Top of funnel":0, "Middle of funnel":1, "Bottom of funnel":2 };
+async function exportPlanPdf(cid, ym){
+  const c = clientById(cid), k = planKey(cid, ym); if (!(k in PLAN)) await loadPlan(cid, ym);
+  const P0 = PLAN[k], items = P0.items.slice(), budgets = P0.meta.budgets || {}, cu = cur(c);
+  if (!items.length && !Object.keys(budgets).length) return toast("الخطة فاضية، ضيف حملات الأول");
+  const win = window.open("", "_blank"); if (!win) return toast("المتصفح منع الصفحة، اسمح بالـ Pop-ups للسيستم");
+  const E = x => esc(x == null ? "" : String(x)), N = v => (+v || 0).toLocaleString("en-US", { maximumFractionDigits:0 });
+  const M = v => `<span class="num">${N(v)}</span> <span class="cu">${E(cu === "SAR" ? "ر.س" : cu === "EGP" ? "ج.م" : cu)}</span>`;
+  const platsL = [...new Set([...plats(c).map(p => p.name), ...items.map(i => i.platform)])].filter(p => items.some(i => i.platform === p) || +budgets[p] > 0);
+  const budOf = p => +budgets[p] > 0 ? +budgets[p] : items.filter(i => i.platform === p).reduce((a, i) => a + (+i.budget || 0), 0);
+  const tot = platsL.reduce((a, p) => a + budOf(p), 0), pct = p => tot ? Math.round(budOf(p) / tot * 100) : 0;
+  const byP = p => items.filter(i => i.platform === p).sort((a, b) => (FUN_ORDER[a.funnel] ?? 3) - (FUN_ORDER[b.funnel] ?? 3) || (a.sort || 0) - (b.sort || 0));
+  const logo = c.logo_url ? `<img class="clogo" src="${E(c.logo_url)}">` : `<div class="clogo ph">${E((c.name || "?").slice(0,1))}</div>`;
+  const pcol = p => { const v = PCOLOR(p); return v.startsWith("var") ? "#111a1f" : v; };
+  const pb = p => `<span class="pb" style="background:${pcol(p)}">${E((BADGE[String(p).toLowerCase().replace(/\s+/g,"")] || [0, String(p).charAt(0)])[1])}</span>`;
+  const title = i => i.name || [i.objective, i.funnel ? (FUNNEL_AR[i.funnel] || i.funnel).split(" · ")[0] : ""].filter(Boolean).join(" · ") || "حملة";
+  const fun = f => f ? `<span class="fun f${FUN_ORDER[f] ?? 3}">${E(FUNNEL_AR[f] || f)}</span>` : "";
+  const per = monthLabel(ym); let pg = 0; const foot = () => `<div class="foot">${ZLOCK(false)}<span>${E(c.name)} · ${E(per)} · <span class="num">${++pg}</span></span></div>`;
+  const head = (n, sec, t) => `<div class="hd"><div><div class="eb">${String(n).padStart(2,"0")} / ${sec}</div><h1>${t}</h1></div>${logo}</div>`;
+  // cover
+  let html = `<section class="pg dark"><div class="cv">${logo}<div class="eb">MEDIA PLAN</div><h1 class="big">خطة الميديا</h1><div class="sub">${E(c.name)} · ${E(per)}</div><div class="sub2">${E(c.type === "store" ? "متجر إلكتروني" : "ليدز وحجوزات")} · ${platsL.map(E).join(" · ")}</div></div><div class="cvf">${ZLOCK(true)}<span>إعداد: زياد إبراهيم — Performance Media Buyer</span></div></section>`;
+  // summary
+  html += `<section class="pg">${head(1, "Summary", "ملخص الخطة")}<div class="tiles"><div class="tile hl"><span>ميزانية الشهر</span><b>${M(tot)}</b></div><div class="tile"><span>المنصات</span><b class="num">${platsL.length}</b></div><div class="tile"><span>الحملات</span><b class="num">${items.length}</b></div><div class="tile"><span>شغالة / مخططة</span><b class="num">${items.filter(i => i.status === "live").length} / ${items.filter(i => i.status === "planned").length}</b></div></div>
+    <div class="card"><div class="ct">توزيع الميزانية على المنصات</div><div class="split">${platsL.map(p => `<i style="width:${pct(p)}%;background:${pcol(p)}"></i>`).join("")}</div>
+      <table class="tb"><tr><th>المنصة</th><th>الميزانية</th><th>النسبة</th><th>الحملات</th><th>الفانل</th></tr>${platsL.map(p => `<tr><td>${pb(p)} ${E(p)}</td><td>${M(budOf(p))}</td><td class="num">${pct(p)}%</td><td class="num">${byP(p).length}</td><td>${[...new Set(byP(p).map(i => i.funnel).filter(Boolean))].map(fun).join(" ")}</td></tr>`).join("")}</table></div>${foot()}</section>`;
+  // tree
+  html += `<section class="pg">${head(2, "Structure", "خريطة الحملات")}<div class="tree"><div class="root">${logo}<div><b>${E(c.name)}</b><span>${M(tot)} · ${E(per)}</span></div></div><div class="br" style="--n:${platsL.length}">${platsL.map(p => `<div class="col"><div class="pn" style="border-color:${pcol(p)}">${pb(p)}<div><b>${E(p)}</b><span>${M(budOf(p))} · <span class="num">${pct(p)}%</span></span></div></div><div class="kids">${byP(p).map(i => `<div class="cn"><b dir="auto">${E(title(i))}</b><div class="meta">${fun(i.funnel)}${i.objective ? `<span dir="auto">${E(i.objective)}</span>` : ""}</div>${i.ad_format ? `<div class="sm" dir="auto">${E(i.ad_format)}</div>` : ""}${+i.budget ? `<div class="sm">${M(i.budget)}</div>` : ""}</div>`).join("") || `<div class="cn empty">مفيش حملات</div>`}</div></div>`).join("")}</div></div>${foot()}</section>`;
+  // detail per platform
+  let n = 3;
+  for (const p of platsL) {
+    const list = byP(p); if (!list.length) continue;
+    html += `<section class="pg">${head(n++, E(p), `${pb(p)} ${E(p)} <span class="hb">${M(budOf(p))}</span>`)}<div class="grid">${list.map(i => {
+      const row = (l, v, ltr) => v ? `<div class="fr"><span>${l}</span><div ${ltr ? 'dir="ltr" class="ltr"' : 'dir="auto"'}>${E(v)}</div></div>` : "";
+      return `<div class="card camp"><div class="ch"><b dir="auto">${E(title(i))}</b>${+i.budget ? `<span class="cb">${M(i.budget)}</span>` : ""}</div><div class="meta">${fun(i.funnel)}${i.goal ? `<span>الهدف: ${E(i.goal)}</span>` : ""}${i.objective ? `<span>${E(i.objective)}</span>` : ""}${i.ad_format ? `<span>${E(i.ad_format)}</span>` : ""}</div>
+        ${row("الأوديانس", i.audience)}${row("الستراكشر", i.structure)}${planLinks(i).filter(l => l.url).map((l, x, a) => row(l.label || (a.length > 1 ? `لاندنج ${x + 1}` : "اللاندنج"), l.url, true)).join("")}${(i.extra || []).map(x => row(E(x.label || "—"), x.value)).join("")}${row("ملاحظات", i.notes)}</div>`;
+    }).join("")}</div>${foot()}</section>`;
+  }
+  if (P0.meta.notes || P0.meta.ideas) html += `<section class="pg">${head(n++, "Notes", "ملاحظات وأفكار")}<div class="two">${P0.meta.notes ? `<div class="card"><div class="ct">ملاحظات الخطة</div><div class="pre" dir="auto">${E(P0.meta.notes)}</div></div>` : ""}${P0.meta.ideas ? `<div class="card"><div class="ct">أفكار</div><div class="pre" dir="auto">${E(P0.meta.ideas)}</div></div>` : ""}</div>${foot()}</section>`;
+  const css = `@page{size:A4 landscape;margin:0}*{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+body{margin:0;background:#888;font-family:Tajawal,sans-serif;color:#111a1f}.num,.eb,.cu{font-family:'IBM Plex Mono',monospace}
+.pg{width:297mm;height:210mm;background:#f5f4ef;margin:0 auto 10px;padding:14mm 16mm 22mm;position:relative;overflow:hidden;page-break-after:always;display:flex;flex-direction:column}
+.pg.dark{background:#0e1418;color:#eef1ec;justify-content:space-between}
+@media print{body{background:none}.pg{margin:0}}
+.lock{display:flex;align-items:center;gap:8px}.lock b{display:block;font-size:14px}.lock span{font-size:10px;color:#535e67;letter-spacing:.04em}.dark .lock span{color:#9aa6a0}
+.cv{margin-top:18mm}.cv .clogo{width:30mm;height:30mm;margin-bottom:10mm}.cv .eb{color:#3fc1a9;font-size:14px;letter-spacing:.2em}.big{font-size:64px;margin:4px 0 8px;line-height:1.1}.sub{font-size:26px;font-weight:700}.sub2{font-size:16px;color:#9aa6a0;margin-top:6px}
+.cvf{display:flex;flex-direction:row-reverse;justify-content:space-between;align-items:center;font-size:13px;color:#9aa6a0}
+.hd{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8mm}.hd .eb{color:#0b5d57;font-size:12px;letter-spacing:.12em}.hd h1{font-size:32px;margin:2px 0 0;display:flex;align-items:center;gap:10px}.hb{font-size:18px;color:#535e67;font-weight:500;margin-inline-start:8px}
+.clogo{width:18mm;height:18mm;border-radius:10px;object-fit:contain;background:#fff;border:1px solid #d6d4cb;padding:4px}.clogo.ph{display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:800;color:#0b5d57}
+.foot{position:absolute;bottom:8mm;left:16mm;right:16mm;display:flex;justify-content:space-between;align-items:center;font-size:12px;color:#535e67;flex-direction:row-reverse}
+.tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:10px}.tile{background:#fff;border:1px solid #d6d4cb;border-radius:12px;padding:14px 16px}.tile span{font-size:13px;color:#535e67;display:block}.tile b{font-size:30px;display:block;margin-top:4px}.tile.hl b{background:#c8f04a;display:inline-block;padding:0 8px;border-radius:6px;white-space:nowrap}
+.card{background:#fff;border:1px solid #d6d4cb;border-radius:12px;padding:14px 16px}.ct{font-weight:700;margin-bottom:10px}
+.split{display:flex;height:14px;border-radius:99px;overflow:hidden;margin-bottom:12px;background:#eee}
+.tb{width:100%;border-collapse:collapse;font-size:14px}.tb th{text-align:right;color:#535e67;font-weight:500;font-size:12px;border-bottom:1px solid #d6d4cb;padding:6px}.tb td{padding:8px 6px;border-bottom:1px solid #eeede7}
+.pb{display:inline-flex;width:22px;height:22px;border-radius:6px;align-items:center;justify-content:center;color:#fff;font-size:12px;font-weight:800;font-family:'IBM Plex Mono',monospace;vertical-align:middle}
+.fun{font-size:11px;padding:2px 8px;border-radius:99px;white-space:nowrap}.fun.f0{background:#dcebe7;color:#0b5d57}.fun.f1{background:#fff1cc;color:#8a6100}.fun.f2{background:#fbe0dd;color:#a5281b}.fun.f3{background:#eee;color:#535e67}
+.tree{flex:1;display:flex;flex-direction:column;align-items:center}
+.root{display:flex;align-items:center;gap:10px;background:#0e1418;color:#eef1ec;border-radius:12px;padding:10px 18px}.root .clogo{width:12mm;height:12mm}.root b{display:block;font-size:18px}.root span{font-size:13px;color:#9aa6a0}
+.br{display:grid;grid-template-columns:repeat(var(--n),1fr);gap:10px;width:100%;margin-top:22px;position:relative}
+.br::before{content:"";position:absolute;top:-12px;left:calc(50% / var(--n));right:calc(50% / var(--n));border-top:2px solid #0b5d57}
+.root{position:relative}.root::after{content:"";position:absolute;bottom:-12px;left:50%;height:12px;border-left:2px solid #0b5d57}
+.col{display:flex;flex-direction:column;align-items:stretch;position:relative}.col::before{content:"";position:absolute;top:-12px;left:50%;height:12px;border-left:2px solid #0b5d57}
+.pn{display:flex;align-items:center;gap:8px;background:#fff;border:2px solid;border-radius:10px;padding:8px 10px}.pn b{display:block;font-size:15px}.pn span{font-size:11.5px;color:#535e67}
+.kids{position:relative;margin-top:10px;padding-inline-start:14px;display:flex;flex-direction:column;gap:7px}.kids::before{content:"";position:absolute;top:-10px;bottom:16px;inset-inline-start:4px;border-inline-start:2px solid #b9c8c4}
+.cn{position:relative;background:#fff;border:1px solid #d6d4cb;border-radius:9px;padding:7px 9px;font-size:12.5px}.cn::before{content:"";position:absolute;top:14px;inset-inline-start:-10px;width:10px;border-top:2px solid #b9c8c4}.cn b{display:block;font-size:13px;margin-bottom:3px}.cn .meta{display:flex;flex-wrap:wrap;gap:4px;align-items:center;color:#535e67;font-size:11px}.cn .sm{color:#535e67;font-size:11px;margin-top:2px}.cn.empty{color:#999}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-content:start}.camp{page-break-inside:avoid}
+.ch{display:flex;justify-content:space-between;align-items:center;gap:8px}.ch b{font-size:16px}.cb{background:#c8f04a;border-radius:6px;padding:1px 8px;font-size:13px;font-weight:700}
+.camp .meta{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 4px;font-size:11.5px;color:#535e67}.camp .meta span:not(.fun){background:#f5f4ef;border-radius:99px;padding:2px 8px}
+.fr{display:grid;grid-template-columns:22mm 1fr;gap:8px;padding:5px 0;border-top:1px dashed #e3e1d8;font-size:12.5px}.fr>span{color:#535e67;font-size:11.5px}.fr>div{white-space:pre-wrap;word-break:break-word;text-align:right}.fr .ltr{font-family:'IBM Plex Mono',monospace;font-size:11px;color:#0b5d57;text-align:left}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:10px}.pre{white-space:pre-wrap;font-size:14px;line-height:1.7}
+.bar{position:fixed;top:10px;left:10px;z-index:9;display:flex;gap:6px}.bar button{font:inherit;padding:8px 14px;border-radius:8px;border:0;background:#0b5d57;color:#fff;cursor:pointer}@media print{.bar{display:none}}`;
+  win.document.write(`<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>Media plan — ${E(c.name)} — ${E(per)}</title><link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet"><style>${css}</style></head><body><div class="bar"><button onclick="print()">⬇ حفظ PDF</button></div>${html}<script>(document.fonts?document.fonts.ready:Promise.resolve()).then(()=>setTimeout(()=>print(),400))<\/script></body></html>`);
+  win.document.close();
+}
 
 const APP_SHELL = "<div class=\"wrap\"><header class=\"top\"><span class=\"brand\" aria-label=\"\u0632\u064a\u0627\u062f \u0625\u0628\u0631\u0627\u0647\u064a\u0645\"><svg width=\"28\" height=\"28\" viewBox=\"0 0 48 48\" aria-hidden=\"true\"><rect class=\"zm-ink\" x=\"0\" y=\"28\" width=\"12\" height=\"20\" rx=\"2\"/><rect class=\"zm-brand\" x=\"18\" y=\"16\" width=\"12\" height=\"32\" rx=\"2\"/><rect class=\"zm-signal\" x=\"36\" y=\"0\" width=\"12\" height=\"12\" rx=\"2\"/><rect class=\"zm-brand\" x=\"36\" y=\"15\" width=\"12\" height=\"33\" rx=\"2\"/></svg><span class=\"nm\">\u0632\u064a\u0627\u062f \u0625\u0628\u0631\u0627\u0647\u064a\u0645</span><span class=\"sub\">\u00b7 \u0633\u064a\u0633\u062a\u0645 \u0627\u0644\u0634\u063a\u0644</span></span><nav class=\"tabs\" id=\"tabs\"></nav><span class=\"spacer\"></span><div id=\"who\"></div></header><main id=\"view\"><div class=\"card empty\">\u0628\u064a\u062d\u0645\u0651\u0644\u2026</div></main></div>";
 start();
