@@ -2013,7 +2013,7 @@ function mediaPlanView(c){
   const platsAll = [...new Set([...plats(c).map(p => p.name), ...items.map(i => i.platform).filter(Boolean)])];
   const used = platsAll.filter(p => items.some(i => i.platform === p) || +budgets[p] > 0);
   const spentOf = p => M[c.id] ? agg(monthRows(c.id, ym).filter(r => r.p === p)).s : 0;
-  const budOf = p => +budgets[p] > 0 ? +budgets[p] : items.filter(i => i.platform === p).reduce((a, i) => a + monthlyOf(i, ym), 0);
+  const budOf = p => +budgets[p] > 0 ? +budgets[p] : 0, dayOf = p => items.filter(i => i.platform === p).reduce((a, i) => a + dailyOf(i), 0);
   const days = daysOfMonth(ym).length, tk = todayK(), elapsed = ym < ymOf(tk) ? 1 : ym > ymOf(tk) ? 0 : (+tk.slice(8) - 1) / days;
   if (!items.length && !Object.keys(budgets).length) {
     const prev = ymAdd(ym, -1);
@@ -2021,13 +2021,13 @@ function mediaPlanView(c){
       ${edit ? `<div class="row" style="justify-content:center;gap:8px;margin-top:10px"><button class="btn primary" onclick="openPlanItem('${c.id}','${ym}')">+ أضف أول حملة</button><button class="btn" onclick="copyPlan('${c.id}','${prev}','${ym}')">انسخ خطة ${monthLabel(prev)}</button></div>` : ""}</div>`;
   }
   const totB = used.reduce((a, p) => a + budOf(p), 0), totS = used.reduce((a, p) => a + spentOf(p), 0);
-  h += `<div class="mp-sum"><div><span class="tiny muted">ميزانية الشهر</span><b class="num">${money("", totB, cu, 0)}</b></div><div><span class="tiny muted">ميزانية اليوم <span class="muted">(متوسط)</span></span><b class="num">${money("", totB / dim(ym), cu, 0)}</b></div><div><span class="tiny muted">اتصرف لحد دلوقتي</span><b class="num">${money("", totS, cu, 0)}</b></div><div><span class="tiny muted">فاضل</span><b class="num">${money("", Math.max(0, totB - totS), cu, 0)}</b></div><div><span class="tiny muted">الشهر عدّى</span><b class="num">${fmt(elapsed * 100)}%</b></div></div>`;
+  h += `<div class="mp-sum"><div><span class="tiny muted">ميزانية الشهر</span><b class="num">${money("", totB, cu, 0)}</b></div><div><span class="tiny muted" title="مجموع الصرف اليومي للحملات">الصرف اليومي</span><b class="num">${money("", used.reduce((a, p) => a + dayOf(p), 0), cu, 0)}</b></div><div><span class="tiny muted">اتصرف لحد دلوقتي</span><b class="num">${money("", totS, cu, 0)}</b></div><div><span class="tiny muted">فاضل</span><b class="num">${money("", Math.max(0, totB - totS), cu, 0)}</b></div><div><span class="tiny muted">الشهر عدّى</span><b class="num">${fmt(elapsed * 100)}%</b></div></div>`;
   for (const p of used) {
     const b = budOf(p), sp = spentOf(p), pct = b ? sp / b : 0, list = items.filter(i => i.platform === p);
     const lv = !b ? "grey" : pct > 1 ? "bad" : pct > elapsed + 0.15 ? "amb" : "ok";
-    const msg = !b ? "مفيش ميزانية متحددة" : pct > 1 ? `عدّى الميزانية بـ ${money("", sp - b, cu, 0)}` : pct > elapsed + 0.15 ? `بيصرف أسرع من الخطة (${fmt(pct * 100)}% والشهر ${fmt(elapsed * 100)}%)` : `ماشي مع الخطة (${fmt(pct * 100)}%)`;
+    const msg = !b ? "اكتب ميزانية الشهر علشان تشوف الصرف ماشي إزاي" : pct > 1 ? `عدّى الميزانية بـ ${money("", sp - b, cu, 0)}` : pct > elapsed + 0.15 ? `بيصرف أسرع من الخطة (${fmt(pct * 100)}% والشهر ${fmt(elapsed * 100)}%)` : `ماشي مع الخطة (${fmt(pct * 100)}%)`;
     h += `<div class="mp-plat"><div class="mp-ph">${badge(p)}<b>${esc(p)}</b><span class="tiny muted">${list.length ? `${list.length} ${list.length === 1 ? "حملة" : list.length === 2 ? "حملتين" : "حملات"}` : "مفيش حملات"}</span><span class="spacer"></span>
-        <span class="mp-bud">${edit ? `<button class="btn xs ghost" onclick="editPlatBudget('${c.id}','${ym}','${jsq(p)}')" title="عدّل ميزانية ${esc(p)}">` : "<span>"}${b ? `<span class="tiny muted">شهري</span> <b class="num">${money("", b, cu, 0)}</b> <span class="tiny muted">· يومي</span> <b class="num">${money("", b / dim(ym), cu, 0)}</b>` : `<span class="tiny muted">الميزانية</span> <b>—</b>`}${edit ? " ✎</button>" : "</span>"}</span></div>
+        <span class="mp-bud"><span class="tiny muted">اليوم</span> <b class="num">${dayOf(p) ? money("", dayOf(p), cu, 0) : "—"}</b> <span class="tiny muted" style="margin-inline:8px 4px">·</span>${edit ? `<button class="btn xs ghost" onclick="editPlatBudget('${c.id}','${ym}','${jsq(p)}')" title="اكتب ميزانية ${esc(p)} للشهر">` : "<span>"}<span class="tiny muted">الشهر</span> <b class="num">${b ? money("", b, cu, 0) : "—"}</b>${edit ? " ✎</button>" : "</span>"}</span></div>
       <div class="mp-bar"><i class="lv-${lv}" style="width:${Math.min(100, pct * 100)}%"></i><s style="inset-inline-start:${elapsed * 100}%" title="النهارده"></s></div>
       <div class="tiny mp-msg lv-${lv}">اتصرف ${money("", sp, cu, 0)} · ${msg}</div>
       <div class="mp-items">${list.map(i => planCard(c, i, edit)).join("")}${edit ? `<button class="mp-add" onclick="openPlanItem('${c.id}','${ym}',null,'${jsq(p)}')">+ حملة على ${esc(p)}</button>` : ""}</div></div>`;
@@ -2064,7 +2064,7 @@ function openPlanItem(cid, ym, id, plat){
       <label class="f">مكانها في الفانل</label>
       <div class="seg-pick">${FUNNEL.map(f => `<label><input type="radio" name="piF" value="${f}" ${i.funnel === f ? "checked" : ""}><span>${FUNNEL_AR[f]}</span></label>`).join("")}<label><input type="radio" name="piF" value="" ${!i.funnel ? "checked" : ""}><span>مش محدد</span></label></div>
       <div class="two"><div><label class="f">نوع الإعلان / الكرييتف</label><input class="inp" id="piFmt" dir="auto" value="${esc(i.ad_format || "")}" placeholder="مثلاً: Single ad · Video" list="fmts">${dl("fmts", ["Single ad · Video","Single ad · Image","Carousel","Collection","UGC video","Spark ads","Story"])}</div>
-        <div><label class="f">ميزانية الحملة <span class="tiny muted">(${esc(cur(c))}، اختياري)</span></label><div class="row" style="gap:6px;flex-wrap:nowrap"><input class="inp" id="piBud" type="number" min="0" step="1" value="${i.budget ?? ""}" placeholder="المبلغ" oninput="piBudHint('${ym}')"><div class="seg-pick" style="flex-wrap:nowrap">${[["daily","يومي"],["monthly","شهري"]].map(([k, l]) => `<label><input type="radio" name="piBT" value="${k}" ${(i.budget_type || "daily") === k ? "checked" : ""} onchange="piBudHint('${ym}')"><span>${l}</span></label>`).join("")}</div></div><div class="tiny muted" id="piBudH" style="margin-top:3px">${+i.budget ? (i.budget_type === "monthly" ? `يعني حوالي ${fmt(i.budget / dim(ym))} في اليوم (${dim(ym)} يوم)` : `يعني حوالي ${fmt(i.budget * dim(ym))} في الشهر (${dim(ym)} يوم)`) : "اختار المبلغ يومي ولا شهري"}</div></div></div>
+        <div><label class="f">الصرف اليومي <span class="tiny muted">(${esc(cur(c))}، اختياري)</span></label><input class="inp" id="piBud" type="number" min="0" step="1" value="${i.budget ?? ""}" placeholder="مثلاً 300"></div></div>
       <label class="f">الأوديانس</label><textarea class="inp" id="piAud" dir="auto" rows="4" placeholder="Ad group 1: Broad · All genders · 24-47&#10;Location: جدة، مكة، الرياض&#10;Ad group 2: Retarget">${esc(i.audience || "")}</textarea>
       <label class="f">الستراكشر</label><textarea class="inp" id="piStr" dir="auto" rows="3" placeholder="1 campaign&#10;2 ad sets: interest + broad&#10;1 ad لكل واحد">${esc(i.structure || "")}</textarea>
       <label class="f">اللاندنج بيدج</label><div id="piLinks" class="dyn">${planLinks(i).map(linkRow).join("")}</div>
@@ -2078,7 +2078,7 @@ function openPlanItem(cid, ym, id, plat){
 }
 async function savePlanItem(cid, ym, id){
   const v = sel => ($(sel) ? $(sel).value.trim() : "") || null, rv = n => (document.querySelector(`input[name="${n}"]:checked`) || {}).value || null;
-  const row = { client_id:cid, ym, platform: $("#piP").value, name: v("#piName"), goal: v("#piGoal"), objective: v("#piObj"), funnel: rv("piF"), ad_format: v("#piFmt"), budget: $("#piBud").value === "" ? null : +$("#piBud").value, budget_type: (document.querySelector('input[name="piBT"]:checked') || {}).value || "daily", audience: v("#piAud"), structure: v("#piStr"), links: dynRead("piLinks", ["label","url"]).filter(x => x.url), landing_url: (dynRead("piLinks", ["label","url"]).find(x => x.url) || {}).url || null, extra: dynRead("piExtra", ["label","value"]).filter(x => x.value || x.label), notes: v("#piNotes"), status: rv("piS") || "planned", updated_at: new Date().toISOString() };
+  const row = { client_id:cid, ym, platform: $("#piP").value, name: v("#piName"), goal: v("#piGoal"), objective: v("#piObj"), funnel: rv("piF"), ad_format: v("#piFmt"), budget: $("#piBud").value === "" ? null : +$("#piBud").value, budget_type: "daily", audience: v("#piAud"), structure: v("#piStr"), links: dynRead("piLinks", ["label","url"]).filter(x => x.url), landing_url: (dynRead("piLinks", ["label","url"]).find(x => x.url) || {}).url || null, extra: dynRead("piExtra", ["label","value"]).filter(x => x.value || x.label), notes: v("#piNotes"), status: rv("piS") || "planned", updated_at: new Date().toISOString() };
   try {
     if (id) await q(sb.from("plan_items").update(row).eq("id", id), "planupd");
     else { row.sort = ((PLAN[planKey(cid, ym)] || { items:[] }).items.length); await q(sb.from("plan_items").insert(row), "planins"); }
@@ -2096,8 +2096,8 @@ async function savePlanMeta(cid, ym, field, val){
 }
 function editPlatBudget(cid, ym, p){
   const P0 = PLAN[planKey(cid, ym)], cur0 = (P0.meta.budgets || {})[p] || "", c = clientById(cid);
-  openModal(`<h2>ميزانية ${esc(p)} · ${monthLabel(ym)}</h2><p class="small muted" style="margin:4px 0 0">لو سبتها فاضية، الميزانية بتتحسب من مجموع ميزانيات حملات ${esc(p)}.</p>
-    <div class="two"><div><label class="f">ميزانية الشهر (${esc(cur(c))})</label><input class="inp" id="bdM" type="number" min="0" step="1" value="${cur0}" oninput="bdSync('m','${ym}')" autofocus></div><div><label class="f">ميزانية اليوم (${esc(cur(c))})</label><input class="inp" id="bdD" type="number" min="0" step="1" value="${cur0 ? Math.round(cur0 / dim(ym)) : ""}" oninput="bdSync('d','${ym}')"></div></div><p class="tiny muted" style="margin:4px 0 0">اكتب في أي واحدة والتانية بتتحسب لوحدها (${monthLabel(ym)} = ${dim(ym)} يوم).</p>
+  openModal(`<h2>ميزانية ${esc(p)} · ${monthLabel(ym)}</h2><p class="small muted" style="margin:4px 0 0">ده توتال المنصة للشهر، مش مربوط بالصرف اليومي بتاع الحملات.</p>
+    <label class="f">ميزانية الشهر (${esc(cur(c))})</label><input class="inp" id="bdM" type="number" min="0" step="1" value="${cur0}" autofocus placeholder="التوتال اللي هيتصرف على ${esc(p)} الشهر ده">
     <div class="actions"><span class="spacer"></span><button class="btn" onclick="closeModal()">إلغاء</button><button class="btn primary" onclick="savePlatBudget('${cid}','${ym}','${jsq(p)}')">حفظ</button></div>`);
 }
 async function savePlatBudget(cid, ym, p){ const P0 = PLAN[planKey(cid, ym)], v = $("#bdM").value, b = Object.assign({}, P0.meta.budgets || {}); if (v === "" || !(+v > 0)) delete b[p]; else b[p] = +v;
@@ -2515,8 +2515,8 @@ async function exportPlanPdf(cid, ym){
   const E = x => esc(x == null ? "" : String(x)), N = v => (+v || 0).toLocaleString("en-US", { maximumFractionDigits:0 });
   const M = v => `<span class="num">${N(v)}</span> <span class="cu">${E(cu === "SAR" ? "ر.س" : cu === "EGP" ? "ج.م" : cu)}</span>`;
   const platsL = [...new Set([...plats(c).map(p => p.name), ...items.map(i => i.platform)])].filter(p => items.some(i => i.platform === p) || +budgets[p] > 0);
-  const budOf = p => +budgets[p] > 0 ? +budgets[p] : items.filter(i => i.platform === p).reduce((a, i) => a + monthlyOf(i, ym), 0);
-  const D = dim(ym), MB = i => +i.budget ? `${M(i.budget)} <span class="bt">${i.budget_type === "daily" ? "يومي" : "شهري"}</span>` : "";
+  const budOf = p => +budgets[p] > 0 ? +budgets[p] : 0, dayOf = p => items.filter(i => i.platform === p).reduce((a, i) => a + dailyOf(i), 0);
+  const MB = i => +i.budget ? `${M(i.budget)} <span class="bt">يومي</span>` : "", totD = platsL.reduce((a, p) => a + dayOf(p), 0);
   const tot = platsL.reduce((a, p) => a + budOf(p), 0), pct = p => tot ? Math.round(budOf(p) / tot * 100) : 0;
   const byP = p => items.filter(i => i.platform === p).sort((a, b) => (FUN_ORDER[a.funnel] ?? 3) - (FUN_ORDER[b.funnel] ?? 3) || (a.sort || 0) - (b.sort || 0));
   const logo = c.logo_url ? `<img class="clogo" src="${E(c.logo_url)}">` : `<div class="clogo ph">${E((c.name || "?").slice(0,1))}</div>`;
@@ -2529,16 +2529,16 @@ async function exportPlanPdf(cid, ym){
   // cover
   let html = `<section class="pg dark"><div class="cv">${logo}<div class="eb">MEDIA PLAN</div><h1 class="big">خطة الميديا</h1><div class="sub">${E(c.name)} · ${E(per)}</div><div class="sub2">${E(c.type === "store" ? "متجر إلكتروني" : "ليدز وحجوزات")} · ${platsL.map(E).join(" · ")}</div></div><div class="cvf">${ZLOCK(true)}<span>إعداد: زياد إبراهيم — Performance Media Buyer</span></div></section>`;
   // summary
-  html += `<section class="pg">${head(1, "Summary", "ملخص الخطة")}<div class="tiles"><div class="tile hl"><span>ميزانية الشهر</span><b>${M(tot)}</b></div><div class="tile"><span>ميزانية اليوم (متوسط)</span><b>${M(tot / D)}</b></div><div class="tile"><span>المنصات · الحملات</span><b class="num">${platsL.length} · ${items.length}</b></div><div class="tile"><span>شغالة / مخططة</span><b class="num">${items.filter(i => i.status === "live").length} / ${items.filter(i => i.status === "planned").length}</b></div></div>
+  html += `<section class="pg">${head(1, "Summary", "ملخص الخطة")}<div class="tiles"><div class="tile hl"><span>ميزانية الشهر</span><b>${M(tot)}</b></div><div class="tile"><span>الصرف اليومي (مجموع الحملات)</span><b>${M(totD)}</b></div><div class="tile"><span>المنصات · الحملات</span><b class="num">${platsL.length} · ${items.length}</b></div><div class="tile"><span>شغالة / مخططة</span><b class="num">${items.filter(i => i.status === "live").length} / ${items.filter(i => i.status === "planned").length}</b></div></div>
     <div class="card"><div class="ct">توزيع الميزانية على المنصات</div><div class="split">${platsL.map(p => `<i style="width:${pct(p)}%;background:${pcol(p)}"></i>`).join("")}</div>
-      <table class="tb"><tr><th>المنصة</th><th>شهري</th><th>يومي</th><th>النسبة</th><th>الحملات</th><th>الفانل</th></tr>${platsL.map(p => `<tr><td>${pb(p)} ${E(p)}</td><td>${M(budOf(p))}</td><td>${M(budOf(p) / D)}</td><td class="num">${pct(p)}%</td><td class="num">${byP(p).length}</td><td>${[...new Set(byP(p).map(i => i.funnel).filter(Boolean))].map(fun).join(" ")}</td></tr>`).join("")}</table></div>${foot()}</section>`;
+      <table class="tb"><tr><th>المنصة</th><th>الشهر</th><th>اليوم</th><th>النسبة</th><th>الحملات</th><th>الفانل</th></tr>${platsL.map(p => `<tr><td>${pb(p)} ${E(p)}</td><td>${budOf(p) ? M(budOf(p)) : "—"}</td><td>${dayOf(p) ? M(dayOf(p)) : "—"}</td><td class="num">${pct(p)}%</td><td class="num">${byP(p).length}</td><td>${[...new Set(byP(p).map(i => i.funnel).filter(Boolean))].map(fun).join(" ")}</td></tr>`).join("")}</table></div>${foot()}</section>`;
   // tree
-  html += `<section class="pg">${head(2, "Structure", "خريطة الحملات")}<div class="tree"><div class="root">${logo}<div><b>${E(c.name)}</b><span><bdi>${M(tot)} شهري</bdi> · <bdi>${M(tot / D)} يومي</bdi></span></div></div><div class="br" style="--n:${platsL.length}">${platsL.map(p => `<div class="col"><div class="pn" style="border-color:${pcol(p)}">${pb(p)}<div><b>${E(p)}</b><span><bdi>${M(budOf(p))} شهري</bdi> · <bdi class="num">${pct(p)}%</bdi></span><span><bdi>${M(budOf(p) / D)} يومي</bdi></span></div></div><div class="kids">${byP(p).map(i => `<div class="cn"><b dir="auto">${E(title(i))}</b><div class="meta">${fun(i.funnel)}${i.objective ? `<span dir="auto">${E(i.objective)}</span>` : ""}</div>${i.ad_format ? `<div class="sm" dir="auto">${E(i.ad_format)}</div>` : ""}${+i.budget ? `<div class="sm">${MB(i)}</div>` : ""}</div>`).join("") || `<div class="cn empty">مفيش حملات</div>`}</div></div>`).join("")}</div></div>${foot()}</section>`;
+  html += `<section class="pg">${head(2, "Structure", "خريطة الحملات")}<div class="tree"><div class="root">${logo}<div><b>${E(c.name)}</b><span><bdi>${M(tot)} شهري</bdi> · <bdi>${M(totD)} يومي</bdi></span></div></div><div class="br" style="--n:${platsL.length}">${platsL.map(p => `<div class="col"><div class="pn" style="border-color:${pcol(p)}">${pb(p)}<div><b>${E(p)}</b><span><bdi>${budOf(p) ? M(budOf(p)) : "—"} شهري</bdi>${tot ? ` · <bdi class="num">${pct(p)}%</bdi>` : ""}</span><span><bdi>${dayOf(p) ? M(dayOf(p)) : "—"} يومي</bdi></span></div></div><div class="kids">${byP(p).map(i => `<div class="cn"><b dir="auto">${E(title(i))}</b><div class="meta">${fun(i.funnel)}${i.objective ? `<span dir="auto">${E(i.objective)}</span>` : ""}</div>${i.ad_format ? `<div class="sm" dir="auto">${E(i.ad_format)}</div>` : ""}${+i.budget ? `<div class="sm">${MB(i)}</div>` : ""}</div>`).join("") || `<div class="cn empty">مفيش حملات</div>`}</div></div>`).join("")}</div></div>${foot()}</section>`;
   // detail per platform
   let n = 3;
   for (const p of platsL) {
     const list = byP(p); if (!list.length) continue;
-    html += `<section class="pg">${head(n++, E(p), `${pb(p)} ${E(p)} <span class="hb"><bdi>${M(budOf(p))} شهري</bdi> · <bdi>${M(budOf(p) / D)} يومي</bdi></span>`)}<div class="grid">${list.map(i => {
+    html += `<section class="pg">${head(n++, E(p), `${pb(p)} ${E(p)} <span class="hb"><bdi>${budOf(p) ? M(budOf(p)) : "—"} شهري</bdi> · <bdi>${dayOf(p) ? M(dayOf(p)) : "—"} يومي</bdi></span>`)}<div class="grid">${list.map(i => {
       const row = (l, v, ltr) => v ? `<div class="fr"><span>${l}</span><div ${ltr ? 'dir="ltr" class="ltr"' : 'dir="auto"'}>${E(v)}</div></div>` : "";
       return `<div class="card camp"><div class="ch"><b dir="auto">${E(title(i))}</b>${+i.budget ? `<span class="cb">${MB(i)}</span>` : ""}</div><div class="meta">${fun(i.funnel)}${i.goal ? `<span>الهدف: ${E(i.goal)}</span>` : ""}${i.objective ? `<span>${E(i.objective)}</span>` : ""}${i.ad_format ? `<span>${E(i.ad_format)}</span>` : ""}</div>
         ${row("الأوديانس", i.audience)}${row("الستراكشر", i.structure)}${planLinks(i).filter(l => l.url).map((l, x, a) => row(l.label || (a.length > 1 ? `لاندنج ${x + 1}` : "اللاندنج"), l.url, true)).join("")}${(i.extra || []).map(x => row(E(x.label || "—"), x.value)).join("")}${row("ملاحظات", i.notes)}</div>`;
@@ -2583,10 +2583,9 @@ body{margin:0;background:#888;font-family:Tajawal,sans-serif;color:#111a1f}.num,
 
 /* budgets: every campaign budget is monthly or daily; platform budgets are stored monthly */
 const dim = ym => new Date(+ym.slice(0,4), +ym.slice(5,7), 0).getDate();
-const monthlyOf = (i, ym) => (+i.budget || 0) * (i.budget_type === "daily" ? dim(ym) : 1);
-const dailyOf = (i, ym) => i.budget_type === "daily" ? (+i.budget || 0) : (+i.budget || 0) / dim(ym);
-function budTxt(i, ym, cu){ if (!+i.budget) return ""; return i.budget_type === "daily" ? `${money("", i.budget, cu, 0)} يومي` : `${money("", i.budget, cu, 0)} شهري`; }
-function bdSync(src, ym){ const d = dim(ym), m = $("#bdM"), dd = $("#bdD"); if (src === "m") dd.value = m.value === "" ? "" : Math.round(+m.value / d); else m.value = dd.value === "" ? "" : Math.round(+dd.value * d); }
+const dailyOf = i => +i.budget || 0;
+function budTxt(i, ym, cu){ return +i.budget ? `${money("", i.budget, cu, 0)} يومي` : ""; }
+function _bdSync(src, ym){ const d = dim(ym), m = $("#bdM"), dd = $("#bdD"); if (src === "m") dd.value = m.value === "" ? "" : Math.round(+m.value / d); else m.value = dd.value === "" ? "" : Math.round(+dd.value * d); }
 function piBudHint(ym){ const v = +$("#piBud").value, t = (document.querySelector('input[name="piBT"]:checked') || {}).value, d = dim(ym), h = $("#piBudH"); if (!h) return;
   h.textContent = !v ? "" : t === "daily" ? `يعني حوالي ${fmt(v * d)} في الشهر (${d} يوم)` : `يعني حوالي ${fmt(v / d)} في اليوم (${d} يوم)`; }
 
