@@ -2013,7 +2013,7 @@ function mediaPlanView(c){
   const platsAll = [...new Set([...plats(c).map(p => p.name), ...items.map(i => i.platform).filter(Boolean)])];
   const used = platsAll.filter(p => items.some(i => i.platform === p) || +budgets[p] > 0);
   const spentOf = p => M[c.id] ? agg(monthRows(c.id, ym).filter(r => r.p === p)).s : 0;
-  const budOf = p => +budgets[p] > 0 ? +budgets[p] : items.filter(i => i.platform === p).reduce((a, i) => a + (+i.budget || 0), 0);
+  const budOf = p => +budgets[p] > 0 ? +budgets[p] : items.filter(i => i.platform === p).reduce((a, i) => a + monthlyOf(i, ym), 0);
   const days = daysOfMonth(ym).length, tk = todayK(), elapsed = ym < ymOf(tk) ? 1 : ym > ymOf(tk) ? 0 : (+tk.slice(8) - 1) / days;
   if (!items.length && !Object.keys(budgets).length) {
     const prev = ymAdd(ym, -1);
@@ -2021,13 +2021,13 @@ function mediaPlanView(c){
       ${edit ? `<div class="row" style="justify-content:center;gap:8px;margin-top:10px"><button class="btn primary" onclick="openPlanItem('${c.id}','${ym}')">+ أضف أول حملة</button><button class="btn" onclick="copyPlan('${c.id}','${prev}','${ym}')">انسخ خطة ${monthLabel(prev)}</button></div>` : ""}</div>`;
   }
   const totB = used.reduce((a, p) => a + budOf(p), 0), totS = used.reduce((a, p) => a + spentOf(p), 0);
-  h += `<div class="mp-sum"><div><span class="tiny muted">ميزانية الشهر</span><b class="num">${money("", totB, cu, 0)}</b></div><div><span class="tiny muted">اتصرف لحد دلوقتي</span><b class="num">${money("", totS, cu, 0)}</b></div><div><span class="tiny muted">فاضل</span><b class="num">${money("", Math.max(0, totB - totS), cu, 0)}</b></div><div><span class="tiny muted">الشهر عدّى</span><b class="num">${fmt(elapsed * 100)}%</b></div></div>`;
+  h += `<div class="mp-sum"><div><span class="tiny muted">ميزانية الشهر</span><b class="num">${money("", totB, cu, 0)}</b></div><div><span class="tiny muted">ميزانية اليوم <span class="muted">(متوسط)</span></span><b class="num">${money("", totB / dim(ym), cu, 0)}</b></div><div><span class="tiny muted">اتصرف لحد دلوقتي</span><b class="num">${money("", totS, cu, 0)}</b></div><div><span class="tiny muted">فاضل</span><b class="num">${money("", Math.max(0, totB - totS), cu, 0)}</b></div><div><span class="tiny muted">الشهر عدّى</span><b class="num">${fmt(elapsed * 100)}%</b></div></div>`;
   for (const p of used) {
     const b = budOf(p), sp = spentOf(p), pct = b ? sp / b : 0, list = items.filter(i => i.platform === p);
     const lv = !b ? "grey" : pct > 1 ? "bad" : pct > elapsed + 0.15 ? "amb" : "ok";
     const msg = !b ? "مفيش ميزانية متحددة" : pct > 1 ? `عدّى الميزانية بـ ${money("", sp - b, cu, 0)}` : pct > elapsed + 0.15 ? `بيصرف أسرع من الخطة (${fmt(pct * 100)}% والشهر ${fmt(elapsed * 100)}%)` : `ماشي مع الخطة (${fmt(pct * 100)}%)`;
     h += `<div class="mp-plat"><div class="mp-ph">${badge(p)}<b>${esc(p)}</b><span class="tiny muted">${list.length ? `${list.length} ${list.length === 1 ? "حملة" : list.length === 2 ? "حملتين" : "حملات"}` : "مفيش حملات"}</span><span class="spacer"></span>
-        <span class="mp-bud">${edit ? `<button class="btn xs ghost" onclick="editPlatBudget('${c.id}','${ym}','${jsq(p)}')" title="عدّل ميزانية ${esc(p)}">` : "<span>"}<span class="tiny muted">الميزانية</span> <b class="num">${b ? money("", b, cu, 0) : "—"}</b>${edit ? " ✎</button>" : "</span>"}</span></div>
+        <span class="mp-bud">${edit ? `<button class="btn xs ghost" onclick="editPlatBudget('${c.id}','${ym}','${jsq(p)}')" title="عدّل ميزانية ${esc(p)}">` : "<span>"}${b ? `<span class="tiny muted">شهري</span> <b class="num">${money("", b, cu, 0)}</b> <span class="tiny muted">· يومي</span> <b class="num">${money("", b / dim(ym), cu, 0)}</b>` : `<span class="tiny muted">الميزانية</span> <b>—</b>`}${edit ? " ✎</button>" : "</span>"}</span></div>
       <div class="mp-bar"><i class="lv-${lv}" style="width:${Math.min(100, pct * 100)}%"></i><s style="inset-inline-start:${elapsed * 100}%" title="النهارده"></s></div>
       <div class="tiny mp-msg lv-${lv}">اتصرف ${money("", sp, cu, 0)} · ${msg}</div>
       <div class="mp-items">${list.map(i => planCard(c, i, edit)).join("")}${edit ? `<button class="mp-add" onclick="openPlanItem('${c.id}','${ym}',null,'${jsq(p)}')">+ حملة على ${esc(p)}</button>` : ""}</div></div>`;
@@ -2039,7 +2039,7 @@ function mediaPlanView(c){
 function planCard(c, i, edit){
   const [sl, sc] = PSTATUS[i.status] || PSTATUS.planned, open = (ui.mpOpen || {})[i.id];
   const title = i.name || [i.objective, i.funnel && FUNNEL_AR[i.funnel] ? FUNNEL_AR[i.funnel].split(" · ")[0] : i.funnel].filter(Boolean).join(" · ") || "حملة";
-  const chips = [i.objective, i.funnel ? (FUNNEL_AR[i.funnel] || i.funnel) : "", i.ad_format, +i.budget ? money("", i.budget, cur(c), 0) : ""].filter(Boolean);
+  const chips = [i.objective, i.funnel ? (FUNNEL_AR[i.funnel] || i.funnel) : "", i.ad_format, budTxt(i, i.ym, cur(c))].filter(Boolean);
   const field = (l, v, ltr) => v ? `<div class="mp-f"><span>${l}</span><div dir="auto" style="text-align:right">${ltr && /^https?:/.test(v) ? `<a href="${esc(normUrl(v))}" target="_blank" rel="noopener">${esc(v)}</a>` : esc(v)}</div></div>` : "";
   return `<div class="mp-card${open ? " open" : ""}">
     <div class="mp-ch" onclick="ui.mpOpen=ui.mpOpen||{};ui.mpOpen['${i.id}']=!ui.mpOpen['${i.id}'];render()">
@@ -2064,7 +2064,7 @@ function openPlanItem(cid, ym, id, plat){
       <label class="f">مكانها في الفانل</label>
       <div class="seg-pick">${FUNNEL.map(f => `<label><input type="radio" name="piF" value="${f}" ${i.funnel === f ? "checked" : ""}><span>${FUNNEL_AR[f]}</span></label>`).join("")}<label><input type="radio" name="piF" value="" ${!i.funnel ? "checked" : ""}><span>مش محدد</span></label></div>
       <div class="two"><div><label class="f">نوع الإعلان / الكرييتف</label><input class="inp" id="piFmt" dir="auto" value="${esc(i.ad_format || "")}" placeholder="مثلاً: Single ad · Video" list="fmts">${dl("fmts", ["Single ad · Video","Single ad · Image","Carousel","Collection","UGC video","Spark ads","Story"])}</div>
-        <div><label class="f">ميزانية الحملة <span class="tiny muted">(${esc(cur(c))}، اختياري)</span></label><input class="inp" id="piBud" type="number" min="0" step="1" value="${i.budget ?? ""}" placeholder="لو فاضية بتتحسب من ميزانية المنصة"></div></div>
+        <div><label class="f">ميزانية الحملة <span class="tiny muted">(${esc(cur(c))}، اختياري)</span></label><div class="row" style="gap:6px;flex-wrap:nowrap"><input class="inp" id="piBud" type="number" min="0" step="1" value="${i.budget ?? ""}" placeholder="المبلغ" oninput="piBudHint('${ym}')"><div class="seg-pick" style="flex-wrap:nowrap">${[["daily","يومي"],["monthly","شهري"]].map(([k, l]) => `<label><input type="radio" name="piBT" value="${k}" ${(i.budget_type || "daily") === k ? "checked" : ""} onchange="piBudHint('${ym}')"><span>${l}</span></label>`).join("")}</div></div><div class="tiny muted" id="piBudH" style="margin-top:3px">${+i.budget ? (i.budget_type === "monthly" ? `يعني حوالي ${fmt(i.budget / dim(ym))} في اليوم (${dim(ym)} يوم)` : `يعني حوالي ${fmt(i.budget * dim(ym))} في الشهر (${dim(ym)} يوم)`) : "اختار المبلغ يومي ولا شهري"}</div></div></div>
       <label class="f">الأوديانس</label><textarea class="inp" id="piAud" dir="auto" rows="4" placeholder="Ad group 1: Broad · All genders · 24-47&#10;Location: جدة، مكة، الرياض&#10;Ad group 2: Retarget">${esc(i.audience || "")}</textarea>
       <label class="f">الستراكشر</label><textarea class="inp" id="piStr" dir="auto" rows="3" placeholder="1 campaign&#10;2 ad sets: interest + broad&#10;1 ad لكل واحد">${esc(i.structure || "")}</textarea>
       <label class="f">اللاندنج بيدج</label><div id="piLinks" class="dyn">${planLinks(i).map(linkRow).join("")}</div>
@@ -2078,7 +2078,7 @@ function openPlanItem(cid, ym, id, plat){
 }
 async function savePlanItem(cid, ym, id){
   const v = sel => ($(sel) ? $(sel).value.trim() : "") || null, rv = n => (document.querySelector(`input[name="${n}"]:checked`) || {}).value || null;
-  const row = { client_id:cid, ym, platform: $("#piP").value, name: v("#piName"), goal: v("#piGoal"), objective: v("#piObj"), funnel: rv("piF"), ad_format: v("#piFmt"), budget: $("#piBud").value === "" ? null : +$("#piBud").value, audience: v("#piAud"), structure: v("#piStr"), links: dynRead("piLinks", ["label","url"]).filter(x => x.url), landing_url: (dynRead("piLinks", ["label","url"]).find(x => x.url) || {}).url || null, extra: dynRead("piExtra", ["label","value"]).filter(x => x.value || x.label), notes: v("#piNotes"), status: rv("piS") || "planned", updated_at: new Date().toISOString() };
+  const row = { client_id:cid, ym, platform: $("#piP").value, name: v("#piName"), goal: v("#piGoal"), objective: v("#piObj"), funnel: rv("piF"), ad_format: v("#piFmt"), budget: $("#piBud").value === "" ? null : +$("#piBud").value, budget_type: (document.querySelector('input[name="piBT"]:checked') || {}).value || "daily", audience: v("#piAud"), structure: v("#piStr"), links: dynRead("piLinks", ["label","url"]).filter(x => x.url), landing_url: (dynRead("piLinks", ["label","url"]).find(x => x.url) || {}).url || null, extra: dynRead("piExtra", ["label","value"]).filter(x => x.value || x.label), notes: v("#piNotes"), status: rv("piS") || "planned", updated_at: new Date().toISOString() };
   try {
     if (id) await q(sb.from("plan_items").update(row).eq("id", id), "planupd");
     else { row.sort = ((PLAN[planKey(cid, ym)] || { items:[] }).items.length); await q(sb.from("plan_items").insert(row), "planins"); }
@@ -2097,10 +2097,10 @@ async function savePlanMeta(cid, ym, field, val){
 function editPlatBudget(cid, ym, p){
   const P0 = PLAN[planKey(cid, ym)], cur0 = (P0.meta.budgets || {})[p] || "", c = clientById(cid);
   openModal(`<h2>ميزانية ${esc(p)} · ${monthLabel(ym)}</h2><p class="small muted" style="margin:4px 0 0">لو سبتها فاضية، الميزانية بتتحسب من مجموع ميزانيات حملات ${esc(p)}.</p>
-    <label class="f">الميزانية (${esc(cur(c))})</label><input class="inp" id="pbV" type="number" min="0" step="1" value="${cur0}" autofocus>
+    <div class="two"><div><label class="f">ميزانية الشهر (${esc(cur(c))})</label><input class="inp" id="bdM" type="number" min="0" step="1" value="${cur0}" oninput="bdSync('m','${ym}')" autofocus></div><div><label class="f">ميزانية اليوم (${esc(cur(c))})</label><input class="inp" id="bdD" type="number" min="0" step="1" value="${cur0 ? Math.round(cur0 / dim(ym)) : ""}" oninput="bdSync('d','${ym}')"></div></div><p class="tiny muted" style="margin:4px 0 0">اكتب في أي واحدة والتانية بتتحسب لوحدها (${monthLabel(ym)} = ${dim(ym)} يوم).</p>
     <div class="actions"><span class="spacer"></span><button class="btn" onclick="closeModal()">إلغاء</button><button class="btn primary" onclick="savePlatBudget('${cid}','${ym}','${jsq(p)}')">حفظ</button></div>`);
 }
-async function savePlatBudget(cid, ym, p){ const P0 = PLAN[planKey(cid, ym)], v = $("#pbV").value, b = Object.assign({}, P0.meta.budgets || {}); if (v === "" || !(+v > 0)) delete b[p]; else b[p] = +v;
+async function savePlatBudget(cid, ym, p){ const P0 = PLAN[planKey(cid, ym)], v = $("#bdM").value, b = Object.assign({}, P0.meta.budgets || {}); if (v === "" || !(+v > 0)) delete b[p]; else b[p] = +v;
   P0.meta.budgets = b; closeModal(); await savePlanMeta(cid, ym, "budgets", b); render(); }
 async function copyPlan(cid, from, to){
   try { const items = await q(sb.from("plan_items").select("*").eq("client_id", cid).eq("ym", from), "plancp"); const meta = await q(sb.from("plan_meta").select("*").eq("client_id", cid).eq("ym", from), "plancpm");
@@ -2515,7 +2515,8 @@ async function exportPlanPdf(cid, ym){
   const E = x => esc(x == null ? "" : String(x)), N = v => (+v || 0).toLocaleString("en-US", { maximumFractionDigits:0 });
   const M = v => `<span class="num">${N(v)}</span> <span class="cu">${E(cu === "SAR" ? "ر.س" : cu === "EGP" ? "ج.م" : cu)}</span>`;
   const platsL = [...new Set([...plats(c).map(p => p.name), ...items.map(i => i.platform)])].filter(p => items.some(i => i.platform === p) || +budgets[p] > 0);
-  const budOf = p => +budgets[p] > 0 ? +budgets[p] : items.filter(i => i.platform === p).reduce((a, i) => a + (+i.budget || 0), 0);
+  const budOf = p => +budgets[p] > 0 ? +budgets[p] : items.filter(i => i.platform === p).reduce((a, i) => a + monthlyOf(i, ym), 0);
+  const D = dim(ym), MB = i => +i.budget ? `${M(i.budget)} <span class="bt">${i.budget_type === "daily" ? "يومي" : "شهري"}</span>` : "";
   const tot = platsL.reduce((a, p) => a + budOf(p), 0), pct = p => tot ? Math.round(budOf(p) / tot * 100) : 0;
   const byP = p => items.filter(i => i.platform === p).sort((a, b) => (FUN_ORDER[a.funnel] ?? 3) - (FUN_ORDER[b.funnel] ?? 3) || (a.sort || 0) - (b.sort || 0));
   const logo = c.logo_url ? `<img class="clogo" src="${E(c.logo_url)}">` : `<div class="clogo ph">${E((c.name || "?").slice(0,1))}</div>`;
@@ -2528,18 +2529,18 @@ async function exportPlanPdf(cid, ym){
   // cover
   let html = `<section class="pg dark"><div class="cv">${logo}<div class="eb">MEDIA PLAN</div><h1 class="big">خطة الميديا</h1><div class="sub">${E(c.name)} · ${E(per)}</div><div class="sub2">${E(c.type === "store" ? "متجر إلكتروني" : "ليدز وحجوزات")} · ${platsL.map(E).join(" · ")}</div></div><div class="cvf">${ZLOCK(true)}<span>إعداد: زياد إبراهيم — Performance Media Buyer</span></div></section>`;
   // summary
-  html += `<section class="pg">${head(1, "Summary", "ملخص الخطة")}<div class="tiles"><div class="tile hl"><span>ميزانية الشهر</span><b>${M(tot)}</b></div><div class="tile"><span>المنصات</span><b class="num">${platsL.length}</b></div><div class="tile"><span>الحملات</span><b class="num">${items.length}</b></div><div class="tile"><span>شغالة / مخططة</span><b class="num">${items.filter(i => i.status === "live").length} / ${items.filter(i => i.status === "planned").length}</b></div></div>
+  html += `<section class="pg">${head(1, "Summary", "ملخص الخطة")}<div class="tiles"><div class="tile hl"><span>ميزانية الشهر</span><b>${M(tot)}</b></div><div class="tile"><span>ميزانية اليوم (متوسط)</span><b>${M(tot / D)}</b></div><div class="tile"><span>المنصات · الحملات</span><b class="num">${platsL.length} · ${items.length}</b></div><div class="tile"><span>شغالة / مخططة</span><b class="num">${items.filter(i => i.status === "live").length} / ${items.filter(i => i.status === "planned").length}</b></div></div>
     <div class="card"><div class="ct">توزيع الميزانية على المنصات</div><div class="split">${platsL.map(p => `<i style="width:${pct(p)}%;background:${pcol(p)}"></i>`).join("")}</div>
-      <table class="tb"><tr><th>المنصة</th><th>الميزانية</th><th>النسبة</th><th>الحملات</th><th>الفانل</th></tr>${platsL.map(p => `<tr><td>${pb(p)} ${E(p)}</td><td>${M(budOf(p))}</td><td class="num">${pct(p)}%</td><td class="num">${byP(p).length}</td><td>${[...new Set(byP(p).map(i => i.funnel).filter(Boolean))].map(fun).join(" ")}</td></tr>`).join("")}</table></div>${foot()}</section>`;
+      <table class="tb"><tr><th>المنصة</th><th>شهري</th><th>يومي</th><th>النسبة</th><th>الحملات</th><th>الفانل</th></tr>${platsL.map(p => `<tr><td>${pb(p)} ${E(p)}</td><td>${M(budOf(p))}</td><td>${M(budOf(p) / D)}</td><td class="num">${pct(p)}%</td><td class="num">${byP(p).length}</td><td>${[...new Set(byP(p).map(i => i.funnel).filter(Boolean))].map(fun).join(" ")}</td></tr>`).join("")}</table></div>${foot()}</section>`;
   // tree
-  html += `<section class="pg">${head(2, "Structure", "خريطة الحملات")}<div class="tree"><div class="root">${logo}<div><b>${E(c.name)}</b><span>${M(tot)} · ${E(per)}</span></div></div><div class="br" style="--n:${platsL.length}">${platsL.map(p => `<div class="col"><div class="pn" style="border-color:${pcol(p)}">${pb(p)}<div><b>${E(p)}</b><span>${M(budOf(p))} · <span class="num">${pct(p)}%</span></span></div></div><div class="kids">${byP(p).map(i => `<div class="cn"><b dir="auto">${E(title(i))}</b><div class="meta">${fun(i.funnel)}${i.objective ? `<span dir="auto">${E(i.objective)}</span>` : ""}</div>${i.ad_format ? `<div class="sm" dir="auto">${E(i.ad_format)}</div>` : ""}${+i.budget ? `<div class="sm">${M(i.budget)}</div>` : ""}</div>`).join("") || `<div class="cn empty">مفيش حملات</div>`}</div></div>`).join("")}</div></div>${foot()}</section>`;
+  html += `<section class="pg">${head(2, "Structure", "خريطة الحملات")}<div class="tree"><div class="root">${logo}<div><b>${E(c.name)}</b><span><bdi>${M(tot)} شهري</bdi> · <bdi>${M(tot / D)} يومي</bdi></span></div></div><div class="br" style="--n:${platsL.length}">${platsL.map(p => `<div class="col"><div class="pn" style="border-color:${pcol(p)}">${pb(p)}<div><b>${E(p)}</b><span><bdi>${M(budOf(p))} شهري</bdi> · <bdi class="num">${pct(p)}%</bdi></span><span><bdi>${M(budOf(p) / D)} يومي</bdi></span></div></div><div class="kids">${byP(p).map(i => `<div class="cn"><b dir="auto">${E(title(i))}</b><div class="meta">${fun(i.funnel)}${i.objective ? `<span dir="auto">${E(i.objective)}</span>` : ""}</div>${i.ad_format ? `<div class="sm" dir="auto">${E(i.ad_format)}</div>` : ""}${+i.budget ? `<div class="sm">${MB(i)}</div>` : ""}</div>`).join("") || `<div class="cn empty">مفيش حملات</div>`}</div></div>`).join("")}</div></div>${foot()}</section>`;
   // detail per platform
   let n = 3;
   for (const p of platsL) {
     const list = byP(p); if (!list.length) continue;
-    html += `<section class="pg">${head(n++, E(p), `${pb(p)} ${E(p)} <span class="hb">${M(budOf(p))}</span>`)}<div class="grid">${list.map(i => {
+    html += `<section class="pg">${head(n++, E(p), `${pb(p)} ${E(p)} <span class="hb"><bdi>${M(budOf(p))} شهري</bdi> · <bdi>${M(budOf(p) / D)} يومي</bdi></span>`)}<div class="grid">${list.map(i => {
       const row = (l, v, ltr) => v ? `<div class="fr"><span>${l}</span><div ${ltr ? 'dir="ltr" class="ltr"' : 'dir="auto"'}>${E(v)}</div></div>` : "";
-      return `<div class="card camp"><div class="ch"><b dir="auto">${E(title(i))}</b>${+i.budget ? `<span class="cb">${M(i.budget)}</span>` : ""}</div><div class="meta">${fun(i.funnel)}${i.goal ? `<span>الهدف: ${E(i.goal)}</span>` : ""}${i.objective ? `<span>${E(i.objective)}</span>` : ""}${i.ad_format ? `<span>${E(i.ad_format)}</span>` : ""}</div>
+      return `<div class="card camp"><div class="ch"><b dir="auto">${E(title(i))}</b>${+i.budget ? `<span class="cb">${MB(i)}</span>` : ""}</div><div class="meta">${fun(i.funnel)}${i.goal ? `<span>الهدف: ${E(i.goal)}</span>` : ""}${i.objective ? `<span>${E(i.objective)}</span>` : ""}${i.ad_format ? `<span>${E(i.ad_format)}</span>` : ""}</div>
         ${row("الأوديانس", i.audience)}${row("الستراكشر", i.structure)}${planLinks(i).filter(l => l.url).map((l, x, a) => row(l.label || (a.length > 1 ? `لاندنج ${x + 1}` : "اللاندنج"), l.url, true)).join("")}${(i.extra || []).map(x => row(E(x.label || "—"), x.value)).join("")}${row("ملاحظات", i.notes)}</div>`;
     }).join("")}</div>${foot()}</section>`;
   }
@@ -2555,7 +2556,7 @@ body{margin:0;background:#888;font-family:Tajawal,sans-serif;color:#111a1f}.num,
 .hd{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8mm}.hd .eb{color:#0b5d57;font-size:12px;letter-spacing:.12em}.hd h1{font-size:32px;margin:2px 0 0;display:flex;align-items:center;gap:10px}.hb{font-size:18px;color:#535e67;font-weight:500;margin-inline-start:8px}
 .clogo{width:18mm;height:18mm;border-radius:10px;object-fit:contain;background:#fff;border:1px solid #d6d4cb;padding:4px}.clogo.ph{display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:800;color:#0b5d57}
 .foot{position:absolute;bottom:8mm;left:16mm;right:16mm;display:flex;justify-content:space-between;align-items:center;font-size:12px;color:#535e67;flex-direction:row-reverse}
-.tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:10px}.tile{background:#fff;border:1px solid #d6d4cb;border-radius:12px;padding:14px 16px}.tile span{font-size:13px;color:#535e67;display:block}.tile b{font-size:30px;display:block;margin-top:4px}.tile.hl b{background:#c8f04a;display:inline-block;padding:0 8px;border-radius:6px;white-space:nowrap}
+.bt{font-size:.85em;font-weight:500}.tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:10px}.tile{background:#fff;border:1px solid #d6d4cb;border-radius:12px;padding:14px 16px}.tile span{font-size:13px;color:#535e67;display:block}.tile b{font-size:30px;display:block;margin-top:4px}.tile.hl b{background:#c8f04a;display:inline-block;padding:0 8px;border-radius:6px;white-space:nowrap}
 .card{background:#fff;border:1px solid #d6d4cb;border-radius:12px;padding:14px 16px}.ct{font-weight:700;margin-bottom:10px}
 .split{display:flex;height:14px;border-radius:99px;overflow:hidden;margin-bottom:12px;background:#eee}
 .tb{width:100%;border-collapse:collapse;font-size:14px}.tb th{text-align:right;color:#535e67;font-weight:500;font-size:12px;border-bottom:1px solid #d6d4cb;padding:6px}.tb td{padding:8px 6px;border-bottom:1px solid #eeede7}
@@ -2567,7 +2568,7 @@ body{margin:0;background:#888;font-family:Tajawal,sans-serif;color:#111a1f}.num,
 .br::before{content:"";position:absolute;top:-12px;left:calc(50% / var(--n));right:calc(50% / var(--n));border-top:2px solid #0b5d57}
 .root{position:relative}.root::after{content:"";position:absolute;bottom:-12px;left:50%;height:12px;border-left:2px solid #0b5d57}
 .col{display:flex;flex-direction:column;align-items:stretch;position:relative}.col::before{content:"";position:absolute;top:-12px;left:50%;height:12px;border-left:2px solid #0b5d57}
-.pn{display:flex;align-items:center;gap:8px;background:#fff;border:2px solid;border-radius:10px;padding:8px 10px}.pn b{display:block;font-size:15px}.pn span{font-size:11.5px;color:#535e67}
+.pn{display:flex;align-items:center;gap:8px;background:#fff;border:2px solid;border-radius:10px;padding:8px 10px}.pn b{display:block;font-size:15px}.pn>div>span{display:block;font-size:11.5px;color:#535e67}
 .kids{position:relative;margin-top:10px;padding-inline-start:14px;display:flex;flex-direction:column;gap:7px}.kids::before{content:"";position:absolute;top:-10px;bottom:16px;inset-inline-start:4px;border-inline-start:2px solid #b9c8c4}
 .cn{position:relative;background:#fff;border:1px solid #d6d4cb;border-radius:9px;padding:7px 9px;font-size:12.5px}.cn::before{content:"";position:absolute;top:14px;inset-inline-start:-10px;width:10px;border-top:2px solid #b9c8c4}.cn b{display:block;font-size:13px;margin-bottom:3px}.cn .meta{display:flex;flex-wrap:wrap;gap:4px;align-items:center;color:#535e67;font-size:11px}.cn .sm{color:#535e67;font-size:11px;margin-top:2px}.cn.empty{color:#999}
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-content:start}.camp{page-break-inside:avoid}
@@ -2579,6 +2580,15 @@ body{margin:0;background:#888;font-family:Tajawal,sans-serif;color:#111a1f}.num,
   win.document.write(`<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>Media plan — ${E(c.name)} — ${E(per)}</title><link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet"><style>${css}</style></head><body><div class="bar"><button onclick="print()">⬇ حفظ PDF</button></div>${html}<script>(document.fonts?document.fonts.ready:Promise.resolve()).then(()=>setTimeout(()=>print(),400))<\/script></body></html>`);
   win.document.close();
 }
+
+/* budgets: every campaign budget is monthly or daily; platform budgets are stored monthly */
+const dim = ym => new Date(+ym.slice(0,4), +ym.slice(5,7), 0).getDate();
+const monthlyOf = (i, ym) => (+i.budget || 0) * (i.budget_type === "daily" ? dim(ym) : 1);
+const dailyOf = (i, ym) => i.budget_type === "daily" ? (+i.budget || 0) : (+i.budget || 0) / dim(ym);
+function budTxt(i, ym, cu){ if (!+i.budget) return ""; return i.budget_type === "daily" ? `${money("", i.budget, cu, 0)} يومي` : `${money("", i.budget, cu, 0)} شهري`; }
+function bdSync(src, ym){ const d = dim(ym), m = $("#bdM"), dd = $("#bdD"); if (src === "m") dd.value = m.value === "" ? "" : Math.round(+m.value / d); else m.value = dd.value === "" ? "" : Math.round(+dd.value * d); }
+function piBudHint(ym){ const v = +$("#piBud").value, t = (document.querySelector('input[name="piBT"]:checked') || {}).value, d = dim(ym), h = $("#piBudH"); if (!h) return;
+  h.textContent = !v ? "" : t === "daily" ? `يعني حوالي ${fmt(v * d)} في الشهر (${d} يوم)` : `يعني حوالي ${fmt(v / d)} في اليوم (${d} يوم)`; }
 
 const APP_SHELL = "<div class=\"wrap\"><header class=\"top\"><span class=\"brand\" aria-label=\"\u0632\u064a\u0627\u062f \u0625\u0628\u0631\u0627\u0647\u064a\u0645\"><svg width=\"28\" height=\"28\" viewBox=\"0 0 48 48\" aria-hidden=\"true\"><rect class=\"zm-ink\" x=\"0\" y=\"28\" width=\"12\" height=\"20\" rx=\"2\"/><rect class=\"zm-brand\" x=\"18\" y=\"16\" width=\"12\" height=\"32\" rx=\"2\"/><rect class=\"zm-signal\" x=\"36\" y=\"0\" width=\"12\" height=\"12\" rx=\"2\"/><rect class=\"zm-brand\" x=\"36\" y=\"15\" width=\"12\" height=\"33\" rx=\"2\"/></svg><span class=\"nm\">\u0632\u064a\u0627\u062f \u0625\u0628\u0631\u0627\u0647\u064a\u0645</span><span class=\"sub\">\u00b7 \u0633\u064a\u0633\u062a\u0645 \u0627\u0644\u0634\u063a\u0644</span></span><nav class=\"tabs\" id=\"tabs\"></nav><span class=\"spacer\"></span><div id=\"who\"></div></header><main id=\"view\"><div class=\"card empty\">\u0628\u064a\u062d\u0645\u0651\u0644\u2026</div></main></div>";
 start();
