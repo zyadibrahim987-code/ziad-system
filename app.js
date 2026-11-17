@@ -298,7 +298,7 @@ function storeTable(c, ym, rows){
 /* ================= Config ================= */
 const SB_URL = "https://apnxxhvjqnqgpryscixg.supabase.co";
 const SB_KEY = "sb_publishable_WXafq36LqstgndJfCjh0Gg_y52NhYYr";
-const JOBS = ["Media Buyer","Editor","Designer","Motion","UI","SEO","Programming","Social Media","Account Manager"];
+const JOBS = ["Media Buyer","Editor","Designer","Motion","UI","SEO","Programming","Social Media","Account Manager","Marketing Manager","CMO"];
 let sb = null;
 
 /* ================= State ================= */
