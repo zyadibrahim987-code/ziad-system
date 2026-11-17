@@ -665,6 +665,21 @@ img.av.avimg{object-fit:cover;padding:0;background:var(--grey-chip)}
 .nfilt{border:1px solid var(--line);background:var(--card);border-radius:99px;padding:4px 12px;font:inherit;font-size:13px;cursor:pointer;color:inherit}
 .nfilt.on{outline:2px solid var(--accent)}
 .cv-notes{display:grid;grid-template-columns:1fr;gap:4px}
+
+/* visa */
+.vbox{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px;max-width:460px}
+.vbox h3{margin:0 0 6px}
+.vgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:16px}
+.vcard{background:linear-gradient(135deg,#0e1418 0%,#123a37 60%,#0b5d57 100%);color:#eef1ec;border-radius:16px;padding:18px 20px;aspect-ratio:1.6/1;display:flex;flex-direction:column;justify-content:space-between;box-shadow:0 8px 24px rgba(0,0,0,.18)}
+.vrow{display:flex;justify-content:space-between;align-items:center}
+.vlab{font-weight:700;font-size:14px}
+.vbrand{font-family:var(--font-mono);font-weight:700;letter-spacing:.06em;color:#c8f04a;font-size:13px}
+.vnum{font-family:var(--font-mono);font-size:20px;letter-spacing:.08em;text-align:left}
+.vrow2{display:flex;gap:18px;text-align:left}
+.vrow2 span{display:block;font-size:9.5px;letter-spacing:.12em;color:#9aa6a0;font-family:var(--font-mono)}
+.vrow2 b{font-family:var(--font-mono);font-size:13.5px;font-weight:600}
+.vcp{border:0;background:rgba(255,255,255,.12);color:#eef1ec;border-radius:5px;font-size:11px;padding:1px 5px;cursor:pointer;vertical-align:middle}
+.vcp:hover{background:rgba(255,255,255,.25)}
 </style>
 </head>
 <body>
@@ -672,7 +687,7 @@ img.av.avimg{object-fit:cover;padding:0;background:var(--grey-chip)}
 <div class="modal-bg" id="modalBg" onmousedown="if(event.target.id==='modalBg')closeModal()"><div class="modal" id="modal"></div></div>
 <div class="toast" id="toast"></div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script>window.__APP_VERSION="20261117175920"</script>
-<script src="app.js?v=20261117175920"></script>
+<script>window.__APP_VERSION="20261117194753"</script>
+<script src="app.js?v=20261117194753"></script>
 </body>
 </html>

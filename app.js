@@ -1355,6 +1355,7 @@ function clientViews(c, see, mp){
     if (see) R.push({ k:"total", l:"Total", sub:"العميل كله" });
   }
   if (canFiles(c.id)) O.push({ k:"files", l:"Files", sub:"لينكات وملفات العميل" });
+  if (isAdmin()) O.push({ k:"visa", l:"Visa", sub:"بيانات الكروت · ليك انت بس" });
   O.push({ k:"notes", l:"Notes", sub: isAdmin() ? "التأخيرات والمشاكل بالتاريخ" : "ملاحظاتك على العميل" });
   O.push({ k:"deliv", l:"Deliveries", sub: isAdmin() ? "التسليمات اللي اتعملت" : "تسليماتك على العميل" });
   O.push({ k:"tasks", l:"Tasks", sub: isAdmin() ? "كل مهام العميل" : "تاسكاتك على العميل" });
@@ -1374,7 +1375,7 @@ function clientBody(c, ym, see, mp){
   let k = ui.cv[c.id]; if (!all.some(v => v.k === k)) k = (R[0] || O[0]).k;
   const v = all.find(x => x.k === k);
   const item = x => `<button class="${x.k === k ? "on" : ""}" onclick="ui.cv=ui.cv||{};ui.cv['${c.id}']='${x.k}';ui.selDay=null;saveUi();render()">
-      ${x.av ? avatar(x.av, 22) : `<span class="cv-ic">${x.k === "total" ? "Σ" : x.k === "files" ? "⌗" : x.k === "deliv" ? "↗" : x.k === "mplan" ? "▤" : x.k === "camps" ? "◎" : x.k === "notes" ? "✎" : "✓"}</span>`}
+      ${x.av ? avatar(x.av, 22) : `<span class="cv-ic">${x.k === "total" ? "Σ" : x.k === "files" ? "⌗" : x.k === "deliv" ? "↗" : x.k === "mplan" ? "▤" : x.k === "camps" ? "◎" : x.k === "notes" ? "✎" : x.k === "visa" ? "▭" : "✓"}</span>`}
       <span class="cv-t"><b>${esc(x.l)}</b><span>${esc(x.sub)}</span></span>
       ${R.includes(x) ? `<span class="cv-m">${sliceMetric(c, x.sl, ym)}</span>` : ""}</button>`;
   const nav = `<nav class="cnav">${R.length ? `<div class="cnav-l">Results</div>${R.map(item).join("")}` : ""}${P.length ? `<div class="cnav-l">Plan</div>${P.map(item).join("")}` : ""}<div class="cnav-l">Client</div>${O.map(item).join("")}</nav>`;
@@ -1393,6 +1394,7 @@ function clientPanel(c, ym, v, see, mp){
   if (v.k === "mplan") return mediaPlanView(c);
   if (v.k === "camps") return campaignsView(c);
   if (v.k === "notes") return clientNotesView(c);
+  if (v.k === "visa") return isAdmin() ? visaView(c) : "";
   if (v.k === "deliv") return head("Deliveries", "كل اللي اتسلّم على العميل ده: اللينكات والملفات، مين سلّمها وإمتى") + delivBlock(c);
   if (v.k === "tasks") {
     const ct = isAdmin() ? tasks.filter(t => t.clientId === c.id) : tasks.filter(t => t.clientId === c.id && t.assigneeId === me.id);
@@ -2588,6 +2590,94 @@ function budTxt(i, ym, cu){ return +i.budget ? `${money("", i.budget, cu, 0)} ي
 function _bdSync(src, ym){ const d = dim(ym), m = $("#bdM"), dd = $("#bdD"); if (src === "m") dd.value = m.value === "" ? "" : Math.round(+m.value / d); else m.value = dd.value === "" ? "" : Math.round(+dd.value * d); }
 function piBudHint(ym){ const v = +$("#piBud").value, t = (document.querySelector('input[name="piBT"]:checked') || {}).value, d = dim(ym), h = $("#piBudH"); if (!h) return;
   h.textContent = !v ? "" : t === "daily" ? `يعني حوالي ${fmt(v * d)} في الشهر (${d} يوم)` : `يعني حوالي ${fmt(v / d)} في اليوم (${d} يوم)`; }
+
+
+/* ================= Visa vault (admin only, encrypted in the browser with Zyad's passphrase) ================= */
+let VAULT, VKEY = null, VLOCKT = null, CARDS = {}, VSHOW = {};
+const b64 = u8 => btoa(String.fromCharCode(...new Uint8Array(u8))), ub64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+async function vDerive(pass, salt){ const base = await crypto.subtle.importKey("raw", new TextEncoder().encode(pass), "PBKDF2", false, ["deriveKey"]);
+  return crypto.subtle.deriveKey({ name:"PBKDF2", salt: ub64(salt), iterations: 250000, hash:"SHA-256" }, base, { name:"AES-GCM", length:256 }, false, ["encrypt","decrypt"]); }
+async function vEnc(key, obj){ const iv = crypto.getRandomValues(new Uint8Array(12)); const ct = await crypto.subtle.encrypt({ name:"AES-GCM", iv }, key, new TextEncoder().encode(JSON.stringify(obj))); return { iv: b64(iv), ct: b64(ct) }; }
+async function vDec(key, e){ const pt = await crypto.subtle.decrypt({ name:"AES-GCM", iv: ub64(e.iv) }, key, ub64(e.ct)); return JSON.parse(new TextDecoder().decode(pt)); }
+async function loadVault(){ try { const r = await q(sb.from("app_settings").select("*").eq("k", "card_vault"), "vault"); VAULT = r[0] ? r[0].v : null; } catch(e){ VAULT = null; toast("مقدرتش أفتح الخزنة: " + (e.message || e)); } render(); }
+async function loadCards(cid, force){ if (CARDS[cid] && !force) return; try { const rows = await q(sb.from("client_cards").select("*").eq("client_id", cid).order("created_at"), "cards"); CARDS[cid] = rows.map(r => ({ ...r, dec: null })); if (VKEY) await decCards(cid); } catch(e){ CARDS[cid] = []; toast("مقدرتش أجيب الكروت: " + (e.message || e)); } render(); }
+async function decCards(cid){ for (const r of CARDS[cid] || []) { try { r.dec = await vDec(VKEY, r.enc); } catch(e){ r.dec = { err:true }; } } }
+function vTouch(){ clearTimeout(VLOCKT); VLOCKT = setTimeout(() => vLock(true), 15 * 60 * 1000); }
+function vLock(auto){ VKEY = null; VSHOW = {}; Object.values(CARDS).forEach(l => l.forEach(r => r.dec = null)); clearTimeout(VLOCKT); render(); if (auto) toast("الفيزا اتقفلت لوحدها بعد 15 دقيقة 🔒"); }
+function visaView(c){
+  let h = `<div class="cv-head"><div><h2>Visa</h2><div class="ph-sub">كروت العميل · ليك انت بس، الفريق مش بيشوفها</div></div>${VKEY ? `<div class="row" style="gap:6px"><button class="btn sm ghost" onclick="vLock()">🔒 اقفل</button><button class="btn sm primary" onclick="openCard('${c.id}')">+ فيزا</button></div>` : ""}</div>`;
+  if (VAULT === undefined) { loadVault(); return h + `<div class="card empty">بيحمّل…</div>`; }
+  if (!VAULT) return h + `<div class="vbox"><h3>اعمل كلمة سر للفيزا</h3><p class="small muted">بيانات الكروت بتتشفّر بكلمة السر دي قبل ما تتحفظ، فحتى لو حد وصل للسيرفر مش هيقدر يقراها. خليها غير باسورد السيستم واحفظها عندك، <b>لو نسيتها الكروت المتسجلة مش هترجع</b> وهتحتاج تدخلها تاني.</p>
+    <label class="f">كلمة السر (8 حروف على الأقل)</label><input class="inp" type="password" id="vp1" autocomplete="new-password">
+    <label class="f">اكتبها تاني</label><input class="inp" type="password" id="vp2" autocomplete="new-password" onkeydown="if(event.key==='Enter')vSetup()">
+    <button class="btn primary" style="margin-top:12px" onclick="vSetup()">احفظ كلمة السر</button></div>`;
+  if (!VKEY) return h + `<div class="vbox"><h3>🔒 الفيزا مقفولة</h3><p class="small muted">اكتب كلمة سر الفيزا علشان تشوف الكروت. بتتقفل لوحدها بعد 15 دقيقة أو لما تقفل الصفحة.</p>
+    <input class="inp" type="password" id="vpU" autocomplete="current-password" placeholder="كلمة سر الفيزا" onkeydown="if(event.key==='Enter')vUnlock('${c.id}')"><div class="row" style="margin-top:10px;gap:8px"><button class="btn primary" onclick="vUnlock('${c.id}')">افتح</button><span class="spacer"></span><a href="#" class="tiny muted" onclick="vForgot();return false">نسيت كلمة السر؟</a></div>
+    ${CARDS[c.id] && CARDS[c.id].length ? `<div class="tiny muted" style="margin-top:12px">${CARDS[c.id].length} ${CARDS[c.id].length === 1 ? "كارت" : "كروت"} متسجلة: ${CARDS[c.id].map(r => `${esc(r.label || "فيزا")} •••• ${esc(r.last4 || "")}`).join(" · ")}</div>` : ""}</div>`;
+  if (!CARDS[c.id]) { loadCards(c.id); return h + `<div class="card empty">بيحمّل…</div>`; }
+  vTouch();
+  const list = CARDS[c.id];
+  if (!list.length) return h + `<div class="mp-empty"><h3>مفيش كروت لسه</h3><p class="small muted">ضيف فيزا العميل: الاسم على الكارت، والرقم، وتاريخ الانتهاء، والـ CVV.</p><button class="btn primary" onclick="openCard('${c.id}')">+ أضف فيزا</button></div>`;
+  return h + `<div class="vgrid">${list.map(r => visaCard(c, r)).join("")}</div><div class="tiny muted" style="margin-top:10px">🔒 كل البيانات متشفّرة بكلمة سر الفيزا. <a href="#" onclick="vChangePass('${c.id}');return false">غيّر كلمة السر</a></div>`;
+}
+function visaCard(c, r){
+  const d = r.dec || {}, sh = VSHOW[r.id], num = String(d.number || "").replace(/\D/g, "");
+  if (d.err) return `<div class="vcard"><b>${esc(r.label || "فيزا")}</b><div class="small">مقدرتش أفك الكارت ده بكلمة السر دي.</div></div>`;
+  const grp = n => n.replace(/(.{4})/g, "$1 ").trim(), masked = "•••• •••• •••• " + (r.last4 || num.slice(-4));
+  const cp = (v, l) => `<button class="vcp" title="انسخ ${l}" onclick="event.stopPropagation();vCopy('${btoa(unescape(encodeURIComponent(v || "")))}','${l}')">⧉</button>`;
+  return `<div class="vwrap"><div class="vcard">
+      <div class="vrow"><span class="vlab" dir="auto">${esc(r.label || "فيزا")}</span><span class="vbrand">${/^4/.test(num) ? "VISA" : /^(5[1-5]|2[2-7])/.test(num) ? "Mastercard" : /^3[47]/.test(num) ? "AMEX" : "CARD"}</span></div>
+      <div class="vnum" dir="ltr">${sh ? grp(num) : masked} ${cp(num, "الرقم")}</div>
+      <div class="vrow2" dir="ltr"><div><span>CARD HOLDER</span><b>${esc(d.name || "—")} ${d.name ? cp(d.name, "الاسم") : ""}</b></div><div><span>EXPIRES</span><b>${esc(d.exp || "—")} ${d.exp ? cp(d.exp, "التاريخ") : ""}</b></div><div><span>CVV</span><b>${sh ? esc(d.cvv || "—") : "•••"} ${d.cvv ? cp(d.cvv, "الـ CVV") : ""}</b></div></div>
+    </div>
+    ${d.note ? `<div class="small muted" dir="auto" style="margin:6px 2px 0">${esc(d.note)}</div>` : ""}
+    <div class="row" style="gap:6px;margin-top:8px"><button class="btn xs" onclick="VSHOW['${r.id}']=!VSHOW['${r.id}'];render()">${sh ? "🙈 اخفي" : "👁 اظهر"}</button><button class="btn xs ghost" onclick="openCard('${c.id}','${r.id}')">✏️ تعديل</button><span class="spacer"></span><button class="btn xs ghost" onclick="delCard('${c.id}','${r.id}')">🗑</button></div></div>`;
+}
+function vCopy(b, l){ const v = decodeURIComponent(escape(atob(b))); navigator.clipboard.writeText(v).then(() => { toast(`اتنسخ ${l} ✓`); }, () => toast("مقدرتش أنسخ")); vTouch(); }
+async function vSetup(){
+  const a = $("#vp1").value, b = $("#vp2").value; if (a.length < 8) return toast("كلمة السر لازم 8 حروف على الأقل"); if (a !== b) return toast("الكلمتين مش زي بعض");
+  const salt = b64(crypto.getRandomValues(new Uint8Array(16))), key = await vDerive(a, salt), check = await vEnc(key, { ok:"zyad-vault" });
+  try { await q(sb.from("app_settings").upsert({ k:"card_vault", v:{ salt, check }, updated_at: new Date().toISOString() }), "vset"); VAULT = { salt, check }; VKEY = key; toast("اتعملت ✓ الفيزا مفتوحة دلوقتي"); render(); } catch(e){ toast("ماتحفظتش: " + (e.message || e)); }
+}
+async function vUnlock(cid){
+  const p = $("#vpU").value; if (!p) return; try { const key = await vDerive(p, VAULT.salt); await vDec(key, VAULT.check); VKEY = key; for (const k in CARDS) await decCards(k); vTouch(); render(); }
+  catch(e){ toast("كلمة السر غلط"); $("#vpU").value = ""; $("#vpU").focus(); }
+}
+function vForgot(){ openModal(`<h2>نسيت كلمة سر الفيزا؟</h2><p class="small">مفيش طريقة ترجّعها، لأن الكروت متشفّرة بيها ومحدش غيرك يعرفها. تقدر تعمل كلمة سر جديدة، بس <b>كل الكروت المتسجلة عند كل العملاء هتتمسح</b> وهتحتاج تدخلها تاني.</p><div class="actions"><span class="spacer"></span><button class="btn" onclick="closeModal()">لا، هفتكرها</button><button class="btn danger" onclick="vReset()">امسح الكروت واعمل كلمة جديدة</button></div>`); }
+async function vReset(){ try { await q(sb.from("client_cards").delete().not("id", "is", null), "vrc"); await q(sb.from("app_settings").delete().eq("k", "card_vault"), "vrv"); VAULT = null; VKEY = null; CARDS = {}; closeModal(); toast("اتمسحت، اعمل كلمة سر جديدة"); render(); } catch(e){ toast("ماتمسحتش: " + (e.message || e)); } }
+function vChangePass(cid){ openModal(`<h2>غيّر كلمة سر الفيزا</h2><label class="f">كلمة السر الجديدة</label><input class="inp" type="password" id="vn1" autocomplete="new-password"><label class="f">اكتبها تاني</label><input class="inp" type="password" id="vn2" autocomplete="new-password"><div class="actions"><span class="spacer"></span><button class="btn" onclick="closeModal()">إلغاء</button><button class="btn primary" onclick="vDoChange()">غيّر</button></div>`); }
+async function vDoChange(){
+  const a = $("#vn1").value, b = $("#vn2").value; if (a.length < 8) return toast("8 حروف على الأقل"); if (a !== b) return toast("الكلمتين مش زي بعض");
+  try { const all = await q(sb.from("client_cards").select("*"), "vall"); const plain = []; for (const r of all) plain.push([r, await vDec(VKEY, r.enc)]);
+    const salt = b64(crypto.getRandomValues(new Uint8Array(16))), key = await vDerive(a, salt);
+    for (const [r, d] of plain) await q(sb.from("client_cards").update({ enc: await vEnc(key, d), updated_at: new Date().toISOString() }).eq("id", r.id), "vre");
+    await q(sb.from("app_settings").upsert({ k:"card_vault", v:{ salt, check: await vEnc(key, { ok:"zyad-vault" }) }, updated_at: new Date().toISOString() }), "vset2");
+    VAULT = { salt }; VKEY = key; await loadVault(); CARDS = {}; closeModal(); toast("اتغيّرت ✓"); render();
+  } catch(e){ toast("ماتغيّرتش: " + (e.message || e)); }
+}
+function openCard(cid, id){
+  const r = id ? CARDS[cid].find(x => x.id === id) : null, d = (r && r.dec) || {};
+  openModal(`<h2>${id ? "تعديل الفيزا" : "فيزا جديدة"} · ${esc(clientById(cid).name)}</h2>
+    <label class="f">اسمها عندك <span class="tiny muted">(اختياري)</span></label><input class="inp" id="vcL" dir="auto" value="${esc((r && r.label) || "")}" placeholder="مثلاً: فيزا سناب · الراجحي">
+    <label class="f">الاسم على الكارت</label><input class="inp" id="vcN" dir="ltr" value="${esc(d.name || "")}" placeholder="MOHAMMED A ALI" autocomplete="off" style="text-transform:uppercase">
+    <label class="f">رقم الكارت</label><input class="inp" id="vcR" dir="ltr" inputmode="numeric" value="${esc(String(d.number || "").replace(/(\d{4})(?=\d)/g, "$1 "))}" placeholder="0000 0000 0000 0000" autocomplete="off" oninput="this.value=this.value.replace(/\\D/g,'').slice(0,19).replace(/(\\d{4})(?=\\d)/g,'$1 ')">
+    <div class="two"><div><label class="f">تاريخ الانتهاء</label><input class="inp" id="vcE" dir="ltr" inputmode="numeric" value="${esc(d.exp || "")}" placeholder="MM/YY" autocomplete="off" oninput="let v=this.value.replace(/\\D/g,'').slice(0,4);this.value=v.length>2?v.slice(0,2)+'/'+v.slice(2):v"></div>
+      <div><label class="f">CVV</label><input class="inp" id="vcC" dir="ltr" inputmode="numeric" type="password" value="${esc(d.cvv || "")}" placeholder="•••" autocomplete="off" oninput="this.value=this.value.replace(/\\D/g,'').slice(0,4)"></div></div>
+    <label class="f">ملاحظة <span class="tiny muted">(اختياري)</span></label><input class="inp" id="vcT" dir="auto" value="${esc(d.note || "")}" placeholder="مثلاً: عليها أكونت سناب وتيك توك">
+    <p class="tiny muted" style="margin:8px 0 0">🔒 بيتشفّر بكلمة سر الفيزا قبل ما يتحفظ.</p>
+    <div class="actions"><span class="spacer"></span><button class="btn" onclick="closeModal()">إلغاء</button><button class="btn primary" onclick="saveCard('${cid}','${id || ""}')">حفظ</button></div>`);
+}
+async function saveCard(cid, id){
+  if (!VKEY) { closeModal(); return toast("الفيزا اتقفلت، افتحها تاني"); }
+  const num = $("#vcR").value.replace(/\D/g, ""), exp = $("#vcE").value.trim(), cvv = $("#vcC").value.trim();
+  if (num.length < 12) return toast("رقم الكارت ناقص");
+  if (exp && !/^(0[1-9]|1[0-2])\/\d{2}$/.test(exp)) return toast("التاريخ لازم يبقى MM/YY");
+  const d = { name: $("#vcN").value.trim().toUpperCase(), number: num, exp, cvv, note: $("#vcT").value.trim() };
+  const row = { client_id: cid, label: $("#vcL").value.trim() || null, last4: num.slice(-4), enc: await vEnc(VKEY, d), updated_at: new Date().toISOString() };
+  try { if (id) await q(sb.from("client_cards").update(row).eq("id", id), "cupd"); else await q(sb.from("client_cards").insert(row), "cins"); closeModal(); toast("اتحفظت ✓"); await loadCards(cid, true); } catch(e){ toast("ماتحفظتش: " + (e.message || e)); }
+}
+function delCard(cid, id){ openModal(`<h2>تمسح الفيزا دي؟</h2><div class="actions"><span class="spacer"></span><button class="btn" onclick="closeModal()">لا</button><button class="btn danger" onclick="doDelCard('${cid}','${id}')">امسح</button></div>`); }
+async function doDelCard(cid, id){ try { await q(sb.from("client_cards").delete().eq("id", id), "cdel"); closeModal(); toast("اتمسحت"); await loadCards(cid, true); } catch(e){ toast("ماتمسحتش"); } }
 
 const APP_SHELL = "<div class=\"wrap\"><header class=\"top\"><span class=\"brand\" aria-label=\"\u0632\u064a\u0627\u062f \u0625\u0628\u0631\u0627\u0647\u064a\u0645\"><svg width=\"28\" height=\"28\" viewBox=\"0 0 48 48\" aria-hidden=\"true\"><rect class=\"zm-ink\" x=\"0\" y=\"28\" width=\"12\" height=\"20\" rx=\"2\"/><rect class=\"zm-brand\" x=\"18\" y=\"16\" width=\"12\" height=\"32\" rx=\"2\"/><rect class=\"zm-signal\" x=\"36\" y=\"0\" width=\"12\" height=\"12\" rx=\"2\"/><rect class=\"zm-brand\" x=\"36\" y=\"15\" width=\"12\" height=\"33\" rx=\"2\"/></svg><span class=\"nm\">\u0632\u064a\u0627\u062f \u0625\u0628\u0631\u0627\u0647\u064a\u0645</span><span class=\"sub\">\u00b7 \u0633\u064a\u0633\u062a\u0645 \u0627\u0644\u0634\u063a\u0644</span></span><nav class=\"tabs\" id=\"tabs\"></nav><span class=\"spacer\"></span><div id=\"who\"></div></header><main id=\"view\"><div class=\"card empty\">\u0628\u064a\u062d\u0645\u0651\u0644\u2026</div></main></div>";
 start();
