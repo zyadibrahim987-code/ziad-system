@@ -1418,9 +1418,10 @@ function clientPanel(c, ym, v, see, mp){
     return h + full;
   }
   const sl = v.sl;
-  let h = head(esc(sl.self ? (isAdmin() ? "نتايجك انت" : "نتايجي") : sl.name), `${sl.platforms.map(esc).join("، ")} بس${c.type === "store" ? " · المبيعات والـ ROAS في Total" : ""}`, sl.id);
+  let h = head(esc(sl.self ? (isAdmin() ? "نتايجك انت" : "نتايجي") : sl.name), `${sl.platforms.map(esc).join("، ")} بس${c.type === "store" && (isAdmin() || !see) ? " · المبيعات والـ ROAS في Total" : ""}`, sl.id);
   h += monthNav(c, ym);
   if (!sliceRows(rows, sl).length) return h + `<div class="card small muted">لسه مفيش أرقام لـ ${sl.platforms.map(esc).join(" و ")} في ${monthLabel(ym)}.${(isAdmin() || mp.length) ? ` سجّلها من زرار "سجّل أرقام" فوق.` : ""}</div>`;
+  if (!isAdmin() && see) h += clientOverview(c, ym, rows, prev);
   if (isCurMonth) h += alertsHtml(sliceAlerts(c, sl)) + sliceAdvice(c, sl);
   if (isAdmin() && !sl.self) { const pend = sliceRows(rows, sl).filter(r => r.reviewed === false).length, byD = new Set(sliceRows(rows, sl).filter(r => r.by === sl.id).map(r => r.d)).size;
     h += `<div class="small muted" style="margin:-4px 0 10px">${byD ? `سجّل ${daysAr(byD)} في ${monthLabel(ym)}` : "لسه ماسجّلش أرقام الشهر ده"}${pend ? ` · <span style="color:var(--warn)">فيه أرقام مستنية مراجعتك</span>` : ""}</div>`; }
@@ -2678,6 +2679,16 @@ async function saveCard(cid, id){
 }
 function delCard(cid, id){ openModal(`<h2>تمسح الفيزا دي؟</h2><div class="actions"><span class="spacer"></span><button class="btn" onclick="closeModal()">لا</button><button class="btn danger" onclick="doDelCard('${cid}','${id}')">امسح</button></div>`); }
 async function doDelCard(cid, id){ try { await q(sb.from("client_cards").delete().eq("id", id), "cdel"); closeModal(); toast("اتمسحت"); await loadCards(cid, true); } catch(e){ toast("ماتمسحتش"); } }
+
+/* overview strip for team members who can see the whole client (e.g. CMO following with Zyad) */
+function clientOverview(c, ym, rows, prev){
+  const a = agg(rows), p = agg(prev || []), cu = cur(c), store = c.type === "store";
+  const box = (l, v, d) => `<div><span class="tiny muted">${l}</span><b class="num">${v}</b>${d || ""}</div>`;
+  const cells = store
+    ? [box("المبيعات", a.sl ? money("", a.sl, cu, 0) : "—", deltaHtml(a.sl, p.sl, false)), box("الصرف", money("", a.s, cu, 0), deltaHtml(a.s, p.s, true)), box("ROAS", a.sl && a.s ? `<span class="hl">${fmt2(a.roas)}</span>` : "—", deltaHtml(a.roas, p.roas, false)), box("الأوردرات", fmt(a.o || a.po || 0))]
+    : (() => { const ad = agg(adRows(rows)), pd = agg(adRows(prev || [])); return [box("الصرف", money("", ad.s, cu, 0), deltaHtml(ad.s, pd.s, true)), box("التحويلات", fmt(ad.conv), deltaHtml(ad.conv, pd.conv, false)), box("تكلفة التحويل", ad.cpl != null ? money("", ad.cpl, cu, 2) : "—", deltaHtml(ad.cpl, pd.cpl, true))]; })();
+  return `<div class="ovw"><div class="ovw-h"><b>العميل كله · ${monthLabel(ym)}</b><a href="#" class="tiny" onclick="ui.cv=ui.cv||{};ui.cv['${c.id}']='total';render();window.scrollTo(0,0);return false">التفاصيل في Total ←</a></div><div class="ovw-g" style="grid-template-columns:repeat(${cells.length},1fr)">${cells.join("")}</div></div>`;
+}
 
 const APP_SHELL = "<div class=\"wrap\"><header class=\"top\"><span class=\"brand\" aria-label=\"\u0632\u064a\u0627\u062f \u0625\u0628\u0631\u0627\u0647\u064a\u0645\"><svg width=\"28\" height=\"28\" viewBox=\"0 0 48 48\" aria-hidden=\"true\"><rect class=\"zm-ink\" x=\"0\" y=\"28\" width=\"12\" height=\"20\" rx=\"2\"/><rect class=\"zm-brand\" x=\"18\" y=\"16\" width=\"12\" height=\"32\" rx=\"2\"/><rect class=\"zm-signal\" x=\"36\" y=\"0\" width=\"12\" height=\"12\" rx=\"2\"/><rect class=\"zm-brand\" x=\"36\" y=\"15\" width=\"12\" height=\"33\" rx=\"2\"/></svg><span class=\"nm\">\u0632\u064a\u0627\u062f \u0625\u0628\u0631\u0627\u0647\u064a\u0645</span><span class=\"sub\">\u00b7 \u0633\u064a\u0633\u062a\u0645 \u0627\u0644\u0634\u063a\u0644</span></span><nav class=\"tabs\" id=\"tabs\"></nav><span class=\"spacer\"></span><div id=\"who\"></div></header><main id=\"view\"><div class=\"card empty\">\u0628\u064a\u062d\u0645\u0651\u0644\u2026</div></main></div>";
 start();

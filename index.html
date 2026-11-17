@@ -680,6 +680,13 @@ img.av.avimg{object-fit:cover;padding:0;background:var(--grey-chip)}
 .vrow2 b{font-family:var(--font-mono);font-size:13.5px;font-weight:600}
 .vcp{border:0;background:rgba(255,255,255,.12);color:#eef1ec;border-radius:5px;font-size:11px;padding:1px 5px;cursor:pointer;vertical-align:middle}
 .vcp:hover{background:rgba(255,255,255,.25)}
+
+.ovw{background:var(--card);border:1px solid var(--accent);border-radius:12px;padding:10px 14px;margin-bottom:12px}
+.ovw-h{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.ovw-g{display:grid;gap:10px}
+.ovw-g>div{display:flex;flex-direction:column;gap:2px}
+.ovw-g b{font-size:20px}
+@media(max-width:700px){.ovw-g{grid-template-columns:1fr 1fr!important}}
 </style>
 </head>
 <body>
@@ -687,7 +694,7 @@ img.av.avimg{object-fit:cover;padding:0;background:var(--grey-chip)}
 <div class="modal-bg" id="modalBg" onmousedown="if(event.target.id==='modalBg')closeModal()"><div class="modal" id="modal"></div></div>
 <div class="toast" id="toast"></div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script>window.__APP_VERSION="20261117194753"</script>
-<script src="app.js?v=20261117194753"></script>
+<script>window.__APP_VERSION="20261117222107"</script>
+<script src="app.js?v=20261117222107"></script>
 </body>
 </html>
