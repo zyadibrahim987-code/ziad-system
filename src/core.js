@@ -1063,7 +1063,7 @@ function clientViews(c, see, mp){
   O.push({ k:"deliv", l:"Deliveries", sub: isAdmin() ? "التسليمات اللي اتعملت" : "تسليماتك على العميل" });
   O.push({ k:"tasks", l:"Tasks", sub: isAdmin() ? "كل مهام العميل" : "تاسكاتك على العميل" });
   const P = [];
-  if (canPlan(c.id)) { P.push({ k:"strat", l:"Strategy", sub:"المنافسين · السوشيال · Avatar" }); P.push({ k:"mplan", l:"Media plan", sub:"الميزانية والحملات" }); P.push({ k:"camps", l:"Campaigns", sub:"Search · PMax" }); }
+  if (canPlan(c.id)) { P.push({ k:"strat", l:"Strategy", sub:"المنافسين · السوشيال · Avatar · الكلمات" }); P.push({ k:"mplan", l:"Media plan", sub:"الميزانية والحملات" }); P.push({ k:"camps", l:"Campaigns", sub:"Search · PMax" }); }
   return { R, O, P };
 }
 function sliceMetric(c, sl, ym){
@@ -2428,12 +2428,12 @@ const ST_AV = [
 ];
 
 function strategyView(c){
-  const edit = canEditPlan(c.id), tab = ["avatar","social"].includes(ui.stTab) ? ui.stTab : "store";
+  const edit = canEditPlan(c.id), tab = ["avatar","social","kw"].includes(ui.stTab) ? ui.stTab : "store";
   const tb = (k, l) => `<button class="${tab === k ? "on" : ""}" onclick="ui.stTab='${k}';saveUi();render()">${l}</button>`;
-  let h = `<div class="cv-head"><div><h2>Strategy</h2><div class="ph-sub">تحليل المتجر والمنافسين والسوشيال والعميل المستهدف${edit ? "" : " · للعرض بس"}</div></div></div>
-    <div class="st-tabs">${tb("store", "المتجر والمنافسين")}${tb("social", "Social Media")}${tb("avatar", "Customer Avatar")}</div>`;
+  let h = `<div class="cv-head"><div><h2>Strategy</h2><div class="ph-sub">تحليل المتجر والمنافسين والسوشيال والعميل المستهدف وبحث الكلمات${edit ? "" : " · للعرض بس"}</div></div></div>
+    <div class="st-tabs">${tb("store", "المتجر والمنافسين")}${tb("social", "Social Media")}${tb("avatar", "Customer Avatar")}${tb("kw", "KW research")}</div>`;
   if (!(c.id in STR)) { loadStrat(c.id); return h + `<div class="card empty">بيحمّل…</div>`; }
-  return h + (tab === "avatar" ? stAvatars(c, edit) : tab === "social" ? stSocial(c, edit) : stStores(c, edit));
+  return h + (tab === "kw" ? kwView(c, edit) : tab === "avatar" ? stAvatars(c, edit) : tab === "social" ? stSocial(c, edit) : stStores(c, edit));
 }
 /* ---- stores ---- */
 const stSorted = cid => { const L = strOf(cid, "store"); return [...L.filter(x => x.data.self), ...L.filter(x => !x.data.self)]; };
@@ -2663,4 +2663,182 @@ async function saveSocial(cid, id){
     if (h === "yes" || v.url || v.fol || v.eng || media.length || v.pct || v.note) social[p.k] = { has:true, ...v };
   }
   await stSave(cid, id, "store", { ...x.data, social, social_extra: dynRead("ssExtra", ["label","value"]).filter(e => e.label || e.value) });
+}
+
+/* ---- KW research (session 3): one strategy_items row per keyword group, kind "kw_group",
+   data = { name, kws:[{t,vol,comp,low,high,is,m3,yoy}], note, extra, sent:[{camp,cname,group,n,at}] }; summary note kind "kw_note" ---- */
+const KW_COMP = { low:["Low","ok"], medium:["Medium","amb"], high:["High","bad"] };
+const KW_COLS = [ { k:"vol", l:"البحث/شهر", ph:"2,400" }, { k:"comp", l:"المنافسة" }, { k:"low", l:"أقل Bid", ph:"0.48" }, { k:"high", l:"أعلى Bid", ph:"1.97" }, { k:"is", l:"Impr. share", ph:"18%" }, { k:"m3", l:"آخر 3 شهور", ph:"+21%" }, { k:"yoy", l:"YoY", ph:"+21%" } ];
+const KW_MT = [ ["Exact","[كلمة]"], ["Phrase","\"كلمة\""], ["Broad","كلمة"] ];
+function kwComp(v){ const t = String(v || "").trim().toLowerCase(); if (!t) return "";
+  if (/high|عال|مرتفع|كبير/.test(t)) return "high"; if (/med|متوسط/.test(t)) return "medium"; if (/low|منخفض|قليل|ضعيف/.test(t)) return "low"; return t; }
+const kwDig = v => String(v == null ? "" : v).replace(/[٠-٩]/g, d => "٠١٢٣٤٥٦٧٨٩".indexOf(d)).replace(/[٫]/g, ".").replace(/[−–]/g, "-");
+const kwPct = v => { const t = kwDig(v).trim(); return !t ? "" : /^[+-]?[\d.]+$/.test(t) ? t + "%" : t; };
+function kwChg(v){ const t = kwPct(v); if (!t) return `<span class="muted">—</span>`; const n = parseFloat(t.replace(/[^\d.+-]/g, ""));
+  return `<span class="kw-chg ${n > 0 ? "up" : n < 0 ? "down" : ""}" dir="ltr">${n > 0 && !/^\+/.test(t) ? "+" : ""}${esc(t)}</span>`; }
+const kwBid = v => { const t = kwDig(v).trim().replace(/^(SAR|ر\.?س\.?|EGP|USD|\$)\s*/i, ""); return t; };
+const kwVol = k => stNum(kwDig(k.vol));
+const kwSum = L => L.reduce((a, k) => a + kwVol(k), 0);
+const kwGroups = cid => strOf(cid, "kw_group");
+
+function kwView(c, edit){
+  const G = kwGroups(c.id), note = strOf(c.id, "kw_note")[0], text = (note && note.data.text) || "", cu = cur(c) || "ر.س";
+  if (!G.length) return `<div class="mp-empty"><h3>لسه مفيش كلمات</h3><p class="small muted">اعمل مجموعات كلمات (كل مجموعة = Ad group بعدين): الكلمة، متوسط البحث، المنافسة، الـ Bid، والتغيير. تقدر تلصقها علطول من الشيت أو من Keyword Planner، ولما تخلص ابعت أي مجموعة لـ Ad group في حملة Search بضغطة.</p>
+    ${edit ? `<div class="row" style="justify-content:center;gap:8px;margin-top:10px"><button class="btn primary" onclick="openKwPaste('${c.id}')">📋 الصق كلمات</button><button class="btn" onclick="openKw('${c.id}')">+ مجموعة بإيدك</button></div>` : ""}</div>`;
+  const all = G.flatMap(g => g.data.kws || []);
+  let h = `<div class="row" style="margin:0 0 12px;gap:8px;flex-wrap:wrap"><div class="kw-stats"><span><b>${G.length}</b> ${G.length === 1 ? "مجموعة" : "مجموعات"}</span><span><b>${all.length}</b> كلمة</span><span><b dir="ltr">${stFmt(kwSum(all)) || "—"}</b> بحث/شهر</span></div><span class="spacer"></span>
+    ${edit ? `<button class="btn sm" onclick="openKwSend('${c.id}','*')">🚀 ابعت الكل لحملة</button><button class="btn sm" onclick="openKwPaste('${c.id}')">📋 الصق كلمات</button><button class="btn sm primary" onclick="openKw('${c.id}')">+ مجموعة</button>` : ""}</div>`;
+  h += G.map(x => { const d = x.data, K = d.kws || [], max = Math.max(1, ...K.map(kwVol));
+    const sent = (d.sent || []).slice(-2).map(s => `<span class="kw-sent" title="${esc(new Date(s.at).toLocaleString("ar-EG"))}">✓ اتبعتت لـ <bdi>${esc(s.cname || "حملة")}</bdi> › <bdi>${esc(s.group || "")}</bdi></span>`).join("");
+    return `<div class="kw-card"><div class="kw-ch"><div style="flex:1;min-width:0"><b dir="auto">${esc(d.name || "مجموعة")}</b>
+        <div class="tiny muted">${K.length} كلمة${kwSum(K) ? ` · <bdi dir="ltr">${stFmt(kwSum(K))}</bdi> بحث/شهر` : ""}</div>${sent ? `<div class="kw-sents">${sent}</div>` : ""}</div>
+      ${edit ? `<div class="row" style="gap:6px"><button class="btn xs primary" onclick="openKwSend('${c.id}','${x.id}')">🚀 ابعت لـ Ad group</button><button class="btn xs" onclick="openKw('${c.id}','${x.id}')">✏️ تعديل</button><button class="btn xs ghost" onclick="delStrat('${c.id}','${x.id}')">🗑</button></div>` : ""}</div>
+      ${K.length ? `<div class="kw-tbl"><table><thead><tr><th>الكلمة</th>${KW_COLS.map(f => `<th>${f.k === "low" || f.k === "high" ? f.l + ` <span class="tiny muted">(${cu})</span>` : f.l}</th>`).join("")}</tr></thead><tbody>
+        ${K.map(k => { const cm = KW_COMP[kwComp(k.comp)], v = kwVol(k);
+          return `<tr><td dir="auto" class="kw-t">${esc(k.t)}</td>
+            <td>${v ? `<div class="kw-vol"><b dir="ltr">${v.toLocaleString("en-US")}</b><i style="width:${Math.round(v / max * 100)}%"></i></div>` : k.vol ? `<span dir="auto">${esc(k.vol)}</span>` : `<span class="muted">—</span>`}</td>
+            <td>${cm ? `<span class="chip ${cm[1]}">${cm[0]}</span>` : k.comp ? esc(k.comp) : `<span class="muted">—</span>`}</td>
+            <td dir="ltr">${kwBid(k.low) ? esc(kwBid(k.low)) : `<span class="muted">—</span>`}</td><td dir="ltr">${kwBid(k.high) ? esc(kwBid(k.high)) : `<span class="muted">—</span>`}</td>
+            <td dir="ltr">${kwPct(k.is) ? esc(kwPct(k.is)) : `<span class="muted">—</span>`}</td><td>${kwChg(k.m3)}</td><td>${kwChg(k.yoy)}</td></tr>`; }).join("")}
+        </tbody></table></div>` : `<div class="small muted">مفيش كلمات في المجموعة دي لسه.</div>`}
+      ${d.note ? `<div class="small" dir="auto" style="white-space:pre-wrap"><span class="muted">ملاحظة: </span>${esc(d.note)}</div>` : ""}
+      ${(d.extra || []).filter(e => e.value).map(e => `<div class="small" dir="auto"><span class="muted">${esc(e.label || "خانة")}: </span>${esc(e.value)}</div>`).join("")}</div>`; }).join("");
+  h += `<div class="st-sum"><label class="f" style="margin-top:0">خلاصة الكلمات <span class="tiny muted">(أهم الكلمات وإيه اللي هنركز عليه)</span></label>
+    <textarea class="inp" dir="auto" rows="3" ${edit ? "" : "readonly"} placeholder="مثلاً: «شحن ايتونز» أعلى بحث والمنافسة عالية، نبدأ بـ Exact على الكلمات الصغيرة" onchange="saveStratNote('${c.id}',this.value,'kw_note')">${esc(text)}</textarea></div>`;
+  return h;
+}
+
+/* paste parser: Google Sheets / Keyword Planner rows (tab separated, quoted cells allowed). Empty lines split groups. */
+function kwParse(txt){
+  const rows = []; let row = [], cell = "", qd = false, s = String(txt || "").replace(/\r\n?/g, "\n");
+  for (let i = 0; i < s.length; i++) { const ch = s[i];
+    if (qd) { if (ch === '"' && s[i + 1] === '"') { cell += '"'; i++; } else if (ch === '"') qd = false; else cell += ch; continue; }
+    if (ch === '"' && cell === "") { qd = true; continue; }
+    if (ch === "\t") { row.push(cell); cell = ""; continue; }
+    if (ch === "\n") { row.push(cell); rows.push(row); row = []; cell = ""; continue; }
+    cell += ch; }
+  row.push(cell); rows.push(row);
+  let map = ["t","vol","comp","low","high","is","m3","yoy"];
+  const first = rows.findIndex(r => r.some(x => x.trim()));
+  if (first >= 0 && rows[first].some(x => /^(keyword|kw|الكلمة|الكلمات|كلمة)/i.test(x.trim()))) {
+    map = rows[first].map(hd => { const t = hd.trim().toLowerCase();
+      if (/^(keyword|kw|الكلم|كلمة)/.test(t)) return "t"; if (/avg|average|monthly|متوسط|average number/.test(t)) return "vol";
+      if (/indexed/.test(t)) return ""; if (/compet|منافس/.test(t)) return "comp"; if (/low|أقل|اقل/.test(t)) return "low"; if (/high|أعلى|اعلى/.test(t)) return "high";
+      if (/impression|ظهور/.test(t)) return "is"; if (/three|3|ثلاث|تلات|manuth|month change/.test(t)) return "m3"; if (/yoy|year|سنوي/.test(t)) return "yoy"; return ""; });
+    rows.splice(first, 1);
+  }
+  const groups = []; let cur_ = [];
+  for (const r of rows) {
+    if (!r.some(x => x.trim())) { if (cur_.length) { groups.push(cur_); cur_ = []; } continue; }
+    const k = {}; r.forEach((v, i) => { const f = map[i]; if (!f || k[f]) return; v = v.trim(); if (f !== "t" && /\n/.test(v)) return; k[f] = f === "t" ? v.split("\n")[0].trim() : v; });
+    if (k.comp) k.comp = kwComp(k.comp) || k.comp;
+    if (k.t && k.t.length > 1) cur_.push(k);
+  }
+  if (cur_.length) groups.push(cur_);
+  return groups;
+}
+function openKwPaste(cid){
+  openModal(`<h2>📋 الصق كلمات</h2>
+    <p class="small muted" style="margin:-4px 0 8px">انسخ الصفوف من الشيت أو من Keyword Planner والصقها هنا. الترتيب: الكلمة، متوسط البحث، المنافسة، أقل Bid، أعلى Bid، Impression share، تغيير 3 شهور، YoY. لو في سطر عناوين فوق، السيستم بيفهمه لوحده.<br><b>سيب سطر فاضي بين كل مجموعة</b> عشان تتعمل مجموعة لوحدها.</p>
+    <textarea class="inp" id="kwPaste" dir="auto" rows="12" placeholder="شحن لودو	2,400	High	0.48	1.97	18%	21%	21%&#10;شحن لودو عن طريق الايدي&#10;&#10;شحن ايتونز&#10;بطاقة ايتونز" oninput="kwPasteInfo()" autofocus></textarea>
+    <div id="kwPasteInfo" class="small muted" style="margin-top:6px">الصق وهتشوف هنا هيتعمل كام مجموعة.</div>
+    <div class="actions"><span class="spacer"></span><button class="btn" onclick="closeModal()">إلغاء</button><button class="btn primary" onclick="saveKwPaste('${cid}')">اعمل المجموعات</button></div>`, true);
+}
+function kwPasteInfo(){ const G = kwParse($("#kwPaste").value), n = G.reduce((a, g) => a + g.length, 0), el = $("#kwPasteInfo");
+  el.innerHTML = n ? `هيتعمل <b>${G.length}</b> ${G.length === 1 ? "مجموعة" : "مجموعات"} · <b>${n}</b> كلمة: ${G.map(g => `<span class="st-tag" dir="auto">${esc(g[0].t)} (${g.length})</span>`).join("")}` : "الصق وهتشوف هنا هيتعمل كام مجموعة."; }
+async function saveKwPaste(cid){
+  const G = kwParse($("#kwPaste").value); if (!G.length) return toast("مفيش كلمات اتلصقت");
+  const base = kwGroups(cid).length;
+  try { await q(sb.from("strategy_items").insert(G.map((kws, i) => ({ client_id:cid, kind:"kw_group", data:{ name: kws[0].t, kws }, sort: base + i }))), "kwins");
+    closeModal(); toast(`اتعمل ${G.length} ${G.length === 1 ? "مجموعة" : "مجموعات"} ✓`); await loadStrat(cid, true); } catch(e){ toast("ماتحفظش: " + (e.message || e)); }
+}
+const kwRowInp = (k = {}) => `<tr class="kw-r"><td><input class="inp" data-k="t" dir="auto" value="${esc(k.t || "")}" placeholder="الكلمة"></td>
+  ${KW_COLS.map(f => f.k === "comp" ? `<td><select class="inp" data-k="comp"><option value="">—</option>${Object.entries(KW_COMP).map(([o, [l]]) => `<option value="${o}" ${kwComp(k.comp) === o ? "selected" : ""}>${l}</option>`).join("")}</select></td>` : `<td><input class="inp" data-k="${f.k}" dir="ltr" value="${esc(k[f.k] || "")}"></td>`).join("")}
+  <td><button type="button" class="btn xs ghost" title="امسح الكلمة" onclick="this.closest('tr').remove()">✕</button></td></tr>`;
+function openKw(cid, id){
+  const x = id ? kwGroups(cid).find(s => s.id === id) : null, d = x ? x.data : {}, K = (d.kws || []).length ? d.kws : [{}, {}, {}];
+  openModal(`<h2>${x ? "تعديل مجموعة" : "مجموعة كلمات جديدة"}</h2>
+    <div class="mp-form st-form">
+      <label class="f">اسم المجموعة <span class="tiny muted">(هيبقى اسم الـ Ad group لما تبعتها)</span></label><input class="inp" id="kw_name" dir="auto" value="${esc(d.name || "")}" placeholder="مثلاً: شحن ايتونز" autofocus>
+      <label class="f">الكلمات</label>
+      <div class="kw-edit"><table><thead><tr><th>الكلمة</th>${KW_COLS.map(f => `<th>${f.l}</th>`).join("")}<th></th></tr></thead><tbody id="kwRows">${K.map(kwRowInp).join("")}</tbody></table></div>
+      <button type="button" class="dyn-add" onclick="document.getElementById('kwRows').insertAdjacentHTML('beforeend',kwRowInp());document.querySelector('#kwRows tr:last-child input').focus()">+ كلمة</button>
+      <details class="kw-pd"><summary class="small">📋 الصق كذا كلمة مرة واحدة</summary>
+        <textarea class="inp" id="kwAddPaste" dir="auto" rows="4" placeholder="الصق صفوف من الشيت أو Keyword Planner"></textarea>
+        <button type="button" class="btn xs" style="margin-top:6px" onclick="kwAddPasted()">ضيفهم للجدول</button></details>
+      <label class="f">ملاحظة</label><textarea class="inp" id="kw_note" dir="auto" rows="2" placeholder="مثلاً: نبدأ بالـ Exact بس">${esc(d.note || "")}</textarea>
+      <div id="kwExtra" class="dyn" style="margin-top:10px">${(d.extra || []).map(extraRow).join("")}</div>
+      <button type="button" class="dyn-add" onclick="dynAdd('kwExtra', extraRow({}), true)">+ خانة جديدة <span class="tiny muted">(تسمّيها زي ما تحب)</span></button>
+    </div>
+    <div class="actions"><span class="spacer"></span><button class="btn" onclick="closeModal()">إلغاء</button><button class="btn primary" onclick="saveKw('${cid}','${id || ""}')">حفظ</button></div>`, true);
+}
+const kwReadRows = () => [...document.querySelectorAll("#kwRows tr.kw-r")].map(tr => Object.fromEntries([...tr.querySelectorAll("[data-k]")].map(i => [i.dataset.k, i.value.trim()])));
+function kwAddPasted(){ const L = kwParse($("#kwAddPaste").value).flat(); if (!L.length) return toast("مفيش كلمات");
+  const tb = document.getElementById("kwRows"); [...tb.querySelectorAll("tr.kw-r")].forEach(tr => { if (![...tr.querySelectorAll("input")].some(i => i.value.trim())) tr.remove(); });
+  tb.insertAdjacentHTML("beforeend", L.map(kwRowInp).join("")); $("#kwAddPaste").value = ""; toast(`اتضاف ${L.length} كلمة`); }
+async function saveKw(cid, id){
+  const kws = kwReadRows().filter(k => k.t), name = ($("#kw_name").value || "").trim() || (kws[0] || {}).t || "";
+  if (!name) return toast("اكتب اسم المجموعة أو كلمة واحدة على الأقل");
+  const old = id ? ((kwGroups(cid).find(s => s.id === id) || {}).data || {}) : {};
+  await stSave(cid, id, "kw_group", { ...old, name, kws, note: ($("#kw_note").value || "").trim(), extra: dynRead("kwExtra", ["label","value"]).filter(e => e.label || e.value) });
+}
+
+/* ---- send keyword groups to a Search campaign ad group ---- */
+const kwLine = (t, m) => m === "Exact" ? `[${t}]` : m === "Phrase" ? `"${t}"` : t;
+const kwNorm = t => String(t || "").trim().replace(/\s+/g, " ").toLowerCase();
+async function openKwSend(cid, id){
+  await loadCamps(cid); const S = (CPN[cid] || []).filter(x => x.kind !== "pmax"), all = id === "*";
+  const G = all ? kwGroups(cid).filter(g => (g.data.kws || []).length) : kwGroups(cid).filter(g => g.id === id);
+  if (!G.length) return toast("مفيش كلمات تتبعت");
+  const mt = ui.kwMt || ["Exact","Phrase"], camp = S.find(x => x.id === ui.kwCamp) ? ui.kwCamp : (S[0] || {}).id || "new";
+  openModal(`<h2>🚀 ابعت ${all ? "كل المجموعات" : `«<bdi>${esc(G[0].data.name || "")}</bdi>»`} لحملة Search</h2>
+    <div class="mp-form st-form">
+      <label class="f">الحملة</label><select class="inp" id="ks_camp" onchange="kwSendGroups('${cid}','${id}')">${S.map(x => `<option value="${x.id}" ${x.id === camp ? "selected" : ""}>${esc(x.name || "حملة")}</option>`).join("")}<option value="new" ${camp === "new" ? "selected" : ""}>+ حملة Search جديدة</option></select>
+      <div id="ks_groups"></div>
+      <label class="f">نوع المطابقة (Match type) <span class="tiny muted">(تقدر تختار أكتر من واحد)</span></label>
+      <div class="seg-pick">${KW_MT.map(([m, ex]) => `<label><input type="checkbox" name="ks_mt" value="${m}" ${mt.includes(m) ? "checked" : ""}><span>${m} <small dir="ltr" style="opacity:.75">${esc(ex)}</small></span></label>`).join("")}</div>
+      ${all ? "" : `<label class="f">الكلمات <span class="tiny muted">(شيل العلامة من اللي مش عايزها)</span></label><div class="kw-pick">${(G[0].data.kws || []).map((k, i) => `<label><input type="checkbox" name="ks_kw" value="${i}" checked><span dir="auto">${esc(k.t)}</span>${kwVol(k) ? `<i dir="ltr">${stFmt(kwVol(k))}</i>` : ""}</label>`).join("")}</div>`}
+      <p class="tiny muted" style="margin-top:8px">الكلمات بتتضاف تحت الكلمات اللي في الـ Ad group، ومن غير تكرار.</p>
+    </div>
+    <div class="actions"><span class="spacer"></span><button class="btn" onclick="closeModal()">إلغاء</button><button class="btn primary" onclick="doKwSend('${cid}','${id}')">ابعت</button></div>`, true);
+  kwSendGroups(cid, id);
+}
+function kwSendGroups(cid, id){
+  const camp = $("#ks_camp").value, x = (CPN[cid] || []).find(c => c.id === camp), AG = x ? ((x.data || {}).groups || []) : [], el = $("#ks_groups");
+  if (id === "*") { const G = kwGroups(cid).filter(g => (g.data.kws || []).length);
+    el.innerHTML = `<div class="small muted" style="margin-top:10px">كل مجموعة هتروح لـ Ad group بنفس اسمها${x ? "، ولو مش موجود هيتعمل جديد" : ""}:</div><div style="margin-top:4px">${G.map(g => { const ex = AG.some(a => kwNorm(a.name) === kwNorm(g.data.name)); return `<span class="st-tag" dir="auto">${esc(g.data.name)} ${ex ? "→ موجود" : "· جديد"}</span>`; }).join("")}</div>`; return; }
+  const g = kwGroups(cid).find(s => s.id === id), same = AG.findIndex(a => kwNorm(a.name) === kwNorm(g.data.name));
+  el.innerHTML = `<label class="f">الـ Ad group</label><select class="inp" id="ks_ag">${AG.map((a, i) => `<option value="${i}" ${i === same ? "selected" : ""}>${esc(a.name || "Ad group " + (i + 1))} (${parseKw(a.kw).length} كلمة)</option>`).join("")}<option value="new" ${same < 0 ? "selected" : ""}>+ Ad group جديد باسم «${esc(g.data.name || "")}»</option></select>`;
+}
+async function doKwSend(cid, id){
+  const mt = [...document.querySelectorAll('input[name="ks_mt"]:checked')].map(i => i.value); if (!mt.length) return toast("اختار نوع مطابقة واحد على الأقل");
+  ui.kwMt = mt; const camp = $("#ks_camp").value; ui.kwCamp = camp; saveUi();
+  const all = id === "*", G = all ? kwGroups(cid).filter(g => (g.data.kws || []).length) : kwGroups(cid).filter(g => g.id === id);
+  const pick = all ? null : [...document.querySelectorAll('input[name="ks_kw"]:checked')].map(i => +i.value);
+  if (pick && !pick.length) return toast("اختار كلمة واحدة على الأقل");
+  const c = clientById(cid); let x = (CPN[cid] || []).find(z => z.id === camp), data = x ? JSON.parse(JSON.stringify(x.data || {})) : newSearch();
+  data.groups = data.groups || [];
+  const fresh = data.groups.length === 1 && !parseKw(data.groups[0].kw).length && /^Ad group \d+$/.test(data.groups[0].name || "") && !filled(data.groups[0].h).length;
+  let added = 0, lastGi = 0; const log = [];
+  G.forEach(g => {
+    const kws = (g.data.kws || []).filter((k, i) => !pick || pick.includes(i));
+    let gi = all ? data.groups.findIndex(a => kwNorm(a.name) === kwNorm(g.data.name)) : ($("#ks_ag").value === "new" ? -1 : +$("#ks_ag").value);
+    if (gi < 0) { if (fresh && !log.length) { gi = 0; data.groups[0].name = g.data.name || data.groups[0].name; } else { data.groups.push(Object.assign(newGroup(data.groups.length + 1), { name: g.data.name || "Ad group " + (data.groups.length + 1) })); gi = data.groups.length - 1; } }
+    const ag = data.groups[gi], have = new Set(parseKw(ag.kw).map(k => k.m + "|" + kwNorm(k.t))), lines = [];
+    kws.forEach(k => mt.forEach(m => { const key = m + "|" + kwNorm(k.t); if (!have.has(key)) { have.add(key); lines.push(kwLine(k.t.trim(), m)); } }));
+    ag.kw = [String(ag.kw || "").replace(/\s+$/, ""), ...lines].filter(Boolean).join("\n");
+    added += lines.length; lastGi = gi; log.push({ g, group: ag.name, n: lines.length });
+  });
+  try {
+    if (!x) { const n = (CPN[cid] || []).filter(z => z.kind !== "pmax").length + 1, name = `${c.name} · Search ${n}`;
+      const r = await q(sb.from("plan_campaigns").insert({ client_id:cid, kind:"search", name, data, sort:(CPN[cid] || []).length }).select(), "kwcamp"); x = (r && r[0]) || { name }; }
+    else await q(sb.from("plan_campaigns").update({ data, updated_at: new Date().toISOString() }).eq("id", x.id), "kwcampu");
+    const at = new Date().toISOString();
+    for (const l of log) { const sent = [...(l.g.data.sent || []), { camp: x.id, cname: x.name, group: l.group, n: l.n, at }].slice(-5);
+      await q(sb.from("strategy_items").update({ data: { ...l.g.data, sent }, updated_at: at }).eq("id", l.g.id), "kwsent"); }
+    await loadCamps(cid, true); await loadStrat(cid, true);
+    openModal(`<h2>اتبعت ✓</h2><p>${added ? `اتضاف <b>${added}</b> كلمة لحملة «<bdi>${esc(x.name || "")}</bdi>»` : "الكلمات دي كانت موجودة قبل كده، ماتضافش حاجة جديدة"}.</p>
+      ${log.length > 1 ? `<div>${log.map(l => `<span class="st-tag" dir="auto">${esc(l.group)}: ${l.n}</span>`).join("")}</div>` : ""}
+      <div class="actions"><span class="spacer"></span><button class="btn" onclick="closeModal()">تمام</button>${x.id ? `<button class="btn primary" onclick="closeModal();ui.cv=ui.cv||{};ui.cv['${cid}']='camps';ui.cpOpen='${x.id}';ui.cpTab='groups';ui.cpG=${lastGi};saveUi();render();window.scrollTo(0,0)">افتح الحملة</button>` : ""}</div>`);
+  } catch(e){ toast("ماتبعتش: " + (e.message || e)); }
 }
