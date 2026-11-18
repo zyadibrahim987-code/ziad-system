@@ -1360,7 +1360,7 @@ function clientViews(c, see, mp){
   O.push({ k:"deliv", l:"Deliveries", sub: isAdmin() ? "التسليمات اللي اتعملت" : "تسليماتك على العميل" });
   O.push({ k:"tasks", l:"Tasks", sub: isAdmin() ? "كل مهام العميل" : "تاسكاتك على العميل" });
   const P = [];
-  if (canPlan(c.id)) { P.push({ k:"strat", l:"Strategy", sub:"المتجر والمنافسين · Avatar" }); P.push({ k:"mplan", l:"Media plan", sub:"الميزانية والحملات" }); P.push({ k:"camps", l:"Campaigns", sub:"Search · PMax" }); }
+  if (canPlan(c.id)) { P.push({ k:"strat", l:"Strategy", sub:"المنافسين · السوشيال · Avatar" }); P.push({ k:"mplan", l:"Media plan", sub:"الميزانية والحملات" }); P.push({ k:"camps", l:"Campaigns", sub:"Search · PMax" }); }
   return { R, O, P };
 }
 function sliceMetric(c, sl, ym){
@@ -2725,11 +2725,12 @@ const ST_AV = [
 ];
 
 function strategyView(c){
-  const edit = canEditPlan(c.id), tab = ui.stTab === "avatar" ? "avatar" : "store";
-  let h = `<div class="cv-head"><div><h2>Strategy</h2><div class="ph-sub">تحليل المتجر والمنافسين والعميل المستهدف${edit ? "" : " · للعرض بس"}</div></div></div>
-    <div class="st-tabs"><button class="${tab === "store" ? "on" : ""}" onclick="ui.stTab='store';saveUi();render()">المتجر والمنافسين</button><button class="${tab === "avatar" ? "on" : ""}" onclick="ui.stTab='avatar';saveUi();render()">Customer Avatar</button></div>`;
+  const edit = canEditPlan(c.id), tab = ["avatar","social"].includes(ui.stTab) ? ui.stTab : "store";
+  const tb = (k, l) => `<button class="${tab === k ? "on" : ""}" onclick="ui.stTab='${k}';saveUi();render()">${l}</button>`;
+  let h = `<div class="cv-head"><div><h2>Strategy</h2><div class="ph-sub">تحليل المتجر والمنافسين والسوشيال والعميل المستهدف${edit ? "" : " · للعرض بس"}</div></div></div>
+    <div class="st-tabs">${tb("store", "المتجر والمنافسين")}${tb("social", "Social Media")}${tb("avatar", "Customer Avatar")}</div>`;
   if (!(c.id in STR)) { loadStrat(c.id); return h + `<div class="card empty">بيحمّل…</div>`; }
-  return h + (tab === "avatar" ? stAvatars(c, edit) : stStores(c, edit));
+  return h + (tab === "avatar" ? stAvatars(c, edit) : tab === "social" ? stSocial(c, edit) : stStores(c, edit));
 }
 /* ---- stores ---- */
 const stSorted = cid => { const L = strOf(cid, "store"); return [...L.filter(x => x.data.self), ...L.filter(x => !x.data.self)]; };
@@ -2755,6 +2756,7 @@ function stStores(c, edit){
     h += `<div class="st-tbl"><table><thead><tr><th></th>${L.map(x => `<th class="${x.data.self ? "me" : ""}"><b dir="auto">${esc(x.data.name || "—")}</b>${x.data.self ? `<span class="st-me">متجرنا</span>` : ""}${x.data.url ? `<a href="${esc(normUrl(x.data.url))}" target="_blank" rel="noopener" class="tiny">الموقع ↗</a>` : ""}</th>`).join("")}</tr></thead><tbody>
       ${ST_F.filter(f => L.some(x => stVal(f, x.data))).map(f => `<tr><th>${f.l}</th>${L.map(x => `<td class="${x.data.self ? "me" : ""}">${f.k === "cmp" && x.data.self ? `<span class="muted">—</span>` : stVal(f, x.data, 1) || `<span class="muted">—</span>`}</td>`).join("")}</tr>`).join("")}
       ${[...new Set(L.flatMap(x => (x.data.extra || []).map(e => e.label).filter(Boolean)))].map(lb => `<tr><th dir="auto">${esc(lb)}</th>${L.map(x => { const e = (x.data.extra || []).find(e => e.label === lb); return `<td class="${x.data.self ? "me" : ""}">${e && e.value ? `<span dir="auto">${esc(e.value)}</span>` : `<span class="muted">—</span>`}</td>`; }).join("")}</tr>`).join("")}
+      ${ST_SOC.filter(p => L.some(x => stSocOf(x.data, p.k))).map(p => `<tr><th><span class="soc-ic ${p.k}">${p.s}</span> ${p.l}</th>${L.map(x => `<td class="${x.data.self ? "me" : ""}">${stSocMini(stSocOf(x.data, p.k))}</td>`).join("")}</tr>`).join("")}
       </tbody></table></div>`;
   } else {
     h += `<div class="st-grid">${L.map(x => stCard(c, x, edit)).join("")}${edit ? `<button class="st-addc" onclick="openStore('${c.id}')">+ منافس جديد</button>` : ""}</div>`;
@@ -2773,7 +2775,8 @@ function stCard(c, x, edit){
       ${!d.self && ST_CMP[d.cmp] ? `<span class="chip ${ST_CMP[d.cmp][1]}">${ST_CMP[d.cmp][0]}</span>` : ""}</div>
     ${rates.length ? `<div class="st-rates">${rates.map(f => `<span><i>${f.l}</i>${stVal(f, d)}</span>`).join("")}</div>` : ""}
     <div class="st-body">${body || `<div class="small muted">مفيش تفاصيل لسه.</div>`}</div>
-    ${edit ? `<div class="row st-act"><button class="btn xs" onclick="openStore('${c.id}','${x.id}')">✏️ تعديل</button><span class="spacer"></span><button class="btn xs ghost" onclick="delStrat('${c.id}','${x.id}')">🗑 مسح</button></div>` : ""}</div>`;
+    ${stSocStrip(d)}
+    ${edit ? `<div class="row st-act"><button class="btn xs" onclick="openStore('${c.id}','${x.id}')">✏️ تعديل</button><button class="btn xs" onclick="openSocial('${c.id}','${x.id}')">📱 السوشيال</button><span class="spacer"></span><button class="btn xs ghost" onclick="delStrat('${c.id}','${x.id}')">🗑 مسح</button></div>` : ""}</div>`;
 }
 const stRateInp = (k, v) => `<div class="seg-pick">${Object.entries(ST_RATE).map(([o, [l]]) => `<label><input type="radio" name="sf_${k}" value="${o}" ${v === o ? "checked" : ""}><span>${l}</span></label>`).join("")}<label><input type="radio" name="sf_${k}" value="" ${!v ? "checked" : ""}><span>مش متقيّم</span></label></div>`;
 const stPickInp = (k, map, v) => `<div class="seg-pick">${Object.entries(map).map(([o, [l]]) => `<label><input type="radio" name="sf_${k}" value="${esc(o)}" ${v === o ? "checked" : ""}><span>${l}</span></label>`).join("")}<label><input type="radio" name="sf_${k}" value="" ${!v ? "checked" : ""}><span>مش محدد</span></label></div>`;
@@ -2810,7 +2813,8 @@ async function saveStore(cid, id, self){
   const g = k => ($("#sf_" + k) ? $("#sf_" + k).value.trim() : ""), r = k => (document.querySelector(`input[name="sf_${k}"]:checked`) || {}).value || "", cb = k => [...document.querySelectorAll(`input[name="sf_${k}"]:checked`)].map(i => i.value);
   const d = { self: !!self, name: g("name"), url: g("url"), platform: g("platform"), products: g("products"), speed: r("speed"), uiux: r("uiux"), best: g("best"), best_url: g("best_url"), img: r("img"), desc: r("desc"), price: r("price"), cmp: self ? "" : r("cmp"), offers: g("offers"), strengths: g("strengths"), weak: g("weak"), pay: cb("pay"), inst: cb("inst"), extra: dynRead("sfExtra", ["label","value"]).filter(x => x.label || x.value) };
   if (!d.name) return toast("اكتب اسم المتجر");
-  await stSave(cid, id, "store", d);
+  const old = id ? ((strOf(cid, "store").find(s => s.id === id) || {}).data || {}) : {};
+  await stSave(cid, id, "store", { ...old, ...d });
 }
 /* ---- avatars ---- */
 function stAvatars(c, edit){
@@ -2853,11 +2857,11 @@ async function stSave(cid, id, kind, data){
     closeModal(); toast("اتحفظ ✓"); await loadStrat(cid, true);
   } catch(e){ toast("ماتحفظش: " + (e.message || e)); }
 }
-async function saveStratNote(cid, text){
-  const n = strOf(cid, "store_note")[0];
+async function saveStratNote(cid, text, kind){
+  kind = kind || "store_note"; const n = strOf(cid, kind)[0];
   try {
     if (n) { await q(sb.from("strategy_items").update({ data:{ text }, updated_at: new Date().toISOString() }).eq("id", n.id), "stnote"); n.data = { text }; }
-    else { await q(sb.from("strategy_items").insert({ client_id:cid, kind:"store_note", data:{ text } }), "stnotei"); await loadStrat(cid, true); }
+    else { await q(sb.from("strategy_items").insert({ client_id:cid, kind, data:{ text } }), "stnotei"); await loadStrat(cid, true); }
     toast("اتحفظ ✓");
   } catch(e){ toast("ماتحفظش: " + (e.message || e)); }
 }
@@ -2865,6 +2869,98 @@ async function dupStrat(cid, id){ const x = (STR[cid] || []).find(s => s.id === 
 function delStrat(cid, id){ const x = (STR[cid] || []).find(s => s.id === id); if (!x) return;
   openModal(`<h2>تمسح «${esc(x.data.name || "ده")}»؟</h2><p class="small muted">مش هينفع ترجّعه تاني.</p><div class="actions"><span class="spacer"></span><button class="btn" onclick="closeModal()">لا</button><button class="btn danger" onclick="doDelStrat('${cid}','${id}')">امسح</button></div>`); }
 async function doDelStrat(cid, id){ try { await q(sb.from("strategy_items").delete().eq("id", id), "stdel"); closeModal(); toast("اتمسح"); await loadStrat(cid, true); } catch(e){ toast("ماتمسحش"); } }
+
+/* ---- social media analysis (session 2): stored inside each store row as data.social = { ig:{has,url,fol,eng,media[],pct,note}, ... } ---- */
+const ST_SOC = [ { k:"ig", l:"Instagram", s:"IG" }, { k:"tt", l:"TikTok", s:"TT" }, { k:"snap", l:"Snapchat", s:"SC" }, { k:"x", l:"X", s:"X" }, { k:"yt", l:"YouTube", s:"YT" } ];
+const ST_ENG = { high:["عالي","ok"], mid:["متوسط","amb"], low:["ضعيف","bad"] };
+const ST_MEDIA = ["UGC","Testimonial","Motion Video","Designs","Reels","Stories","تصوير منتجات","مسابقات"];
+const stSocOf = (d, k) => { const v = ((d || {}).social || {})[k]; return v && (v.has === false || v.has === true || v.url || v.fol || v.eng || (v.media || []).length || v.pct || v.note) ? v : null; };
+/* "26.5K" / "17,942" / "1.2م" -> number, for totals and the "highest" badge */
+function stNum(v){ let t = String(v || "").trim().toLowerCase().replace(/[,،\s]/g, "").replace(/[٠-٩]/g, d => "٠١٢٣٤٥٦٧٨٩".indexOf(d)); if (!t) return 0;
+  const m = t.match(/^([\d.]+)(k|ك|الف|ألف|m|م|مليون)?/); if (!m) return 0; let n = parseFloat(m[1]) || 0;
+  if (m[2]) n *= /k|ك|الف|ألف/.test(m[2]) ? 1e3 : 1e6; return Math.round(n); }
+const stFmt = n => !n ? "" : n >= 1e6 ? (+(n / 1e6).toFixed(1)) + "M" : n >= 1e3 ? (+(n / 1e3).toFixed(1)) + "K" : String(n);
+const stFol = v => { const n = stNum(v.fol); return n ? stFmt(n) : esc(v.fol || ""); };
+/* tiny cell used in the store compare table */
+function stSocMini(v){
+  if (!v) return `<span class="muted">—</span>`;
+  if (v.has === false) return `<span class="muted small">مش موجود</span>`;
+  const e = ST_ENG[v.eng];
+  return `<div class="soc-mini">${v.fol ? `<b dir="ltr">${stFol(v)}</b>` : ""}${e ? `<span class="chip ${e[1]}">${e[0]}</span>` : ""}${v.url ? `<a href="${esc(normUrl(v.url))}" target="_blank" rel="noopener" class="tiny">↗</a>` : ""}</div>${(v.media || []).length ? `<div class="tiny muted" dir="auto">${v.media.map(esc).join(" · ")}</div>` : ""}`;
+}
+/* strip of platform pills on each store card */
+function stSocStrip(d){
+  const L = ST_SOC.map(p => [p, stSocOf(d, p.k)]).filter(([, v]) => v);
+  if (!L.length) return "";
+  return `<div class="soc-strip">${L.map(([p, v]) => { const inner = `<span class="soc-ic ${p.k}">${p.s}</span>${v.has === false ? `<span class="muted">مش موجود</span>` : v.fol ? `<b dir="ltr">${stFol(v)}</b>` : ""}`;
+    return v.url && v.has !== false ? `<a class="soc-pill" href="${esc(normUrl(v.url))}" target="_blank" rel="noopener" title="${p.l}">${inner}</a>` : `<span class="soc-pill${v.has === false ? " off" : ""}" title="${p.l}">${inner}</span>`; }).join("")}</div>`;
+}
+/* the Social Media tab: stores across, platforms down */
+function stSocial(c, edit){
+  const L = stSorted(c.id), note = strOf(c.id, "social_note")[0], text = (note && note.data.text) || "";
+  if (!L.length) return `<div class="mp-empty"><h3>ضيف المتجر والمنافسين الأول</h3><p class="small muted">السوشيال بيتسجّل لكل متجر من اللي في تاب «المتجر والمنافسين». ضيفهم هناك وارجع هنا.</p>
+    <div class="row" style="justify-content:center;margin-top:10px"><button class="btn primary" onclick="ui.stTab='store';saveUi();render()">روح للمتجر والمنافسين</button></div></div>`;
+  const best = {}; ST_SOC.forEach(p => { let m = 0, id = null; L.forEach(x => { const v = stSocOf(x.data, p.k); const n = v && v.has !== false ? stNum(v.fol) : 0; if (n > m) { m = n; id = x.id; } }); best[p.k] = id; });
+  const cell = (x, p) => { const v = stSocOf(x.data, p.k), cls = x.data.self ? "me" : "", click = edit ? ` onclick="openSocial('${c.id}','${x.id}','${p.k}')" style="cursor:pointer" title="اضغط للتعديل"` : "";
+    if (!v) return `<td class="${cls}"${click}>${edit ? `<span class="soc-add">+ ضيف</span>` : `<span class="muted">—</span>`}</td>`;
+    if (v.has === false) return `<td class="${cls}"${click}><span class="muted small">مش موجود على ${p.l}</span></td>`;
+    const e = ST_ENG[v.eng];
+    return `<td class="${cls}"${click}><div class="soc-cell">
+      <div class="soc-top">${v.fol ? `<b dir="ltr">${stFol(v)}</b><span class="tiny muted">متابع</span>` : `<span class="tiny muted">المتابعين مش متسجلين</span>`}${best[p.k] === x.id && L.length > 1 ? `<span class="soc-best">الأعلى</span>` : ""}</div>
+      ${e ? `<div><span class="tiny muted">التفاعل</span> <span class="chip ${e[1]}">${e[0]}</span></div>` : ""}
+      ${(v.media || []).length ? `<div>${v.media.map(t => `<span class="st-tag">${esc(t)}</span>`).join("")}${v.pct ? ` <span class="tiny muted">${esc(v.pct)}%</span>` : ""}</div>` : v.pct ? `<div class="tiny muted">${esc(v.pct)}%</div>` : ""}
+      ${v.note ? `<div class="small" dir="auto">${esc(v.note)}</div>` : ""}
+      ${v.url ? `<a href="${esc(normUrl(v.url))}" target="_blank" rel="noopener" class="tiny" onclick="event.stopPropagation()">افتح الحساب ↗</a>` : ""}</div></td>`; };
+  const extras = [...new Set(L.flatMap(x => (x.data.social_extra || []).map(e => e.label).filter(Boolean)))];
+  const tot = x => ST_SOC.reduce((a, p) => { const v = stSocOf(x.data, p.k); return a + (v && v.has !== false ? stNum(v.fol) : 0); }, 0);
+  let h = `<p class="small muted" style="margin:0 0 10px">لكل متجر: الحساب على كل منصة، المتابعين، التفاعل ونوع المحتوى.${edit ? " اضغط على أي خانة عشان تعدّلها." : ""}</p>
+    <div class="st-tbl soc-tbl"><table><thead><tr><th></th>${L.map(x => `<th class="${x.data.self ? "me" : ""}"><b dir="auto">${esc(x.data.name || "—")}</b>${x.data.self ? `<span class="st-me">متجرنا</span>` : ""}${edit ? `<button class="btn xs" style="margin-top:4px" onclick="openSocial('${c.id}','${x.id}')">✏️ تعديل</button>` : ""}</th>`).join("")}</tr></thead><tbody>
+    ${ST_SOC.map(p => `<tr><th><span class="soc-ic ${p.k}">${p.s}</span> ${p.l}</th>${L.map(x => cell(x, p)).join("")}</tr>`).join("")}
+    ${extras.map(lb => `<tr><th dir="auto">${esc(lb)}</th>${L.map(x => { const e = (x.data.social_extra || []).find(e => e.label === lb); return `<td class="${x.data.self ? "me" : ""}">${e && e.value ? `<span dir="auto">${esc(e.value)}</span>` : `<span class="muted">—</span>`}</td>`; }).join("")}</tr>`).join("")}
+    <tr class="soc-tot"><th>إجمالي المتابعين</th>${L.map(x => { const n = tot(x); return `<td class="${x.data.self ? "me" : ""}">${n ? `<b dir="ltr">${stFmt(n)}</b>` : `<span class="muted">—</span>`}</td>`; }).join("")}</tr>
+    </tbody></table></div>
+    <div class="st-sum"><label class="f" style="margin-top:0">خلاصة السوشيال <span class="tiny muted">(إيه اللي شغال عند المنافسين وإيه الفرصة لينا)</span></label>
+    <textarea class="inp" dir="auto" rows="4" ${edit ? "" : "readonly"} placeholder="مثلاً: أغلب المنافسين بيكسبوا بفيديوهات UGC على تيك توك، ومحدش شغال كويس على سناب" onchange="saveStratNote('${c.id}',this.value,'social_note')">${esc(text)}</textarea></div>`;
+  return h;
+}
+function openSocial(cid, id, focus){
+  const x = strOf(cid, "store").find(s => s.id === id); if (!x) return;
+  const S = x.data.social || {};
+  const sec = p => { const v = S[p.k] || {}; let has = v.has === false ? "no" : (v.has || v.url || v.fol || v.eng || (v.media || []).length || v.note) ? "yes" : ""; if (!has && p.k === focus) has = "yes";
+    const custom = (v.media || []).filter(m => !ST_MEDIA.includes(m));
+    return `<div class="soc-sec${has === "yes" ? "" : " off"}${has === "no" ? " no" : ""}" id="ss_${p.k}">
+      <div class="soc-sh"><span class="soc-ic ${p.k}">${p.s}</span><b>${p.l}</b><span class="spacer"></span>
+        <div class="seg-pick">${[["yes","موجود"],["no","مش موجود"],["","مش متشيّك"]].map(([o, l]) => `<label><input type="radio" name="sh_${p.k}" value="${o}" ${has === o ? "checked" : ""} onchange="const b=this.closest('.soc-sec');b.classList.toggle('off',this.value!=='yes');b.classList.toggle('no',this.value==='no')"><span>${l}</span></label>`).join("")}</div></div>
+      <div class="soc-fields">
+        <div class="two"><div><label class="f">لينك الحساب</label><input class="inp" id="su_${p.k}" dir="ltr" value="${esc(v.url || "")}" placeholder="https://" oninput="if(this.value){const r=document.querySelector('input[name=sh_${p.k}][value=yes]');r.checked=true;r.dispatchEvent(new Event('change'))}"></div>
+          <div><label class="f">المتابعين</label><input class="inp" id="sfo_${p.k}" dir="ltr" value="${esc(v.fol || "")}" placeholder="26.5K"></div></div>
+        <label class="f">التفاعل</label>${stPickInp("se_" + p.k, ST_ENG, v.eng).replace(/name="sf_se_/g, 'name="se_')}
+        <label class="f">نوع المحتوى</label>${stListInp("sm_" + p.k, ST_MEDIA, (v.media || []).filter(m => ST_MEDIA.includes(m))).replace(/name="sf_sm_/g, 'name="sm_')}
+        <div class="two"><div><label class="f">نوع تاني <span class="tiny muted">(افصل بفاصلة)</span></label><input class="inp" id="smo_${p.k}" dir="auto" value="${esc(custom.join("، "))}" placeholder="مثلاً كوميكس"></div>
+          <div><label class="f">النسبة % <span class="tiny muted">(نسبة النوع ده من المحتوى)</span></label><input class="inp" id="sp_${p.k}" type="number" min="0" max="100" dir="ltr" value="${esc(v.pct || "")}" placeholder="50"></div></div>
+        <label class="f">ملاحظة سريعة</label><textarea class="inp" id="sn_${p.k}" dir="auto" rows="2" placeholder="مثلاً: فيديوهات قليلة بس التفاعل عالي">${esc(v.note || "")}</textarea>
+      </div></div>`; };
+  openModal(`<h2>السوشيال: <bdi>${esc(x.data.name || "")}</bdi></h2>
+    <p class="small muted" style="margin:-4px 0 8px">اختار «موجود» للمنصة تفتحلك خاناتها. املا اللي تعرفه بس.</p>
+    <div class="mp-form st-form">${ST_SOC.map(sec).join("")}
+      <div id="ssExtra" class="dyn" style="margin-top:10px">${(x.data.social_extra || []).map(extraRow).join("")}</div>
+      <button type="button" class="dyn-add" onclick="dynAdd('ssExtra', extraRow({}), true)">+ خانة جديدة <span class="tiny muted">(تسمّيها زي ما تحب)</span></button>
+    </div>
+    <div class="actions"><span class="spacer"></span><button class="btn" onclick="closeModal()">إلغاء</button><button class="btn primary" onclick="saveSocial('${cid}','${id}')">حفظ</button></div>`, true);
+  if (focus) setTimeout(() => { const el = document.getElementById("ss_" + focus); if (el) { el.scrollIntoView({ block:"start" }); const i = el.querySelector("#su_" + focus); i && i.focus(); } }, 30);
+}
+async function saveSocial(cid, id){
+  const x = strOf(cid, "store").find(s => s.id === id); if (!x) return;
+  const g = k => ($("#" + k) ? $("#" + k).value.trim() : ""), social = {};
+  for (const p of ST_SOC) {
+    const h = (document.querySelector(`input[name="sh_${p.k}"]:checked`) || {}).value || "";
+    if (h === "no") { social[p.k] = { has:false }; continue; }
+    const media = [...document.querySelectorAll(`input[name="sm_${p.k}"]:checked`)].map(i => i.value).concat(g("smo_" + p.k).split(/[,،]/).map(t => t.trim()).filter(Boolean));
+    const v = { url: g("su_" + p.k), fol: g("sfo_" + p.k), eng: (document.querySelector(`input[name="se_${p.k}"]:checked`) || {}).value || "", media, pct: g("sp_" + p.k), note: g("sn_" + p.k) };
+    if (h === "yes" || v.url || v.fol || v.eng || media.length || v.pct || v.note) social[p.k] = { has:true, ...v };
+  }
+  await stSave(cid, id, "store", { ...x.data, social, social_extra: dynRead("ssExtra", ["label","value"]).filter(e => e.label || e.value) });
+}
 
 const APP_SHELL = "<div class=\"wrap\"><header class=\"top\"><span class=\"brand\" aria-label=\"\u0632\u064a\u0627\u062f \u0625\u0628\u0631\u0627\u0647\u064a\u0645\"><svg width=\"28\" height=\"28\" viewBox=\"0 0 48 48\" aria-hidden=\"true\"><rect class=\"zm-ink\" x=\"0\" y=\"28\" width=\"12\" height=\"20\" rx=\"2\"/><rect class=\"zm-brand\" x=\"18\" y=\"16\" width=\"12\" height=\"32\" rx=\"2\"/><rect class=\"zm-signal\" x=\"36\" y=\"0\" width=\"12\" height=\"12\" rx=\"2\"/><rect class=\"zm-brand\" x=\"36\" y=\"15\" width=\"12\" height=\"33\" rx=\"2\"/></svg><span class=\"nm\">\u0632\u064a\u0627\u062f \u0625\u0628\u0631\u0627\u0647\u064a\u0645</span><span class=\"sub\">\u00b7 \u0633\u064a\u0633\u062a\u0645 \u0627\u0644\u0634\u063a\u0644</span></span><nav class=\"tabs\" id=\"tabs\"></nav><span class=\"spacer\"></span><div id=\"who\"></div></header><main id=\"view\"><div class=\"card empty\">\u0628\u064a\u062d\u0645\u0651\u0644\u2026</div></main></div>";
 start();
