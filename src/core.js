@@ -210,7 +210,7 @@ function taskRow(t, dk, cid){
   return `<div class="task ${closed ? "done" : ""}">${box}
     <div class="t"><div class="title">${esc(t.title)} ${stateChip}</div>
       <div class="meta">${isAdmin() && t.assigneeId && t.assigneeId !== me.id ? `${avatar(t.assigneeId, 16)} ${esc(personName(t.assigneeId))} · ` : ""}${t.time ? esc(t.time) + " · " : ""}${esc(repeatText(t))}${t.note ? " · " + esc(t.note) : ""}</div>
-      ${t.brief ? `<div class="brief">${esc(t.brief)}</div>` : ""}
+      ${t.brief ? `<div class="brief">${briefHtml(t.brief)}</div>` : ""}
       ${state === "returned" && st.review_note ? `<div class="brief bad">↩︎ ${esc(st.review_note)}</div>` : ""}</div>
     ${action}${isAdmin() ? `<button class="btn ghost sm" onclick="openTask('${t.id}')">تعديل</button>` : ""}</div>`;
 }
@@ -237,7 +237,7 @@ function openSubmit(tid, dk){
   const t = tasks.find(x => x.id === tid); if (!t) return; const c = clientById(t.clientId), st = stOf(t, dk);
   SUB = { tid, dk, file: null };
   openModal(`<h2>تسليم: ${esc(t.title)}</h2><div class="small muted" style="margin:-6px 0 10px">${c ? esc(c.name) + " · " : ""}${fmtDate(fromKey(dk))}</div>
-    ${t.brief ? `<div class="brief" style="margin-bottom:10px"><b>البريف:</b> ${esc(t.brief)}</div>` : ""}
+    ${t.brief ? `<div class="brief" style="margin-bottom:10px"><b>البريف:</b> ${briefHtml(t.brief)}</div>` : ""}
     ${st && st.state === "returned" && st.review_note ? `<div class="brief bad" style="margin-bottom:10px">↩︎ تعليق زياد: ${esc(st.review_note)}</div>` : ""}
     <label class="f">لينك (درايف، فيديو، تصميم…)</label><input class="inp" id="sbLink" dir="ltr" placeholder="https://" value="${esc(st && st.link || "")}">
     <label class="f">أو ارفع ملف (لحد 50 ميجا)</label><input type="file" id="sbFile" class="inp" onchange="SUB.file=this.files[0]||null">
@@ -1185,7 +1185,7 @@ function myTaskCard(t, dk, extra){
     <div class="mt-main">
       <div class="mt-top">${c ? `<span class="mt-client"><span class="cdot ${c.type}"></span>${esc(c.name)}</span>` : `<span class="mt-client">عام</span>`}${extra ? `<span class="tiny muted">${extra}</span>` : ""}${tag}</div>
       <div class="mt-title">${esc(t.title)}</div>
-      ${t.brief ? `<div class="mt-brief">${esc(t.brief)}</div>` : ""}
+      ${t.brief ? `<div class="mt-brief">${briefHtml(t.brief)}</div>` : ""}
       ${state === "returned" && st.review_note ? `<div class="mt-note">↩︎ تعليق زياد: ${esc(st.review_note)}</div>` : ""}
       ${(t.time || t.note) ? `<div class="tiny muted" style="margin-top:4px">${[t.time, t.note].filter(Boolean).map(esc).join(" · ")}</div>` : ""}
     </div>
@@ -2428,12 +2428,12 @@ const ST_AV = [
 ];
 
 function strategyView(c){
-  const edit = canEditPlan(c.id), tab = ["avatar","social","kw"].includes(ui.stTab) ? ui.stTab : "store";
+  const edit = canEditPlan(c.id), tab = ["avatar","social","kw","design"].includes(ui.stTab) ? ui.stTab : "store";
   const tb = (k, l) => `<button class="${tab === k ? "on" : ""}" onclick="ui.stTab='${k}';saveUi();render()">${l}</button>`;
-  let h = `<div class="cv-head"><div><h2>Strategy</h2><div class="ph-sub">تحليل المتجر والمنافسين والسوشيال والعميل المستهدف وبحث الكلمات${edit ? "" : " · للعرض بس"}</div></div></div>
-    <div class="st-tabs">${tb("store", "المتجر والمنافسين")}${tb("social", "Social Media")}${tb("avatar", "Customer Avatar")}${tb("kw", "KW research")}</div>`;
+  let h = `<div class="cv-head"><div><h2>Strategy</h2><div class="ph-sub">تحليل المتجر والمنافسين والسوشيال والعميل المستهدف وبحث الكلمات وأفكار التصميم${edit ? "" : " · للعرض بس"}</div></div></div>
+    <div class="st-tabs">${tb("store", "المتجر والمنافسين")}${tb("social", "Social Media")}${tb("avatar", "Customer Avatar")}${tb("kw", "KW research")}${tb("design", "Design ideas")}</div>`;
   if (!(c.id in STR)) { loadStrat(c.id); return h + `<div class="card empty">بيحمّل…</div>`; }
-  return h + (tab === "kw" ? kwView(c, edit) : tab === "avatar" ? stAvatars(c, edit) : tab === "social" ? stSocial(c, edit) : stStores(c, edit));
+  return h + (tab === "design" ? diView(c, edit) : tab === "kw" ? kwView(c, edit) : tab === "avatar" ? stAvatars(c, edit) : tab === "social" ? stSocial(c, edit) : stStores(c, edit));
 }
 /* ---- stores ---- */
 const stSorted = cid => { const L = strOf(cid, "store"); return [...L.filter(x => x.data.self), ...L.filter(x => !x.data.self)]; };
@@ -2841,4 +2841,182 @@ async function doKwSend(cid, id){
       ${log.length > 1 ? `<div>${log.map(l => `<span class="st-tag" dir="auto">${esc(l.group)}: ${l.n}</span>`).join("")}</div>` : ""}
       <div class="actions"><span class="spacer"></span><button class="btn" onclick="closeModal()">تمام</button>${x.id ? `<button class="btn primary" onclick="closeModal();ui.cv=ui.cv||{};ui.cv['${cid}']='camps';ui.cpOpen='${x.id}';ui.cpTab='groups';ui.cpG=${lastGi};saveUi();render();window.scrollTo(0,0)">افتح الحملة</button>` : ""}</div>`);
   } catch(e){ toast("ماتبعتش: " + (e.message || e)); }
+}
+
+/* ---- Design ideas (session 4): one strategy_items row per idea, kind "design_idea",
+   data = { title, lp, angle, insp:[{url,img}], tagline, copy, sizes[], plats[], note, extra[], task:{id,to,at,due} }
+   Images are uploaded (resized) to the public "ideas" bucket under <client_id>/. Admin turns an idea into a designer task. ---- */
+const DI_SIZES = [ ["1:1","1080×1080"], ["4:5","1080×1350"], ["9:16","1080×1920"], ["16:9","1920×1080"], ["1.91:1","1200×628"] ];
+const DI_PLATS = ["Meta (FB/IG)","Snapchat","TikTok","Google","X"];
+const DI_ANGLES = ["عرض / خصم","مشكلة وحل","Social proof / آراء العملاء","مقارنة","ميزة في المنتج","مناسبة / موسم","Lifestyle","منتج جديد"];
+const diIdeas = cid => strOf(cid, "design_idea");
+const isImgUrl = u => /\.(png|jpe?g|webp|gif|avif)(\?|#|$)/i.test(u || "") || /\/storage\/v1\/object\/public\/ideas\//.test(u || "") || /^data:image\//.test(u || "");
+/* latest status of a designer task: new / sent / submitted / returned / approved */
+function diStatus(d){
+  if (!d.task || !d.task.id) return { k:"new", l:"فكرة", c:"grey" };
+  const t = tasks.find(x => x.id === d.task.id);
+  if (!t && isAdmin()) return { k:"gone", l:"التاسك اتمسح", c:"grey" };
+  const S = Object.values(ST).filter(s => s.task_id === d.task.id).sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")))[0];
+  const st = S ? S.state : "";
+  if (st === "approved" || st === "done") return { k:"approved", l:"اتعتمدت ✓", c:"ok", s:S };
+  if (st === "submitted") return { k:"submitted", l: isAdmin() ? "اتسلّمت · راجعها" : "اتسلّمت", c:"amb", s:S };
+  if (st === "returned") return { k:"returned", l:"اترجعت للتعديل", c:"warn", s:S };
+  return { k:"sent", l:"عند الديزاينر", c:"rp" };
+}
+function diView(c, edit){
+  const L = diIdeas(c.id), f = ui.diF || "all";
+  if (!L.length) return `<div class="mp-empty"><h3>لسه مفيش أفكار تصميم</h3><p class="small muted">سجّل كل فكرة: الأنجل، اللاندينج، الإلهام (لينك أو صورة)، النص اللي على التصميم، الـ Ad copy، المقاسات والمنصات. ولما تجهز، حوّلها لتاسك للديزاينر بضغطة والبريف بيتكتب لوحده.</p>
+    ${edit ? `<div class="row" style="justify-content:center;margin-top:10px"><button class="btn primary" onclick="openIdea('${c.id}')">+ أول فكرة</button></div>` : ""}</div>`;
+  const S = L.map(x => [x, diStatus(x.data)]), cnt = k => S.filter(([, s]) => k === "all" || s.k === k || (k === "sent" && s.k === "returned")).length;
+  const fb = (k, l) => cnt(k) || k === "all" ? `<button class="${f === k ? "on" : ""}" onclick="ui.diF='${k}';saveUi();render()">${l} <span class="tiny">${cnt(k)}</span></button>` : "";
+  const shown = S.filter(([, s]) => f === "all" || s.k === f || (f === "sent" && s.k === "returned"));
+  const fresh = S.filter(([, s]) => s.k === "new").length;
+  let h = `<div class="row" style="margin:0 0 12px;gap:8px;flex-wrap:wrap"><div class="st-seg di-f">${fb("all","الكل")}${fb("new","أفكار")}${fb("sent","عند الديزاينر")}${fb("submitted","اتسلّمت")}${fb("approved","اتعتمدت")}</div><span class="spacer"></span>
+    ${isAdmin() && fresh > 1 ? `<button class="btn sm" onclick="openIdeaTask('${c.id}','*')">🎨 ابعت الأفكار الجديدة (${fresh}) للديزاينر</button>` : ""}${edit ? `<button class="btn sm primary" onclick="openIdea('${c.id}')">+ فكرة</button>` : ""}</div>`;
+  h += `<div class="st-grid">${shown.map(([x, s]) => diCard(c, x, s, edit)).join("") || `<div class="small muted">مفيش أفكار في الحالة دي.</div>`}${edit && f === "all" ? `<button class="st-addc" onclick="openIdea('${c.id}')">+ فكرة جديدة</button>` : ""}</div>`;
+  return h;
+}
+function diCard(c, x, s, edit){
+  const d = x.data, imgs = (d.insp || []).filter(i => i.img || isImgUrl(i.url)), links = (d.insp || []).filter(i => !(i.img || isImgUrl(i.url)));
+  const row = (l, v) => v ? `<div class="st-f"><span>${l}</span><div>${v}</div></div>` : "";
+  const sz = (d.sizes || []).map(z => `<span class="st-tag" dir="ltr">${esc(z)}</span>`).join(""), pl = (d.plats || []).map(p => `<span class="st-tag"><bdi>${esc(p)}</bdi></span>`).join("");
+  const due = d.task && d.task.due ? ` · تسليم ${esc(fmtDate(fromKey(d.task.due)))}` : "";
+  const dl = s.s && (s.s.link || s.s.file_path) ? (s.s.link ? `<a class="btn xs" href="${esc(normUrl(s.s.link))}" target="_blank" rel="noopener">👀 شوف التسليم</a>` : isAdmin() ? `<button class="btn xs" onclick="openFile('${esc(s.s.file_path)}')">👀 شوف التسليم</button>` : "") : "";
+  return `<div class="st-card di-card">
+    ${imgs.length ? `<div class="di-imgs n${Math.min(imgs.length, 3)}">${imgs.slice(0, 3).map(i => `<a href="${esc(i.url)}" target="_blank" rel="noopener"><img src="${esc(i.url)}" loading="lazy" alt=""></a>`).join("")}${imgs.length > 3 ? `<span class="di-more">+${imgs.length - 3}</span>` : ""}</div>` : ""}
+    <div class="st-ch"><div style="flex:1;min-width:0"><b dir="auto">${esc(d.title || "فكرة")}</b>${d.angle ? `<div class="tiny muted" dir="auto">${esc(d.angle)}</div>` : ""}</div><span class="chip ${s.c}">${s.l}</span></div>
+    ${d.task && d.task.to ? `<div class="tiny muted">${avatar(d.task.to, 16)} ${esc(personName(d.task.to))}${due}</div>` : ""}
+    ${s.k === "returned" && s.s.review_note ? `<div class="brief bad" style="margin:0">↩︎ ${esc(s.s.review_note)}</div>` : ""}
+    ${d.tagline ? `<div class="di-tag" dir="auto">${esc(d.tagline)}</div>` : ""}
+    <div class="st-body">
+      ${row("Ad copy", d.copy ? `<span dir="auto" class="di-copy">${esc(d.copy)}</span>` : "")}
+      ${row("المقاسات", sz)}${row("المنصات", pl)}
+      ${row("اللاندينج", d.lp ? `<a href="${esc(normUrl(d.lp))}" target="_blank" rel="noopener" dir="ltr">${esc(String(d.lp).replace(/^https?:\/\/(www\.)?/, "").slice(0, 48))}</a>` : "")}
+      ${row("الإلهام", links.map(i => `<a href="${esc(normUrl(i.url))}" target="_blank" rel="noopener" dir="ltr" class="di-lnk">${esc(String(i.url).replace(/^https?:\/\/(www\.)?/, "").slice(0, 40))}</a>`).join(""))}
+      ${row("ملاحظات", d.note ? `<span dir="auto">${esc(d.note)}</span>` : "")}
+      ${(d.extra || []).filter(e => e.value).map(e => row(`<span dir="auto">${esc(e.label || "خانة")}</span>`, `<span dir="auto">${esc(e.value)}</span>`)).join("")}
+    </div>
+    ${edit || dl ? `<div class="row st-act">${isAdmin() ? (s.k === "new" || s.k === "gone" ? `<button class="btn xs primary" onclick="openIdeaTask('${c.id}','${x.id}')">🎨 حوّلها لتاسك</button>` : s.k === "submitted" ? `<button class="btn xs primary" onclick="openReviewItem('${d.task.id}','${s.s.day}')">راجع</button>` : "") : ""}${dl}
+      ${edit ? `<button class="btn xs" onclick="openIdea('${c.id}','${x.id}')">✏️ تعديل</button><button class="btn xs ghost" onclick="dupIdea('${c.id}','${x.id}')" title="نسخة">⧉</button><span class="spacer"></span><button class="btn xs ghost" onclick="delStrat('${c.id}','${x.id}')">🗑</button>` : ""}</div>` : ""}</div>`;
+}
+/* ---- idea form ---- */
+let DI_INSP = [];
+const diChecks = (name, opts, v, ltr) => { v = v || []; return `<div class="seg-pick">${[...new Set([...opts.map(o => Array.isArray(o) ? o[0] : o), ...v])].map(o => { const sub = (opts.find(z => Array.isArray(z) && z[0] === o) || [])[1];
+  return `<label><input type="checkbox" name="${name}" value="${esc(o)}" ${v.includes(o) ? "checked" : ""}><span${ltr ? ' dir="ltr"' : ""}><bdi>${esc(o)}</bdi>${sub ? ` <small style="opacity:.7">${sub}</small>` : ""}</span></label>`; }).join("")}</div>`; };
+function diInspHtml(){
+  return DI_INSP.map((i, n) => `<div class="di-ins">${i.img || isImgUrl(i.url) ? `<img src="${esc(i.url)}" alt="">` : `<span class="di-ins-l">🔗</span>`}<a href="${esc(normUrl(i.url))}" target="_blank" rel="noopener" dir="ltr">${esc(String(i.url).replace(/^https?:\/\/(www\.)?/, "").slice(0, 50))}</a><button type="button" class="btn xs ghost" onclick="DI_INSP.splice(${n},1);$('#diInsp').innerHTML=diInspHtml()">✕</button></div>`).join("") || `<div class="tiny muted">مفيش لسه. الصق لينك (Pinterest، Behance، إعلان منافس…) أو ارفع صورة أو الصق صورة علطول (Ctrl/⌘ + V).</div>`;
+}
+function openIdea(cid, id){
+  const x = id ? diIdeas(cid).find(s => s.id === id) : null, d = x ? x.data : {};
+  DI_INSP = JSON.parse(JSON.stringify(d.insp || []));
+  const extraS = (d.sizes || []).filter(z => !DI_SIZES.some(o => o[0] === z)), extraP = (d.plats || []).filter(p => !DI_PLATS.includes(p));
+  openModal(`<h2>${x ? "تعديل فكرة" : "فكرة تصميم جديدة"}</h2>
+    <div class="mp-form st-form" onpaste="diPaste(event,'${cid}')">
+      <div class="two"><div><label class="f">اسم الفكرة</label><input class="inp" id="di_title" dir="auto" value="${esc(d.title || "")}" placeholder="مثلاً: عرض اليوم الوطني" autofocus></div>
+        <div><label class="f">الأنجل</label><input class="inp" id="di_angle" dir="auto" list="diAngles" value="${esc(d.angle || "")}" placeholder="اختار أو اكتب"><datalist id="diAngles">${DI_ANGLES.map(a => `<option value="${esc(a)}">`).join("")}</datalist></div></div>
+      <label class="f">اللاندينج بيدج <span class="tiny muted">(الإعلان هيودّي على فين)</span></label><input class="inp" id="di_lp" dir="ltr" value="${esc(d.lp || "")}" placeholder="https://">
+      <label class="f">الإلهام / الريفرنس <span class="tiny muted">(لينك أو صورة، أكتر من واحد عادي)</span></label>
+      <div id="diInsp" class="di-insl">${diInspHtml()}</div>
+      <div class="row" style="gap:6px;margin-top:6px"><input class="inp" id="di_iurl" dir="ltr" placeholder="الصق لينك واضغط Enter" style="flex:1" onkeydown="if(event.key==='Enter'){event.preventDefault();diAddUrl()}"><button type="button" class="btn sm" onclick="diAddUrl()">+ لينك</button>
+        <label class="btn sm" style="cursor:pointer">📷 صورة<input type="file" accept="image/*" multiple hidden onchange="diUpload('${cid}',this.files);this.value=''"></label></div>
+      <div id="diUp" class="tiny muted"></div>
+      <label class="f">النص اللي على التصميم <span class="tiny muted">(Tagline / Headline)</span></label><textarea class="inp" id="di_tagline" dir="auto" rows="2" placeholder="مثلاً: خصم 30% لحد الأحد بس">${esc(d.tagline || "")}</textarea>
+      <label class="f">Ad copy <span class="tiny muted">(الكابشن اللي هينزل مع الإعلان)</span></label><textarea class="inp" id="di_copy" dir="auto" rows="3" placeholder="مثلاً: جهّز سيت أب أحلامك بأقل سعر في المملكة 🔥 الشحن مجاني والدفع عند الاستلام">${esc(d.copy || "")}</textarea>
+      <label class="f">المقاسات</label>${diChecks("di_size", DI_SIZES, (d.sizes || []).filter(z => !extraS.includes(z)), 1)}
+      <input class="inp" id="di_size_o" dir="auto" value="${esc(extraS.join("، "))}" placeholder="مقاس تاني؟ اكتبه (افصل بفاصلة)" style="margin-top:6px">
+      <label class="f">المنصات</label>${diChecks("di_plat", DI_PLATS, (d.plats || []).filter(p => !extraP.includes(p)))}
+      <input class="inp" id="di_plat_o" dir="auto" value="${esc(extraP.join("، "))}" placeholder="منصة تانية؟ (افصل بفاصلة)" style="margin-top:6px">
+      <label class="f">ملاحظات للديزاينر</label><textarea class="inp" id="di_note" dir="auto" rows="2" placeholder="مثلاً: استخدم ألوان البراند، والمنتج يبقى في النص">${esc(d.note || "")}</textarea>
+      <div id="diExtra" class="dyn" style="margin-top:10px">${(d.extra || []).map(extraRow).join("")}</div>
+      <button type="button" class="dyn-add" onclick="dynAdd('diExtra', extraRow({}), true)">+ خانة جديدة <span class="tiny muted">(تسمّيها زي ما تحب)</span></button>
+    </div>
+    <div class="actions"><span class="spacer"></span><button class="btn" onclick="closeModal()">إلغاء</button>${isAdmin() && !(d.task && d.task.id) ? `<button class="btn" onclick="saveIdea('${cid}','${id || ""}',1)">حفظ وحوّلها لتاسك 🎨</button>` : ""}<button class="btn primary" onclick="saveIdea('${cid}','${id || ""}')">حفظ</button></div>`, true);
+}
+function diAddUrl(){ const i = $("#di_iurl"), u = i.value.trim(); if (!u) return; DI_INSP.push({ url: u }); i.value = ""; $("#diInsp").innerHTML = diInspHtml(); i.focus(); }
+/* resize in the browser (max 1600px) then upload to the public "ideas" bucket */
+function diShrink(file){ return new Promise(res => { if (!/^image\//.test(file.type) || /gif|svg/.test(file.type)) return res(file);
+  const img = new Image(), u = URL.createObjectURL(file); img.onload = () => { const k = Math.min(1, 1600 / Math.max(img.width, img.height)); if (k === 1 && file.size < 1.5e6) { URL.revokeObjectURL(u); return res(file); }
+    const cv = document.createElement("canvas"); cv.width = Math.round(img.width * k); cv.height = Math.round(img.height * k); const g = cv.getContext("2d"); g.fillStyle = "#fff"; g.fillRect(0, 0, cv.width, cv.height); g.drawImage(img, 0, 0, cv.width, cv.height);
+    URL.revokeObjectURL(u); cv.toBlob(b => res(b || file), "image/jpeg", .85); }; img.onerror = () => res(file); img.src = u; }); }
+async function diUpload(cid, files){
+  files = [...(files || [])].filter(f => /^image\//.test(f.type)); if (!files.length) return;
+  const box = $("#diUp"); let ok = 0;
+  for (const f of files) { box && (box.textContent = `بيرفع ${ok + 1} من ${files.length}…`);
+    try { const b = await diShrink(f), ext = b.type === "image/jpeg" ? "jpg" : (f.name.split(".").pop() || "png").toLowerCase(), path = `${cid}/${crypto.randomUUID()}.${ext}`;
+      const { error } = await sb.storage.from("ideas").upload(path, b, { contentType: b.type || f.type, cacheControl: "31536000" }); if (error) throw error;
+      DI_INSP.push({ url: sb.storage.from("ideas").getPublicUrl(path).data.publicUrl, img: true }); ok++; if ($("#diInsp")) $("#diInsp").innerHTML = diInspHtml();
+    } catch(e){ toast("الصورة مارفعتش: " + (e.message || e)); } }
+  box && (box.textContent = ok ? `اترفع ${ok} ✓` : "");
+}
+function diPaste(e, cid){ const fs = [...((e.clipboardData || {}).items || [])].filter(i => i.kind === "file" && /^image\//.test(i.type)).map(i => i.getAsFile()); if (!fs.length) return; e.preventDefault(); diUpload(cid, fs); }
+function diRead(){
+  const g = k => ($("#di_" + k) ? $("#di_" + k).value.trim() : ""), cb = n => [...document.querySelectorAll(`input[name="${n}"]:checked`)].map(i => i.value), sp = k => g(k).split(/[,،]/).map(t => t.trim()).filter(Boolean);
+  const u = g("iurl"); if (u) DI_INSP.push({ url: u });
+  return { title: g("title"), angle: g("angle"), lp: g("lp"), insp: DI_INSP.slice(), tagline: g("tagline"), copy: g("copy"), sizes: [...cb("di_size"), ...sp("size_o")], plats: [...cb("di_plat"), ...sp("plat_o")], note: g("note"), extra: dynRead("diExtra", ["label","value"]).filter(e => e.label || e.value) };
+}
+async function saveIdea(cid, id, thenTask){
+  const d = diRead(); if (!d.title) d.title = d.tagline.split("\n")[0].slice(0, 40) || d.angle;
+  if (!d.title) return toast("اكتب اسم الفكرة");
+  const old = id ? ((diIdeas(cid).find(s => s.id === id) || {}).data || {}) : {};
+  if (!thenTask) return stSave(cid, id, "design_idea", { ...old, ...d });
+  try { let nid = id;
+    if (id) await q(sb.from("strategy_items").update({ data: { ...old, ...d }, updated_at: new Date().toISOString() }).eq("id", id), "diupd");
+    else { const r = await q(sb.from("strategy_items").insert({ client_id:cid, kind:"design_idea", data:d, sort: diIdeas(cid).length }).select(), "diins"); nid = r[0].id; }
+    await loadStrat(cid, true); openIdeaTask(cid, nid);
+  } catch(e){ toast("ماتحفظش: " + (e.message || e)); }
+}
+async function dupIdea(cid, id){ const x = diIdeas(cid).find(s => s.id === id); if (!x) return; const d = JSON.parse(JSON.stringify(x.data)); delete d.task; d.title = (d.title || "") + " (نسخة)"; await stSave(cid, "", "design_idea", d); }
+/* ---- idea -> designer task ---- */
+function diBrief(d){
+  const L = [];
+  if (d.angle) L.push("الأنجل: " + d.angle);
+  if (d.tagline) L.push("النص على التصميم:\n" + d.tagline);
+  if (d.copy) L.push("Ad copy:\n" + d.copy);
+  if ((d.sizes || []).length) L.push("المقاسات: " + d.sizes.join(" · "));
+  if ((d.plats || []).length) L.push("المنصات: " + d.plats.join(" · "));
+  if (d.lp) L.push("اللاندينج: " + normUrl(d.lp));
+  if ((d.insp || []).length) L.push("الإلهام:\n" + d.insp.map(i => normUrl(i.url)).join("\n"));
+  if (d.note) L.push("ملاحظات: " + d.note);
+  (d.extra || []).filter(e => e.value).forEach(e => L.push((e.label || "خانة") + ": " + e.value));
+  return L.join("\n\n");
+}
+function openIdeaTask(cid, id){
+  if (!isAdmin()) return;
+  const all = id === "*", L = all ? diIdeas(cid).filter(x => diStatus(x.data).k === "new") : diIdeas(cid).filter(x => x.id === id);
+  if (!L.length) return toast("مفيش أفكار جديدة");
+  const team = profiles.filter(p => p.active && p.id !== me.id), isDes = p => /design|ديزا|مصمم|تصميم/i.test(p.job || "");
+  const pick = team.find(p => p.id === ui.diTo) ? ui.diTo : (team.find(isDes) || {}).id || "";
+  const sorted = [...team.filter(isDes), ...team.filter(p => !isDes(p))];
+  openModal(`<h2>🎨 ${all ? `ابعت ${L.length} أفكار للديزاينر` : `حوّل «<bdi>${esc(L[0].data.title || "")}</bdi>» لتاسك`}</h2>
+    <div class="mp-form st-form">
+      <div class="two"><div><label class="f">مسنودة على</label><select class="inp" id="dt_to">${sorted.map(p => `<option value="${p.id}" ${p.id === pick ? "selected" : ""}>${esc(p.name || p.email)} · ${esc(p.job || "")}</option>`).join("")}${sorted.length ? "" : `<option value="">مفيش أعضاء في الفريق</option>`}</select></div>
+        <div><label class="f">التسليم يوم</label><input class="inp" type="date" id="dt_due" value="${addDaysK(todayK(), 2)}"></div></div>
+      <div class="row" style="gap:6px;margin-top:6px">${[["النهارده",0],["بكرة",1],["بعد يومين",2],["بعد أسبوع",7]].map(([l, n]) => `<button type="button" class="btn xs" onclick="$('#dt_due').value='${addDaysK(todayK(), n)}'">${l}</button>`).join("")}</div>
+      ${all ? `<label class="f">الأفكار <span class="tiny muted">(كل فكرة هتبقى تاسك لوحدها)</span></label><div class="kw-pick">${L.map(x => `<label><input type="checkbox" name="dt_ids" value="${x.id}" checked><span dir="auto">${esc(x.data.title || "فكرة")}</span>${(x.data.sizes || []).length ? `<i dir="ltr">${esc(x.data.sizes.join(" · "))}</i>` : ""}</label>`).join("")}</div>`
+        : `<label class="f">اسم التاسك</label><input class="inp" id="dt_title" dir="auto" value="${esc("تصميم: " + (L[0].data.title || ""))}">
+      <label class="f">البريف <span class="tiny muted">(اتكتب لوحده من الفكرة، تقدر تعدّل فيه)</span></label><textarea class="inp" id="dt_brief" dir="auto" rows="9">${esc(diBrief(L[0].data))}</textarea>`}
+      <p class="tiny muted" style="margin-top:8px">التاسك هيظهر عند الديزاينر في «My Tasks»، يسلّم عليه لينك أو ملف، وانت تراجعه من Review. حالة الفكرة هنا بتتحدّث لوحدها.</p>
+    </div>
+    <div class="actions"><span class="spacer"></span><button class="btn" onclick="closeModal()">إلغاء</button><button class="btn primary" onclick="doIdeaTask('${cid}','${id}')">ابعت للديزاينر</button></div>`, true);
+}
+async function doIdeaTask(cid, id){
+  const to = $("#dt_to").value, due = $("#dt_due").value || todayK(); if (!to) return toast("اختار مين هيعمل التصميم");
+  ui.diTo = to; saveUi();
+  const all = id === "*", ids = all ? [...document.querySelectorAll('input[name="dt_ids"]:checked')].map(i => i.value) : [id];
+  if (!ids.length) return toast("اختار فكرة واحدة على الأقل");
+  const L = ids.map(i => diIdeas(cid).find(x => x.id === i)).filter(Boolean);
+  const rows = L.map(x => taskToDb({ clientId: cid, assigneeId: to, title: all ? "تصميم: " + (x.data.title || "") : ($("#dt_title").value.trim() || "تصميم: " + (x.data.title || "")), brief: all ? diBrief(x.data) : $("#dt_brief").value.trim(), repeat: "once", date: due, needsReview: true, kind: "design" }));
+  try {
+    const ins = await q(sb.from("tasks").insert(rows.map(r => ({ ...r, created_by: me.id }))).select(), "ditask"); tasks.push(...ins.map(mapTask));
+    const at = new Date().toISOString();
+    for (let n = 0; n < L.length; n++) await q(sb.from("strategy_items").update({ data: { ...L[n].data, task: { id: ins[n].id, to, at, due } }, updated_at: at }).eq("id", L[n].id), "ditlink");
+    if (!members.some(m => m.client_id === cid && m.user_id === to)) { try { await q(sb.from("client_members").insert({ client_id:cid, user_id:to, platforms:[], see_numbers:false, see_files:false }), "automember"); await loadAll(); } catch(e){} }
+    closeModal(); await loadStrat(cid, true); toast(`اتبعت ${L.length === 1 ? "التاسك" : L.length + " تاسكات"} ✓ — هتظهر عند ${String(personName(to)).split(" ")[0]}`);
+  } catch(e){ toast("ماتبعتش: " + (e.message || e)); }
+}
+/* brief text with clickable links + image previews (used in every task view) */
+function briefHtml(s){
+  return String(s || "").split(/(https?:\/\/[^\s<>"']+)/g).map((p, i) => { if (!(i % 2)) return esc(p);
+    if (isImgUrl(p)) return `<a href="${esc(p)}" target="_blank" rel="noopener" class="br-img"><img src="${esc(p)}" loading="lazy" alt=""></a>`;
+    return `<a href="${esc(p)}" target="_blank" rel="noopener" dir="ltr">${esc(p.replace(/^https?:\/\/(www\.)?/, "").slice(0, 50))}${p.replace(/^https?:\/\/(www\.)?/, "").length > 50 ? "…" : ""}</a>`; }).join("");
 }
