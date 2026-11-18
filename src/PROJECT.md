@@ -35,7 +35,7 @@ RLS helpers live in the `private` schema: is_admin, is_member_of, sees_numbers, 
 - Sidebar: Today (admin) / My Tasks (members), Clients, Review, Finance (admin), Settings (Team & Permissions, Clients, Backup & Sheets, Account).
 - Client page side views: Results (Total + each team member's slice), Plan (Strategy, Media plan, Campaigns), Client (Files, Visa [admin], Notes, Deliveries, Tasks).
 - Members who have "see whole client" get an overview strip (sales, spend, ROAS) on their own results.
-- Strategy (client page > Plan > Strategy; code at the end of `core.js`, helpers `strategyView`, `strOf`, state `STR`; CSS `.st-*`): tab "المتجر والمنافسين" (cards or a compare table; our store marked متجرنا and shown first; a "الخلاصة والفرص" note) and tab "Customer Avatar" (one or more avatars). New roadmap sessions add tabs here.
+- Strategy (client page > Plan > Strategy; code at the end of `core.js`, helpers `strategyView`, `strOf`, state `STR`; CSS `.st-*`): tab "المتجر والمنافسين" (cards or a compare table; our store marked متجرنا and shown first; a "الخلاصة والفرص" note) and tab "Social Media" (stores across × IG/TikTok/Snap/X/YouTube down; stored inside each `store` row as `data.social[ig|tt|snap|x|yt] = {has,url,fol,eng,media[],pct,note}` + `data.social_extra`; summary note kind `social_note`; helpers `stSocial`, `openSocial`, `stNum`), and tab "Customer Avatar" (one or more avatars). New roadmap sessions add tabs here.
 - Media plan: per month; platform monthly total typed manually; campaign budget = **daily** spend (they are not linked); pacing bar; branded PDF export with a campaign tree.
 - Campaigns: Search builder (settings, ad groups, keywords with match types, RSA 15/4 with counters and pins, extensions, tracking checklist, testing/optimization, QA, Google Ads Editor CSV export) and PMax (asset groups, themes, signals, QA, Editor export).
 - Side notes on Today + per-client Notes (timestamped; issues can be marked resolved; "copy month summary"); the report skill reads `client_notes`.
@@ -52,7 +52,7 @@ Source sheets Zyad uses today (read only, never edit):
 
 Planned sessions, in order (tick when deployed):
 1. [x] (deployed 18 Nov) Store + competitors analysis (website) + Customer Avatar.
-2. [ ] Social media analysis for the store and each competitor: per platform (IG, TikTok, Snap, X, YouTube): link, media type, share %, engagement, followers, brief note. Attach to the existing store rows (kind `store`) so the compare table can show it.
+2. [x] (deployed 18 Nov) Social media analysis for the store and each competitor: per platform (IG, TikTok, Snap, X, YouTube): link, media type, share %, engagement, followers, brief note. Attach to the existing store rows (kind `store`) so the compare table can show it.
 3. [ ] KW research (Search): keyword, avg monthly searches, competition, low/high bid, impression share, 3-month change, YoY; group keywords and send them to a Search campaign ad group.
 4. [ ] Design ideas → designer task: landing page, angle, inspiration (link/image), tagline (design text), ad copy, size, platforms. Each row can become a task.
 5. [ ] Motion ideas → task: task type, reference link, video idea, edits, on-screen text, music, AI voice-over yes/no, outro CTA, notes.
