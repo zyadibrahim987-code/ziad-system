@@ -1063,7 +1063,7 @@ function clientViews(c, see, mp){
   O.push({ k:"deliv", l:"Deliveries", sub: isAdmin() ? "التسليمات اللي اتعملت" : "تسليماتك على العميل" });
   O.push({ k:"tasks", l:"Tasks", sub: isAdmin() ? "كل مهام العميل" : "تاسكاتك على العميل" });
   const P = [];
-  if (canPlan(c.id)) { P.push({ k:"mplan", l:"Media plan", sub:"الميزانية والحملات" }); P.push({ k:"camps", l:"Campaigns", sub:"Search · PMax" }); }
+  if (canPlan(c.id)) { P.push({ k:"strat", l:"Strategy", sub:"المتجر والمنافسين · Avatar" }); P.push({ k:"mplan", l:"Media plan", sub:"الميزانية والحملات" }); P.push({ k:"camps", l:"Campaigns", sub:"Search · PMax" }); }
   return { R, O, P };
 }
 function sliceMetric(c, sl, ym){
@@ -1078,7 +1078,7 @@ function clientBody(c, ym, see, mp){
   let k = ui.cv[c.id]; if (!all.some(v => v.k === k)) k = (R[0] || O[0]).k;
   const v = all.find(x => x.k === k);
   const item = x => `<button class="${x.k === k ? "on" : ""}" onclick="ui.cv=ui.cv||{};ui.cv['${c.id}']='${x.k}';ui.selDay=null;saveUi();render()">
-      ${x.av ? avatar(x.av, 22) : `<span class="cv-ic">${x.k === "total" ? "Σ" : x.k === "files" ? "⌗" : x.k === "deliv" ? "↗" : x.k === "mplan" ? "▤" : x.k === "camps" ? "◎" : x.k === "notes" ? "✎" : x.k === "visa" ? "▭" : "✓"}</span>`}
+      ${x.av ? avatar(x.av, 22) : `<span class="cv-ic">${x.k === "total" ? "Σ" : x.k === "files" ? "⌗" : x.k === "deliv" ? "↗" : x.k === "mplan" ? "▤" : x.k === "camps" ? "◎" : x.k === "strat" ? "◈" : x.k === "notes" ? "✎" : x.k === "visa" ? "▭" : "✓"}</span>`}
       <span class="cv-t"><b>${esc(x.l)}</b><span>${esc(x.sub)}</span></span>
       ${R.includes(x) ? `<span class="cv-m">${sliceMetric(c, x.sl, ym)}</span>` : ""}</button>`;
   const nav = `<nav class="cnav">${R.length ? `<div class="cnav-l">Results</div>${R.map(item).join("")}` : ""}${P.length ? `<div class="cnav-l">Plan</div>${P.map(item).join("")}` : ""}<div class="cnav-l">Client</div>${O.map(item).join("")}</nav>`;
@@ -1094,6 +1094,7 @@ function sliceAdvice(c, sl){
 function clientPanel(c, ym, v, see, mp){
   const head = (t, sub, av) => `<div class="cv-head">${av ? avatar(av, 30) : ""}<div><h2>${t}</h2>${sub ? `<div class="ph-sub">${sub}</div>` : ""}</div></div>`;
   if (v.k === "files") return head("Files", "لينكات درايف وملفات العميل، وأي حد على العميل يقدر يضيف ويعدّل") + filesBlock(c).replace(/^<div class="section-title">[\s\S]*?<\/div>/, "");
+  if (v.k === "strat") return strategyView(c);
   if (v.k === "mplan") return mediaPlanView(c);
   if (v.k === "camps") return campaignsView(c);
   if (v.k === "notes") return clientNotesView(c);
@@ -2392,3 +2393,178 @@ function clientOverview(c, ym, rows, prev){
     : (() => { const ad = agg(adRows(rows)), pd = agg(adRows(prev || [])); return [box("الصرف", money("", ad.s, cu, 0), deltaHtml(ad.s, pd.s, true)), box("التحويلات", fmt(ad.conv), deltaHtml(ad.conv, pd.conv, false)), box("تكلفة التحويل", ad.cpl != null ? money("", ad.cpl, cu, 2) : "—", deltaHtml(ad.cpl, pd.cpl, true))]; })();
   return `<div class="ovw"><div class="ovw-h"><b>العميل كله · ${monthLabel(ym)}</b><a href="#" class="tiny" onclick="ui.cv=ui.cv||{};ui.cv['${c.id}']='total';render();window.scrollTo(0,0);return false">التفاصيل في Total ←</a></div><div class="ovw-g" style="grid-template-columns:repeat(${cells.length},1fr)">${cells.join("")}</div></div>`;
 }
+
+/* ================= Strategy: store + competitors analysis, Customer Avatar ================= */
+let STR = {}, STRload = {};
+async function loadStrat(cid, force){
+  if (STRload[cid] && !force) return STRload[cid];
+  STRload[cid] = (async () => { try { STR[cid] = await q(sb.from("strategy_items").select("*").eq("client_id", cid).order("sort").order("updated_at"), "strat"); } catch(e){ STR[cid] = []; toast("مقدرتش أجيب الاستراتيجي: " + (e.message || e)); } render(); })();
+  return STRload[cid];
+}
+const strOf = (cid, kind) => (STR[cid] || []).filter(x => x.kind === kind);
+const ST_RATE = { good:["كويس","ok"], mid:["متوسط","amb"], bad:["ضعيف","bad"] };
+const ST_PRICE = { low:["رخيص"], avg:["متوسط"], high:["غالي"] };
+const ST_CMP = { less:["أرخص مننا","bad"], same:["نفس سعرنا","grey"], more:["أغلى مننا","ok"] };
+const ST_PLAT = ["Salla","Zid","Shopify","WordPress","برمجة خاصة"];
+const ST_PAY = ["دفع أونلاين","الدفع عند الاستلام","Apple Pay","STC Pay","تحويل بنكي"];
+const ST_INST = ["Tabby","Tamara","مفيش تقسيط"];
+/* every field of a store, in order; used by the cards, the compare table and the form */
+const ST_F = [
+  { k:"platform", l:"المنصة" }, { k:"products", l:"بيبيع إيه" },
+  { k:"speed", l:"سرعة الموقع", t:"rate" }, { k:"uiux", l:"UI & UX", t:"rate" },
+  { k:"best", l:"البيست سيلر" }, { k:"best_url", l:"لينك البيست سيلر", t:"url" },
+  { k:"img", l:"صور المنتجات", t:"rate" }, { k:"desc", l:"وصف المنتج", t:"rate" },
+  { k:"price", l:"مستوى الأسعار", t:"price" }, { k:"cmp", l:"سعره مقارنة بينا", t:"cmp" },
+  { k:"offers", l:"العروض" }, { k:"strengths", l:"نقط القوة" }, { k:"weak", l:"نقط الضعف" },
+  { k:"pay", l:"طرق الدفع", t:"list" }, { k:"inst", l:"التقسيط", t:"list" }
+];
+const ST_AV = [
+  { k:"age", l:"السن", ph:"مثلاً 20 - 40" }, { k:"gender", l:"النوع", t:"seg", o:["ذكر","أنثى","الاتنين"] },
+  { k:"family", l:"وضعه في الأسرة", ph:"مثلاً أحد الأبناء أو زوج" }, { k:"region", l:"المنطقة", ph:"مثلاً الرياض، جدة، مكة، الدمام" },
+  { k:"income", l:"مستوى الدخل", t:"seg", o:["منخفض","متوسط","متوسط لمرتفع","مرتفع"] }, { k:"living", l:"مستوى المعيشة", ph:"مثلاً متوسط وبيدوّر على العروض" },
+  { k:"job", l:"الوظيفة", ph:"مثلاً طالب جامعي أو موظف" }, { k:"marital", l:"الحالة الاجتماعية", t:"seg", o:["أعزب","متجوز","الاتنين"] },
+  { k:"why", l:"ليه بيشتري", t:"area", ph:"إيه اللي بيخليه يشتري المنتج" }, { k:"pains", l:"مشاكله ومخاوفه", t:"area", ph:"إيه اللي ممكن يخليه مايشتريش" },
+  { k:"where", l:"موجود فين", t:"list", o:["Snapchat","TikTok","Instagram","X","YouTube","Google"] }
+];
+
+function strategyView(c){
+  const edit = canEditPlan(c.id), tab = ui.stTab === "avatar" ? "avatar" : "store";
+  let h = `<div class="cv-head"><div><h2>Strategy</h2><div class="ph-sub">تحليل المتجر والمنافسين والعميل المستهدف${edit ? "" : " · للعرض بس"}</div></div></div>
+    <div class="st-tabs"><button class="${tab === "store" ? "on" : ""}" onclick="ui.stTab='store';saveUi();render()">المتجر والمنافسين</button><button class="${tab === "avatar" ? "on" : ""}" onclick="ui.stTab='avatar';saveUi();render()">Customer Avatar</button></div>`;
+  if (!(c.id in STR)) { loadStrat(c.id); return h + `<div class="card empty">بيحمّل…</div>`; }
+  return h + (tab === "avatar" ? stAvatars(c, edit) : stStores(c, edit));
+}
+/* ---- stores ---- */
+const stSorted = cid => { const L = strOf(cid, "store"); return [...L.filter(x => x.data.self), ...L.filter(x => !x.data.self)]; };
+function stVal(f, d, short){
+  const v = d[f.k];
+  if (v == null || v === "" || (Array.isArray(v) && !v.length)) return "";
+  if (f.t === "rate") { const r = ST_RATE[v]; return r ? `<span class="chip ${r[1]}">${r[0]}</span>` : esc(v); }
+  if (f.t === "price") return esc((ST_PRICE[v] || [v])[0]);
+  if (f.t === "cmp") { const r = ST_CMP[v]; return r ? `<span class="chip ${r[1]}">${r[0]}</span>` : esc(v); }
+  if (f.t === "list") return v.map(x => `<span class="st-tag">${esc(x)}</span>`).join("");
+  if (f.t === "url") return `<a href="${esc(normUrl(v))}" target="_blank" rel="noopener" dir="ltr">${short ? "فتح ↗" : esc(v)}</a>`;
+  return `<span dir="auto">${esc(v)}</span>`;
+}
+function stStores(c, edit){
+  const L = stSorted(c.id), self = L.find(x => x.data.self), mode = ui.stMode === "table" ? "table" : "cards";
+  const note = strOf(c.id, "store_note")[0], text = (note && note.data.text) || "";
+  if (!L.length) return `<div class="mp-empty"><h3>لسه ماحللتش المتجر ولا المنافسين</h3><p class="small muted">ابدأ بمتجر ${esc(c.name)}، وبعدين ضيف المنافسين واحد واحد. هتقدر تقارنهم كلهم في جدول واحد.</p>
+    ${edit ? `<div class="row" style="justify-content:center;gap:8px;margin-top:10px"><button class="btn primary" onclick="openStore('${c.id}',null,1)">+ ابدأ بمتجر ${esc(c.name)}</button><button class="btn" onclick="openStore('${c.id}')">+ منافس</button></div>` : ""}</div>`;
+  let h = `<div class="row" style="margin:0 0 12px;gap:6px"><div class="st-seg"><button class="${mode === "cards" ? "on" : ""}" onclick="ui.stMode='cards';saveUi();render()">كروت</button><button class="${mode === "table" ? "on" : ""}" onclick="ui.stMode='table';saveUi();render()">جدول مقارنة</button></div>
+    <span class="tiny muted">${L.length - (self ? 1 : 0)} ${L.length - (self ? 1 : 0) === 1 ? "منافس" : "منافسين"}</span><span class="spacer"></span>
+    ${edit && !self ? `<button class="btn sm" onclick="openStore('${c.id}',null,1)">+ متجر ${esc(c.name)}</button>` : ""}${edit ? `<button class="btn sm primary" onclick="openStore('${c.id}')">+ منافس</button>` : ""}</div>`;
+  if (mode === "table") {
+    h += `<div class="st-tbl"><table><thead><tr><th></th>${L.map(x => `<th class="${x.data.self ? "me" : ""}"><b dir="auto">${esc(x.data.name || "—")}</b>${x.data.self ? `<span class="st-me">متجرنا</span>` : ""}${x.data.url ? `<a href="${esc(normUrl(x.data.url))}" target="_blank" rel="noopener" class="tiny">الموقع ↗</a>` : ""}</th>`).join("")}</tr></thead><tbody>
+      ${ST_F.filter(f => L.some(x => stVal(f, x.data))).map(f => `<tr><th>${f.l}</th>${L.map(x => `<td class="${x.data.self ? "me" : ""}">${f.k === "cmp" && x.data.self ? `<span class="muted">—</span>` : stVal(f, x.data, 1) || `<span class="muted">—</span>`}</td>`).join("")}</tr>`).join("")}
+      ${[...new Set(L.flatMap(x => (x.data.extra || []).map(e => e.label).filter(Boolean)))].map(lb => `<tr><th dir="auto">${esc(lb)}</th>${L.map(x => { const e = (x.data.extra || []).find(e => e.label === lb); return `<td class="${x.data.self ? "me" : ""}">${e && e.value ? `<span dir="auto">${esc(e.value)}</span>` : `<span class="muted">—</span>`}</td>`; }).join("")}</tr>`).join("")}
+      </tbody></table></div>`;
+  } else {
+    h += `<div class="st-grid">${L.map(x => stCard(c, x, edit)).join("")}${edit ? `<button class="st-addc" onclick="openStore('${c.id}')">+ منافس جديد</button>` : ""}</div>`;
+  }
+  h += `<div class="st-sum"><label class="f" style="margin-top:0">الخلاصة والفرص <span class="tiny muted">(إيه اللي طلعنا بيه من التحليل)</span></label>
+    <textarea class="inp" dir="auto" rows="4" ${edit ? "" : "readonly"} placeholder="مثلاً: معظم المنافسين مفيش عندهم دفع عند الاستلام، وده نقطة قوة لينا نركز عليها في الإعلانات" onchange="saveStratNote('${c.id}',this.value)">${esc(text)}</textarea></div>`;
+  return h;
+}
+function stCard(c, x, edit){
+  const d = x.data, row = f => { const v = f.k === "cmp" && d.self ? "" : stVal(f, d); return v ? `<div class="st-f"><span>${f.l}</span><div>${v}</div></div>` : ""; };
+  const rates = ["speed","uiux","img","desc"].map(k => ST_F.find(f => f.k === k)).filter(f => d[f.k]);
+  const body = ST_F.filter(f => !["platform","speed","uiux","img","desc","cmp"].includes(f.k)).map(row).join("") + (d.extra || []).filter(e => e.value).map(e => `<div class="st-f"><span dir="auto">${esc(e.label || "خانة")}</span><div dir="auto">${esc(e.value)}</div></div>`).join("");
+  return `<div class="st-card${d.self ? " me" : ""}">
+    <div class="st-ch"><div style="flex:1;min-width:0"><b dir="auto">${esc(d.name || "—")}</b>${d.self ? `<span class="st-me">متجرنا</span>` : ""}
+      <div class="tiny muted">${[d.platform ? `<bdi>${esc(d.platform)}</bdi>` : "", d.url ? `<a href="${esc(normUrl(d.url))}" target="_blank" rel="noopener" dir="ltr">${esc(String(d.url).replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, ""))}</a>` : ""].filter(Boolean).join(" · ")}</div></div>
+      ${!d.self && ST_CMP[d.cmp] ? `<span class="chip ${ST_CMP[d.cmp][1]}">${ST_CMP[d.cmp][0]}</span>` : ""}</div>
+    ${rates.length ? `<div class="st-rates">${rates.map(f => `<span><i>${f.l}</i>${stVal(f, d)}</span>`).join("")}</div>` : ""}
+    <div class="st-body">${body || `<div class="small muted">مفيش تفاصيل لسه.</div>`}</div>
+    ${edit ? `<div class="row st-act"><button class="btn xs" onclick="openStore('${c.id}','${x.id}')">✏️ تعديل</button><span class="spacer"></span><button class="btn xs ghost" onclick="delStrat('${c.id}','${x.id}')">🗑 مسح</button></div>` : ""}</div>`;
+}
+const stRateInp = (k, v) => `<div class="seg-pick">${Object.entries(ST_RATE).map(([o, [l]]) => `<label><input type="radio" name="sf_${k}" value="${o}" ${v === o ? "checked" : ""}><span>${l}</span></label>`).join("")}<label><input type="radio" name="sf_${k}" value="" ${!v ? "checked" : ""}><span>مش متقيّم</span></label></div>`;
+const stPickInp = (k, map, v) => `<div class="seg-pick">${Object.entries(map).map(([o, [l]]) => `<label><input type="radio" name="sf_${k}" value="${esc(o)}" ${v === o ? "checked" : ""}><span>${l}</span></label>`).join("")}<label><input type="radio" name="sf_${k}" value="" ${!v ? "checked" : ""}><span>مش محدد</span></label></div>`;
+const stListInp = (k, opts, v) => { v = v || []; return `<div class="seg-pick">${[...new Set([...opts, ...v])].map(o => `<label><input type="checkbox" name="sf_${k}" value="${esc(o)}" ${v.includes(o) ? "checked" : ""}><span>${esc(o)}</span></label>`).join("")}</div>`; };
+function openStore(cid, id, self){
+  const c = clientById(cid), x = id ? strOf(cid, "store").find(s => s.id === id) : null;
+  const d = x ? x.data : self ? { self:true, name: c.name, url: ((c.links || []).find(l => /^https?:|\./.test(l.url || "")) || {}).url || "" } : {};
+  const isSelf = !!d.self, inp = (k, ph, ltr) => `<input class="inp" id="sf_${k}" dir="${ltr ? "ltr" : "auto"}" value="${esc(d[k] || "")}" placeholder="${ph || ""}">`, area = (k, ph) => `<textarea class="inp" id="sf_${k}" dir="auto" rows="2" placeholder="${ph || ""}">${esc(d[k] || "")}</textarea>`;
+  openModal(`<h2>${x ? "تعديل" : "إضافة"} ${isSelf ? "متجرنا" : "منافس"}</h2>
+    <div class="mp-form st-form">
+      <div class="st-sec">الأساسيات</div>
+      <div class="two"><div><label class="f">الاسم</label>${inp("name", isSelf ? "" : "مثلاً GNM")}</div><div><label class="f">لينك الموقع</label>${inp("url", "https://", 1)}</div></div>
+      <label class="f">المنصة</label><input class="inp" id="sf_platform" dir="auto" list="stPlats" value="${esc(d.platform || "")}" placeholder="اختار أو اكتب"><datalist id="stPlats">${ST_PLAT.map(p => `<option value="${p}">`).join("")}</datalist>
+      <label class="f">بيبيع إيه</label>${area("products", "مثلاً: تجميعات بي سي، شاشات، إكسسوارات ألعاب")}
+      <div class="st-sec">الموقع</div>
+      <div class="two"><div><label class="f">السرعة</label>${stRateInp("speed", d.speed)}</div><div><label class="f">UI & UX</label>${stRateInp("uiux", d.uiux)}</div></div>
+      <div class="st-sec">المنتجات والأسعار</div>
+      <div class="two"><div><label class="f">البيست سيلر</label>${inp("best", "اسم المنتج")}</div><div><label class="f">لينكه</label>${inp("best_url", "https://", 1)}</div></div>
+      <div class="two"><div><label class="f">صور المنتجات</label>${stRateInp("img", d.img)}</div><div><label class="f">وصف المنتج</label>${stRateInp("desc", d.desc)}</div></div>
+      <label class="f">مستوى الأسعار</label>${stPickInp("price", ST_PRICE, d.price)}
+      ${isSelf ? "" : `<label class="f">سعره مقارنة بينا</label>${stPickInp("cmp", ST_CMP, d.cmp)}`}
+      <div class="st-sec">العروض والمميزات</div>
+      <label class="f">العروض</label>${area("offers", "مثلاً: خصومات على بعض المنتجات، شحن مجاني، اشتري تجميعة وخد شاشة")}
+      <div class="two"><div><label class="f">نقط القوة</label>${area("strengths", "مثلاً: خدمة ما بعد البيع ممتازة")}</div><div><label class="f">نقط الضعف</label>${area("weak", "مثلاً: الموقع بطيء")}</div></div>
+      <div class="st-sec">الدفع</div>
+      <label class="f">طرق الدفع</label>${stListInp("pay", ST_PAY, d.pay)}
+      <label class="f">التقسيط</label>${stListInp("inst", ST_INST, d.inst)}
+      <div id="sfExtra" class="dyn" style="margin-top:10px">${(d.extra || []).map(extraRow).join("")}</div>
+      <button type="button" class="dyn-add" onclick="dynAdd('sfExtra', extraRow({}), true)">+ خانة جديدة <span class="tiny muted">(تسمّيها زي ما تحب)</span></button>
+    </div>
+    <div class="actions"><span class="spacer"></span><button class="btn" onclick="closeModal()">إلغاء</button><button class="btn primary" onclick="saveStore('${cid}','${id || ""}',${isSelf ? 1 : 0})">حفظ</button></div>`, true);
+}
+async function saveStore(cid, id, self){
+  const g = k => ($("#sf_" + k) ? $("#sf_" + k).value.trim() : ""), r = k => (document.querySelector(`input[name="sf_${k}"]:checked`) || {}).value || "", cb = k => [...document.querySelectorAll(`input[name="sf_${k}"]:checked`)].map(i => i.value);
+  const d = { self: !!self, name: g("name"), url: g("url"), platform: g("platform"), products: g("products"), speed: r("speed"), uiux: r("uiux"), best: g("best"), best_url: g("best_url"), img: r("img"), desc: r("desc"), price: r("price"), cmp: self ? "" : r("cmp"), offers: g("offers"), strengths: g("strengths"), weak: g("weak"), pay: cb("pay"), inst: cb("inst"), extra: dynRead("sfExtra", ["label","value"]).filter(x => x.label || x.value) };
+  if (!d.name) return toast("اكتب اسم المتجر");
+  await stSave(cid, id, "store", d);
+}
+/* ---- avatars ---- */
+function stAvatars(c, edit){
+  const L = strOf(c.id, "avatar");
+  if (!L.length) return `<div class="mp-empty"><h3>مين العميل اللي بنكلّمه؟</h3><p class="small muted">اعمل بروفايل للعميل المستهدف: سنه، ومنطقته، ودخله، وليه بيشتري. ممكن تعمل أكتر من واحد لو في أكتر من نوع عميل.</p>
+    ${edit ? `<div class="row" style="justify-content:center;margin-top:10px"><button class="btn primary" onclick="openAvatar('${c.id}')">+ أول Avatar</button></div>` : ""}</div>`;
+  return `<div class="st-grid">${L.map(x => { const d = x.data;
+    const rows = ST_AV.map(f => { const v = d[f.k]; if (!v || (Array.isArray(v) && !v.length)) return ""; return `<div class="st-f"><span>${f.l}</span><div>${Array.isArray(v) ? v.map(t => `<span class="st-tag">${esc(t)}</span>`).join("") : `<span dir="auto">${esc(v)}</span>`}</div></div>`; }).join("") + (d.extra || []).filter(e => e.value).map(e => `<div class="st-f"><span dir="auto">${esc(e.label || "خانة")}</span><div dir="auto">${esc(e.value)}</div></div>`).join("");
+    return `<div class="st-card"><div class="st-ch"><span class="st-av">${esc((d.name || "؟").trim().charAt(0))}</span><div style="flex:1;min-width:0"><b dir="auto">${esc(d.name || "Avatar")}</b><div class="tiny muted">${[d.gender, d.age, d.region].filter(Boolean).map(esc).join(" · ")}</div></div></div>
+      <div class="st-body">${rows || `<div class="small muted">مفيش تفاصيل لسه.</div>`}</div>
+      ${edit ? `<div class="row st-act"><button class="btn xs" onclick="openAvatar('${c.id}','${x.id}')">✏️ تعديل</button><button class="btn xs ghost" onclick="dupStrat('${c.id}','${x.id}')">⧉ نسخة</button><span class="spacer"></span><button class="btn xs ghost" onclick="delStrat('${c.id}','${x.id}')">🗑 مسح</button></div>` : ""}</div>`; }).join("")}
+    ${edit ? `<button class="st-addc" onclick="openAvatar('${c.id}')">+ Avatar تاني</button>` : ""}</div>`;
+}
+function openAvatar(cid, id){
+  const x = id ? strOf(cid, "avatar").find(s => s.id === id) : null, d = x ? x.data : {};
+  const fld = f => f.t === "seg" ? `<div class="seg-pick">${f.o.map(o => `<label><input type="radio" name="sf_${f.k}" value="${o}" ${d[f.k] === o ? "checked" : ""}><span>${o}</span></label>`).join("")}<label><input type="radio" name="sf_${f.k}" value="" ${!d[f.k] ? "checked" : ""}><span>مش محدد</span></label></div>`
+    : f.t === "list" ? stListInp(f.k, f.o, d[f.k]) : f.t === "area" ? `<textarea class="inp" id="sf_${f.k}" dir="auto" rows="2" placeholder="${f.ph || ""}">${esc(d[f.k] || "")}</textarea>` : `<input class="inp" id="sf_${f.k}" dir="auto" value="${esc(d[f.k] || "")}" placeholder="${f.ph || ""}">`;
+  const half = ST_AV.filter(f => !f.t || f.t === "seg"), rest = ST_AV.filter(f => f.t === "area" || f.t === "list");
+  let pairs = ""; for (let i = 0; i < half.length; i += 2) pairs += `<div class="two">${half.slice(i, i + 2).map(f => `<div><label class="f">${f.l}</label>${fld(f)}</div>`).join("")}</div>`;
+  openModal(`<h2>${x ? "تعديل" : ""} Customer Avatar</h2>
+    <div class="mp-form st-form">
+      <label class="f">الاسم <span class="tiny muted">(اسم تتخيله للعميل، مثلاً بدر)</span></label><input class="inp" id="sf_name" dir="auto" value="${esc(d.name || "")}" placeholder="مثلاً بدر" autofocus>
+      ${pairs}${rest.map(f => `<label class="f">${f.l}</label>${fld(f)}`).join("")}
+      <div id="sfExtra" class="dyn" style="margin-top:10px">${(d.extra || []).map(extraRow).join("")}</div>
+      <button type="button" class="dyn-add" onclick="dynAdd('sfExtra', extraRow({}), true)">+ خانة جديدة <span class="tiny muted">(تسمّيها زي ما تحب)</span></button>
+    </div>
+    <div class="actions"><span class="spacer"></span><button class="btn" onclick="closeModal()">إلغاء</button><button class="btn primary" onclick="saveAvatar('${cid}','${id || ""}')">حفظ</button></div>`, true);
+}
+async function saveAvatar(cid, id){
+  const d = { name: ($("#sf_name").value || "").trim() };
+  for (const f of ST_AV) d[f.k] = f.t === "seg" ? ((document.querySelector(`input[name="sf_${f.k}"]:checked`) || {}).value || "") : f.t === "list" ? [...document.querySelectorAll(`input[name="sf_${f.k}"]:checked`)].map(i => i.value) : ($("#sf_" + f.k).value || "").trim();
+  d.extra = dynRead("sfExtra", ["label","value"]).filter(x => x.label || x.value);
+  await stSave(cid, id, "avatar", d);
+}
+/* ---- shared save / delete ---- */
+async function stSave(cid, id, kind, data){
+  try {
+    if (id) await q(sb.from("strategy_items").update({ data, updated_at: new Date().toISOString() }).eq("id", id), "stupd");
+    else await q(sb.from("strategy_items").insert({ client_id:cid, kind, data, sort: strOf(cid, kind).length }), "stins");
+    closeModal(); toast("اتحفظ ✓"); await loadStrat(cid, true);
+  } catch(e){ toast("ماتحفظش: " + (e.message || e)); }
+}
+async function saveStratNote(cid, text){
+  const n = strOf(cid, "store_note")[0];
+  try {
+    if (n) { await q(sb.from("strategy_items").update({ data:{ text }, updated_at: new Date().toISOString() }).eq("id", n.id), "stnote"); n.data = { text }; }
+    else { await q(sb.from("strategy_items").insert({ client_id:cid, kind:"store_note", data:{ text } }), "stnotei"); await loadStrat(cid, true); }
+    toast("اتحفظ ✓");
+  } catch(e){ toast("ماتحفظش: " + (e.message || e)); }
+}
+async function dupStrat(cid, id){ const x = (STR[cid] || []).find(s => s.id === id); if (!x) return; const data = JSON.parse(JSON.stringify(x.data)); data.name = (data.name || "") + " (نسخة)"; data.self = false; await stSave(cid, "", x.kind, data); }
+function delStrat(cid, id){ const x = (STR[cid] || []).find(s => s.id === id); if (!x) return;
+  openModal(`<h2>تمسح «${esc(x.data.name || "ده")}»؟</h2><p class="small muted">مش هينفع ترجّعه تاني.</p><div class="actions"><span class="spacer"></span><button class="btn" onclick="closeModal()">لا</button><button class="btn danger" onclick="doDelStrat('${cid}','${id}')">امسح</button></div>`); }
+async function doDelStrat(cid, id){ try { await q(sb.from("strategy_items").delete().eq("id", id), "stdel"); closeModal(); toast("اتمسح"); await loadStrat(cid, true); } catch(e){ toast("ماتمسحش"); } }
