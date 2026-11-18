@@ -2725,12 +2725,12 @@ const ST_AV = [
 ];
 
 function strategyView(c){
-  const edit = canEditPlan(c.id), tab = ["avatar","social","kw","design","motion"].includes(ui.stTab) ? ui.stTab : "store";
+  const edit = canEditPlan(c.id), tab = ["avatar","social","kw","design","motion","shoot"].includes(ui.stTab) ? ui.stTab : "store";
   const tb = (k, l) => `<button class="${tab === k ? "on" : ""}" onclick="ui.stTab='${k}';saveUi();render()">${l}</button>`;
-  let h = `<div class="cv-head"><div><h2>Strategy</h2><div class="ph-sub">تحليل المتجر والمنافسين والسوشيال والعميل المستهدف وبحث الكلمات وأفكار التصميم والموشن${edit ? "" : " · للعرض بس"}</div></div></div>
-    <div class="st-tabs">${tb("store", "المتجر والمنافسين")}${tb("social", "Social Media")}${tb("avatar", "Customer Avatar")}${tb("kw", "KW research")}${tb("design", "Design ideas")}${tb("motion", "Motion ideas")}</div>`;
+  let h = `<div class="cv-head"><div><h2>Strategy</h2><div class="ph-sub">تحليل المتجر والمنافسين والسوشيال والعميل المستهدف وبحث الكلمات وأفكار التصميم والموشن والتصوير${edit ? "" : " · للعرض بس"}</div></div></div>
+    <div class="st-tabs">${tb("store", "المتجر والمنافسين")}${tb("social", "Social Media")}${tb("avatar", "Customer Avatar")}${tb("kw", "KW research")}${tb("design", "Design ideas")}${tb("motion", "Motion ideas")}${tb("shoot", "Shooting ideas")}</div>`;
   if (!(c.id in STR)) { loadStrat(c.id); return h + `<div class="card empty">بيحمّل…</div>`; }
-  return h + (tab === "motion" ? moView(c, edit) : tab === "design" ? diView(c, edit) : tab === "kw" ? kwView(c, edit) : tab === "avatar" ? stAvatars(c, edit) : tab === "social" ? stSocial(c, edit) : stStores(c, edit));
+  return h + (tab === "shoot" ? shView(c, edit) : tab === "motion" ? moView(c, edit) : tab === "design" ? diView(c, edit) : tab === "kw" ? kwView(c, edit) : tab === "avatar" ? stAvatars(c, edit) : tab === "social" ? stSocial(c, edit) : stStores(c, edit));
 }
 /* ---- stores ---- */
 const stSorted = cid => { const L = strOf(cid, "store"); return [...L.filter(x => x.data.self), ...L.filter(x => !x.data.self)]; };
@@ -3280,7 +3280,8 @@ function diBrief(d){
 /* idea kinds that can become tasks (design ideas, motion ideas) */
 const IDEA_K = {
   design_idea: { list: cid => diIdeas(cid), brief: d => diBrief(d), pre: "تصميم: ", tk: "design", who: /design|ديزا|مصمم|تصميم/i, icon: "🎨", role: "الديزاينر", uiTo: "diTo" },
-  motion_idea: { list: cid => moIdeas(cid), brief: d => moBrief(d), pre: "موشن: ", tk: "motion", who: /motion|موشن|edit|مونتا|فيديو|video/i, icon: "🎬", role: "الموشن ديزاينر", uiTo: "moTo" }
+  motion_idea: { list: cid => moIdeas(cid), brief: d => moBrief(d), pre: "موشن: ", tk: "motion", who: /motion|موشن|edit|مونتا|فيديو|video/i, icon: "🎬", role: "الموشن ديزاينر", uiTo: "moTo" },
+  shoot_idea: { list: cid => shIdeas(cid), brief: d => shBrief(d), pre: "تصوير: ", tk: "shoot", who: /تصوير|مصور|مصوّر|photo|shoot|camera|كاميرا|ugc|content|كونتنت|creator/i, icon: "📸", role: "المصوّر", uiTo: "shTo" }
 };
 function openIdeaTask(cid, id, k){
   if (!isAdmin()) return;
@@ -3436,6 +3437,132 @@ function moBrief(d){
   if (d.cta) L.push("CTA في الآخر: " + d.cta);
   const f = [d.dur, ...(d.sizes || [])].filter(Boolean); if (f.length) L.push("المدة والمقاسات: " + f.join(" · "));
   if ((d.plats || []).length) L.push("المنصات: " + d.plats.join(" · "));
+  if (d.note) L.push("ملاحظات: " + d.note);
+  (d.extra || []).filter(e => e.value).forEach(e => L.push((e.label || "خانة") + ": " + e.value));
+  return L.join("\n\n");
+}
+
+/* ---- Shooting ideas (session 6): one strategy_items row per idea, kind "shoot_idea",
+   data = { title, type, idea, insp:[{url,img}], hook, scenes:[{shot,say,sec}], script, cta, dur, loc, cast, props, sizes[], plats[], note, extra[], task:{id,to,at,due} }
+   Script = scene list (shot + what is said + seconds) and/or free text. Reuses the Design ideas helpers (DI_INSP, diUpload, diPaste, diStatus, IDEA_K).
+   Admin turns an idea into a shoot task (kind "shoot"). ---- */
+const SH_TYPES = ["Product shoot","UGC","Talking head / حد بيتكلم","Lifestyle","Unboxing","Testimonial / رأي عميل","Before / After","Behind the scenes","Street interview"];
+const shIdeas = cid => strOf(cid, "shoot_idea");
+const shSecs = d => (d.scenes || []).reduce((a, x) => a + (parseFloat(x.sec) || 0), 0);
+const sceneRow = x => `<div class="dyn-row sh-sc"><span class="sh-n"></span><textarea class="inp" data-k="shot" dir="auto" rows="2" placeholder="اللقطة: بنشوف إيه؟ (مثلاً: لقطة قريبة على المنتج في الإيد)">${esc(x.shot || "")}</textarea><textarea class="inp" data-k="say" dir="auto" rows="2" placeholder="الكلام / النص اللي هيتقال">${esc(x.say || "")}</textarea><input class="inp sh-sec" data-k="sec" dir="ltr" inputmode="decimal" value="${esc(x.sec || "")}" placeholder="ث" title="المدة بالثواني" oninput="shTot()"><button type="button" class="btn xs ghost" title="امسح المشهد" onclick="this.parentNode.remove();shTot()">✕</button></div>`;
+function shTot(){ const t = dynRead("shScenes", ["sec"]).reduce((a, x) => a + (parseFloat(x.sec) || 0), 0), e = $("#shTot"); if (e) e.textContent = t ? `مجموع المشاهد: ${t} ثانية` : ""; }
+function shView(c, edit){
+  const L = shIdeas(c.id), f = ui.shF || "all", who = "المصوّر";
+  if (!L.length) return `<div class="mp-empty"><h3>لسه مفيش أفكار تصوير</h3><p class="small muted">سجّل كل فيديو هيتصوّر: الفكرة، الريفرنس، الـ Hook، السكريبت مشهد مشهد، المدة، مكان التصوير، مين هيظهر، والمنتجات والحاجات المطلوبة. ولما تجهز، حوّلها لتاسك للمصوّر بضغطة والبريف بيتكتب لوحده.</p>
+    ${edit ? `<div class="row" style="justify-content:center;margin-top:10px"><button class="btn primary" onclick="openShoot('${c.id}')">+ أول فكرة</button></div>` : ""}</div>`;
+  const S = L.map(x => [x, diStatus(x.data, who)]), cnt = k => S.filter(([, s]) => k === "all" || s.k === k || (k === "sent" && s.k === "returned")).length;
+  const fb = (k, l) => cnt(k) || k === "all" ? `<button class="${f === k ? "on" : ""}" onclick="ui.shF='${k}';saveUi();render()">${l} <span class="tiny">${cnt(k)}</span></button>` : "";
+  const shown = S.filter(([, s]) => f === "all" || s.k === f || (f === "sent" && s.k === "returned"));
+  const fresh = S.filter(([, s]) => s.k === "new").length;
+  let h = `<div class="row" style="margin:0 0 12px;gap:8px;flex-wrap:wrap"><div class="st-seg di-f">${fb("all","الكل")}${fb("new","أفكار")}${fb("sent","عند المصوّر")}${fb("submitted","اتسلّمت")}${fb("approved","اتعتمدت")}</div><span class="spacer"></span>
+    ${isAdmin() && fresh > 1 ? `<button class="btn sm" onclick="openIdeaTask('${c.id}','*','shoot_idea')">📸 ابعت الأفكار الجديدة (${fresh}) للمصوّر</button>` : ""}${edit ? `<button class="btn sm primary" onclick="openShoot('${c.id}')">+ فكرة</button>` : ""}</div>`;
+  h += `<div class="st-grid">${shown.map(([x, s]) => shCard(c, x, s, edit)).join("") || `<div class="small muted">مفيش أفكار في الحالة دي.</div>`}${edit && f === "all" ? `<button class="st-addc" onclick="openShoot('${c.id}')">+ فكرة جديدة</button>` : ""}</div>`;
+  return h;
+}
+function shCard(c, x, s, edit){
+  const d = x.data, imgs = (d.insp || []).filter(i => i.img || isImgUrl(i.url)), links = (d.insp || []).filter(i => !(i.img || isImgUrl(i.url)));
+  const row = (l, v) => v ? `<div class="st-f"><span>${l}</span><div>${v}</div></div>` : "";
+  const tx = v => v ? `<span dir="auto" style="white-space:pre-wrap">${esc(v)}</span>` : "";
+  const sc = (d.scenes || []).filter(z => z.shot || z.say), tot = shSecs(d);
+  const fmt = [d.dur ? `<span class="st-tag" dir="ltr">⏱ ${esc(d.dur)}</span>` : "", ...(d.sizes || []).map(z => `<span class="st-tag" dir="ltr">${esc(z)}</span>`)].join("");
+  const pl = (d.plats || []).map(p => `<span class="st-tag"><bdi>${esc(p)}</bdi></span>`).join("");
+  const due = d.task && d.task.due ? ` · تسليم ${esc(fmtDate(fromKey(d.task.due)))}` : "";
+  const dl = s.s && (s.s.link || s.s.file_path) ? (s.s.link ? `<a class="btn xs" href="${esc(normUrl(s.s.link))}" target="_blank" rel="noopener">👀 شوف التسليم</a>` : isAdmin() ? `<button class="btn xs" onclick="openFile('${esc(s.s.file_path)}')">👀 شوف التسليم</button>` : "") : "";
+  const scH = sc.length ? `<details class="sh-scr"><summary>📝 السكريبت · ${sc.length} ${sc.length > 2 && sc.length < 11 ? "مشاهد" : "مشهد"}${tot ? ` · ${tot} ث` : ""}</summary><ol>${sc.map(z => `<li><div dir="auto">${esc(z.shot || "")}</div>${z.say ? `<div class="sh-say" dir="auto">🗣 ${esc(z.say)}</div>` : ""}${z.sec ? `<span class="sh-t" dir="ltr">${esc(z.sec)}s</span>` : ""}</li>`).join("")}</ol></details>` : "";
+  return `<div class="st-card di-card">
+    ${imgs.length ? `<div class="di-imgs n${Math.min(imgs.length, 3)}">${imgs.slice(0, 3).map(i => `<a href="${esc(i.url)}" target="_blank" rel="noopener"><img src="${esc(i.url)}" loading="lazy" alt=""></a>`).join("")}${imgs.length > 3 ? `<span class="di-more">+${imgs.length - 3}</span>` : ""}</div>` : ""}
+    <div class="st-ch"><div style="flex:1;min-width:0"><b dir="auto">${esc(d.title || "فكرة")}</b>${d.type ? `<div class="tiny muted" dir="auto">📸 ${esc(d.type)}</div>` : ""}</div><span class="chip ${s.c}">${s.l}</span></div>
+    ${d.task && d.task.to ? `<div class="tiny muted">${avatar(d.task.to, 16)} ${esc(personName(d.task.to))}${due}</div>` : ""}
+    ${s.k === "returned" && s.s.review_note ? `<div class="brief bad" style="margin:0">↩︎ ${esc(s.s.review_note)}</div>` : ""}
+    ${d.hook ? `<div class="di-tag" dir="auto">🪝 ${esc(d.hook)}</div>` : ""}
+    ${d.idea ? `<div class="small di-copy" dir="auto" style="white-space:pre-wrap">${esc(d.idea)}</div>` : ""}
+    ${scH}
+    <div class="st-body">
+      ${row("السكريبت", sc.length ? "" : tx(d.script))}${sc.length && d.script ? row("ملاحظات السكريبت", tx(d.script)) : ""}
+      ${row("CTA الآخر", d.cta ? `<b dir="auto">${esc(d.cta)}</b>` : "")}
+      ${row("المدة والمقاس", fmt)}${row("المنصات", pl)}
+      ${row("المكان", tx(d.loc))}${row("مين هيظهر", tx(d.cast))}${row("المطلوب", tx(d.props))}
+      ${row("الريفرنس", links.map(i => `<a href="${esc(normUrl(i.url))}" target="_blank" rel="noopener" dir="ltr" class="di-lnk">${moIsVid(i.url) ? "▶ " : ""}${esc(String(i.url).replace(/^https?:\/\/(www\.)?/, "").slice(0, 40))}</a>`).join(""))}
+      ${row("ملاحظات", tx(d.note))}
+      ${(d.extra || []).filter(e => e.value).map(e => row(`<span dir="auto">${esc(e.label || "خانة")}</span>`, tx(e.value))).join("")}
+    </div>
+    ${edit || dl ? `<div class="row st-act">${isAdmin() ? (s.k === "new" || s.k === "gone" ? `<button class="btn xs primary" onclick="openIdeaTask('${c.id}','${x.id}','shoot_idea')">📸 حوّلها لتاسك</button>` : s.k === "submitted" ? `<button class="btn xs primary" onclick="openReviewItem('${d.task.id}','${s.s.day}')">راجع</button>` : "") : ""}${dl}
+      ${edit ? `<button class="btn xs" onclick="openShoot('${c.id}','${x.id}')">✏️ تعديل</button><button class="btn xs ghost" onclick="dupShoot('${c.id}','${x.id}')" title="نسخة">⧉</button><span class="spacer"></span><button class="btn xs ghost" onclick="delStrat('${c.id}','${x.id}')">🗑</button>` : ""}</div>` : ""}</div>`;
+}
+function openShoot(cid, id){
+  const x = id ? shIdeas(cid).find(s => s.id === id) : null, d = x ? x.data : {};
+  DI_INSP = JSON.parse(JSON.stringify(d.insp || []));
+  const extraS = (d.sizes || []).filter(z => !MO_SIZES.some(o => o[0] === z)), extraP = (d.plats || []).filter(p => !DI_PLATS.includes(p));
+  const sc = (d.scenes || []).length ? d.scenes : [{}, {}, {}];
+  openModal(`<h2>${x ? "تعديل فكرة تصوير" : "فكرة تصوير جديدة"}</h2>
+    <div class="mp-form st-form" onpaste="diPaste(event,'${cid}')">
+      <div class="two"><div><label class="f">اسم الفكرة</label><input class="inp" id="sh_title" dir="auto" value="${esc(d.title || "")}" placeholder="مثلاً: عميل بيجرّب المنتج لأول مرة" autofocus></div>
+        <div><label class="f">نوع التصوير</label><input class="inp" id="sh_type" dir="auto" list="shTypes" value="${esc(d.type || "")}" placeholder="اختار أو اكتب"><datalist id="shTypes">${SH_TYPES.map(a => `<option value="${esc(a)}">`).join("")}</datalist></div></div>
+      <label class="f">الفكرة <span class="tiny muted">(الفيديو بيحكي إيه باختصار)</span></label><textarea class="inp" id="sh_idea" dir="auto" rows="2" placeholder="مثلاً: بنت بتفتح الأوردر وبتوري المنتج وبتقول رأيها بصراحة">${esc(d.idea || "")}</textarea>
+      <label class="f">الريفرنس <span class="tiny muted">(لينك فيديو TikTok / Reels / YouTube أو صورة، أكتر من واحد عادي)</span></label>
+      <div id="diInsp" class="di-insl">${diInspHtml()}</div>
+      <div class="row" style="gap:6px;margin-top:6px"><input class="inp" id="di_iurl" dir="ltr" placeholder="الصق لينك واضغط Enter" style="flex:1" onkeydown="if(event.key==='Enter'){event.preventDefault();diAddUrl()}"><button type="button" class="btn sm" onclick="diAddUrl()">+ لينك</button>
+        <label class="btn sm" style="cursor:pointer">📷 صورة<input type="file" accept="image/*" multiple hidden onchange="diUpload('${cid}',this.files);this.value=''"></label></div>
+      <div id="diUp" class="tiny muted"></div>
+      <label class="f">الـ Hook <span class="tiny muted">(أول 3 ثواني: الجملة أو اللقطة اللي توقف السكرول)</span></label><input class="inp" id="sh_hook" dir="auto" value="${esc(d.hook || "")}" placeholder="مثلاً: «أنا كنت فاكرة إن ده نصب… لحد ما جربته»">
+      <label class="f">السكريبت مشهد مشهد <span class="tiny muted">(اللقطة · الكلام · المدة بالثواني)</span></label>
+      <div id="shScenes" class="dyn sh-list">${sc.map(sceneRow).join("")}</div>
+      <div class="row" style="gap:8px;margin-top:4px"><button type="button" class="dyn-add" style="margin:0" onclick="dynAdd('shScenes', sceneRow({}));shTot()">+ مشهد</button><span class="spacer"></span><span id="shTot" class="tiny muted"></span></div>
+      <label class="f">سكريبت كامل أو ملاحظات عليه <span class="tiny muted">(اختياري، لو حابب تكتبه نص واحد)</span></label><textarea class="inp" id="sh_script" dir="auto" rows="3" placeholder="الصق السكريبت هنا لو مكتوب جاهز">${esc(d.script || "")}</textarea>
+      <div class="two"><div><label class="f">CTA في الآخر</label><input class="inp" id="sh_cta" dir="auto" list="moCtas" value="${esc(d.cta || "")}" placeholder="اختار أو اكتب"><datalist id="moCtas">${MO_CTAS.map(a => `<option value="${esc(a)}">`).join("")}</datalist></div>
+        <div><label class="f">المدة</label><input class="inp" id="sh_dur" dir="ltr" list="moDurs" value="${esc(d.dur || "")}" placeholder="30s"><datalist id="moDurs">${MO_DURS.map(a => `<option value="${a}">`).join("")}</datalist></div></div>
+      <div class="two"><div><label class="f">مكان التصوير</label><input class="inp" id="sh_loc" dir="auto" value="${esc(d.loc || "")}" placeholder="مثلاً: مطبخ بيت، عربية، استوديو"></div>
+        <div><label class="f">مين هيظهر</label><input class="inp" id="sh_cast" dir="auto" value="${esc(d.cast || "")}" placeholder="مثلاً: بنت سعودية 25 سنة، أو إيد بس"></div></div>
+      <label class="f">المنتجات والحاجات المطلوبة <span class="tiny muted">(Props)</span></label><input class="inp" id="sh_props" dir="auto" value="${esc(d.props || "")}" placeholder="مثلاً: العلبة الجديدة، كوباية قهوة، رينج لايت">
+      <label class="f">المقاسات</label>${diChecks("sh_size", MO_SIZES, (d.sizes || []).filter(z => !extraS.includes(z)), 1)}
+      <input class="inp" id="sh_size_o" dir="auto" value="${esc(extraS.join("، "))}" placeholder="مقاس تاني؟ اكتبه (افصل بفاصلة)" style="margin-top:6px">
+      <label class="f">المنصات</label>${diChecks("sh_plat", DI_PLATS, (d.plats || []).filter(p => !extraP.includes(p)))}
+      <input class="inp" id="sh_plat_o" dir="auto" value="${esc(extraP.join("، "))}" placeholder="منصة تانية؟ (افصل بفاصلة)" style="margin-top:6px">
+      <label class="f">ملاحظات للمصوّر</label><textarea class="inp" id="sh_note" dir="auto" rows="2" placeholder="مثلاً: صوّر رأسي، إضاءة طبيعية، وخد لقطات B-roll زيادة">${esc(d.note || "")}</textarea>
+      <div id="shExtra" class="dyn" style="margin-top:10px">${(d.extra || []).map(extraRow).join("")}</div>
+      <button type="button" class="dyn-add" onclick="dynAdd('shExtra', extraRow({}), true)">+ خانة جديدة <span class="tiny muted">(تسمّيها زي ما تحب)</span></button>
+    </div>
+    <div class="actions"><span class="spacer"></span><button class="btn" onclick="closeModal()">إلغاء</button>${isAdmin() && !(d.task && d.task.id) ? `<button class="btn" onclick="saveShoot('${cid}','${id || ""}',1)">حفظ وحوّلها لتاسك 📸</button>` : ""}<button class="btn primary" onclick="saveShoot('${cid}','${id || ""}')">حفظ</button></div>`, true);
+  shTot();
+}
+function shRead(){
+  const g = k => ($("#sh_" + k) ? $("#sh_" + k).value.trim() : ""), cb = n => [...document.querySelectorAll(`input[name="${n}"]:checked`)].map(i => i.value), sp = k => g(k).split(/[,،]/).map(t => t.trim()).filter(Boolean);
+  const u = $("#di_iurl") ? $("#di_iurl").value.trim() : ""; if (u) DI_INSP.push({ url: u });
+  return { title: g("title"), type: g("type"), idea: g("idea"), insp: DI_INSP.slice(), hook: g("hook"), scenes: dynRead("shScenes", ["shot","say","sec"]).filter(z => z.shot || z.say), script: g("script"), cta: g("cta"), dur: g("dur"),
+    loc: g("loc"), cast: g("cast"), props: g("props"), sizes: [...cb("sh_size"), ...sp("size_o")], plats: [...cb("sh_plat"), ...sp("plat_o")], note: g("note"), extra: dynRead("shExtra", ["label","value"]).filter(e => e.label || e.value) };
+}
+async function saveShoot(cid, id, thenTask){
+  const d = shRead(); if (!d.dur && shSecs(d)) d.dur = shSecs(d) + "s";
+  if (!d.title) d.title = (d.idea || d.hook).split("\n")[0].slice(0, 40) || d.type;
+  if (!d.title) return toast("اكتب اسم الفكرة");
+  const old = id ? ((shIdeas(cid).find(s => s.id === id) || {}).data || {}) : {};
+  if (!thenTask) return stSave(cid, id, "shoot_idea", { ...old, ...d });
+  try { let nid = id;
+    if (id) await q(sb.from("strategy_items").update({ data: { ...old, ...d }, updated_at: new Date().toISOString() }).eq("id", id), "shupd");
+    else { const r = await q(sb.from("strategy_items").insert({ client_id:cid, kind:"shoot_idea", data:d, sort: shIdeas(cid).length }).select(), "shins"); nid = r[0].id; }
+    await loadStrat(cid, true); openIdeaTask(cid, nid, "shoot_idea");
+  } catch(e){ toast("ماتحفظش: " + (e.message || e)); }
+}
+async function dupShoot(cid, id){ const x = shIdeas(cid).find(s => s.id === id); if (!x) return; const d = JSON.parse(JSON.stringify(x.data)); delete d.task; d.title = (d.title || "") + " (نسخة)"; await stSave(cid, "", "shoot_idea", d); }
+function shBrief(d){
+  const L = [], sc = (d.scenes || []).filter(z => z.shot || z.say);
+  if (d.type) L.push("نوع التصوير: " + d.type);
+  if (d.idea) L.push("الفكرة:\n" + d.idea);
+  if ((d.insp || []).length) L.push("الريفرنس:\n" + d.insp.map(i => normUrl(i.url)).join("\n"));
+  if (d.hook) L.push("الـ Hook (أول 3 ثواني): " + d.hook);
+  if (sc.length) L.push("السكريبت:\n" + sc.map((z, n) => `${n + 1}) ${z.shot || "—"}${z.sec ? ` (${z.sec} ث)` : ""}${z.say ? `\n   الكلام: ${z.say}` : ""}`).join("\n"));
+  if (d.script) L.push((sc.length ? "ملاحظات السكريبت:\n" : "السكريبت:\n") + d.script);
+  if (d.cta) L.push("CTA في الآخر: " + d.cta);
+  const f = [d.dur, ...(d.sizes || [])].filter(Boolean); if (f.length) L.push("المدة والمقاسات: " + f.join(" · "));
+  if ((d.plats || []).length) L.push("المنصات: " + d.plats.join(" · "));
+  if (d.loc) L.push("مكان التصوير: " + d.loc);
+  if (d.cast) L.push("مين هيظهر: " + d.cast);
+  if (d.props) L.push("المطلوب: " + d.props);
   if (d.note) L.push("ملاحظات: " + d.note);
   (d.extra || []).filter(e => e.value).forEach(e => L.push((e.label || "خانة") + ": " + e.value));
   return L.join("\n\n");
