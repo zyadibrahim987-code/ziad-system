@@ -2428,12 +2428,12 @@ const ST_AV = [
 ];
 
 function strategyView(c){
-  const edit = canEditPlan(c.id), tab = ["avatar","social","kw","design","motion","shoot"].includes(ui.stTab) ? ui.stTab : "store";
+  const edit = canEditPlan(c.id), tab = ["avatar","social","kw","design","motion","shoot","offer"].includes(ui.stTab) ? ui.stTab : "store";
   const tb = (k, l) => `<button class="${tab === k ? "on" : ""}" onclick="ui.stTab='${k}';saveUi();render()">${l}</button>`;
-  let h = `<div class="cv-head"><div><h2>Strategy</h2><div class="ph-sub">تحليل المتجر والمنافسين والسوشيال والعميل المستهدف وبحث الكلمات وأفكار التصميم والموشن والتصوير${edit ? "" : " · للعرض بس"}</div></div></div>
-    <div class="st-tabs">${tb("store", "المتجر والمنافسين")}${tb("social", "Social Media")}${tb("avatar", "Customer Avatar")}${tb("kw", "KW research")}${tb("design", "Design ideas")}${tb("motion", "Motion ideas")}${tb("shoot", "Shooting ideas")}</div>`;
+  let h = `<div class="cv-head"><div><h2>Strategy</h2><div class="ph-sub">تحليل المتجر والمنافسين والسوشيال والعميل المستهدف وبحث الكلمات وأفكار التصميم والموشن والتصوير والعروض${edit ? "" : " · للعرض بس"}</div></div></div>
+    <div class="st-tabs">${tb("store", "المتجر والمنافسين")}${tb("social", "Social Media")}${tb("avatar", "Customer Avatar")}${tb("kw", "KW research")}${tb("design", "Design ideas")}${tb("motion", "Motion ideas")}${tb("shoot", "Shooting ideas")}${tb("offer", "Offers ideas")}</div>`;
   if (!(c.id in STR)) { loadStrat(c.id); return h + `<div class="card empty">بيحمّل…</div>`; }
-  return h + (tab === "shoot" ? shView(c, edit) : tab === "motion" ? moView(c, edit) : tab === "design" ? diView(c, edit) : tab === "kw" ? kwView(c, edit) : tab === "avatar" ? stAvatars(c, edit) : tab === "social" ? stSocial(c, edit) : stStores(c, edit));
+  return h + (tab === "offer" ? ofView(c, edit) : tab === "shoot" ? shView(c, edit) : tab === "motion" ? moView(c, edit) : tab === "design" ? diView(c, edit) : tab === "kw" ? kwView(c, edit) : tab === "avatar" ? stAvatars(c, edit) : tab === "social" ? stSocial(c, edit) : stStores(c, edit));
 }
 /* ---- stores ---- */
 const stSorted = cid => { const L = strOf(cid, "store"); return [...L.filter(x => x.data.self), ...L.filter(x => !x.data.self)]; };
@@ -3269,4 +3269,113 @@ function shBrief(d){
   if (d.note) L.push("ملاحظات: " + d.note);
   (d.extra || []).filter(e => e.value).forEach(e => L.push((e.label || "خانة") + ": " + e.value));
   return L.join("\n\n");
+}
+
+/* ---- Offers ideas (session 7): one strategy_items row per offer, kind "offer_idea",
+   data = { title, type, value, products, occ, from, to, code, cond, why, plats[], status, note, extra[], di }
+   status is set by hand: idea / sent (to the client) / ok (approved) / live / done / no. No finance data here (product prices only). ---- */
+const OF_ST = [ ["idea","فكرة","grey"], ["sent","اتبعتت للعميل","rp"], ["ok","العميل وافق","amb"], ["live","شغّال","ok"], ["done","خلص","grey"], ["no","اترفض","bad"] ];
+const OF_TYPES = ["خصم نسبة %","خصم مبلغ","اشتري 1 وخد 1","اشتري 2 والتالت مجاناً","باندل / تجميعة بسعر أقل","هدية مع الطلب","شحن مجاني","كوبون","سعر خاص لفترة محدودة","عرض أول طلب","عرض على الكمية"];
+const OF_OCC = ["رمضان","عيد الفطر","عيد الأضحى","اليوم الوطني السعودي","يوم التأسيس","الجمعة البيضاء / Black Friday","11.11","12.12","نزول الرواتب","العودة للمدارس","يوم الأم","الشتاء","الصيف","افتتاح / منتج جديد"];
+const ofIdeas = cid => strOf(cid, "offer_idea");
+const ofSt = k => OF_ST.find(s => s[0] === k) || OF_ST[0];
+/* "شغّال دلوقتي" / "يبدأ بعد 5 أيام" / "خلص" from the dates */
+function ofWhen(d){
+  const t = todayK(); if (!d.from && !d.to) return "";
+  if (d.to && d.to < t) return `<span class="chip grey">الفترة خلصت</span>`;
+  if (d.from && d.from > t) { const n = daysBetween(t, d.from); return `<span class="chip amb">يبدأ ${n === 1 ? "بكرة" : `بعد ${n} ${n > 2 && n < 11 ? "أيام" : "يوم"}`}</span>`; }
+  if (d.to) { const n = daysBetween(t, d.to); return `<span class="chip ok">${n === 0 ? "آخر يوم النهارده" : `فاضل ${n} ${n > 2 && n < 11 ? "أيام" : "يوم"}`}</span>`; }
+  return `<span class="chip ok">بدأ</span>`;
+}
+const ofDates = d => d.from || d.to ? `<span dir="auto">${d.from ? fmtShort(d.from) : "…"} ← ${d.to ? fmtShort(d.to) : "…"}</span>` : "";
+function ofView(c, edit){
+  const L = ofIdeas(c.id), f = ui.ofF || "all";
+  if (!L.length) return `<div class="mp-empty"><h3>لسه مفيش أفكار عروض</h3><p class="small muted">سجّل كل عرض بتفكر فيه للعميل: نوعه وقيمته، على أنهي منتجات، المناسبة والفترة، والكوبون والشروط. وتابع حالته: فكرة ← اتبعتت للعميل ← وافق ← شغّال ← خلص. ولما يتوافق عليه، اعمل منه فكرة تصميم بضغطة.</p>
+    ${edit ? `<div class="row" style="justify-content:center;margin-top:10px"><button class="btn primary" onclick="openOffer('${c.id}')">+ أول عرض</button></div>` : ""}</div>`;
+  const S = [...L].sort((a, b) => (a.data.from || "9999").localeCompare(b.data.from || "9999"));
+  const cnt = k => S.filter(x => k === "all" || (x.data.status || "idea") === k).length;
+  const fb = (k, l) => cnt(k) || k === "all" ? `<button class="${f === k ? "on" : ""}" onclick="ui.ofF='${k}';saveUi();render()">${l} <span class="tiny">${cnt(k)}</span></button>` : "";
+  const shown = S.filter(x => f === "all" || (x.data.status || "idea") === f);
+  let h = `<div class="row" style="margin:0 0 12px;gap:8px;flex-wrap:wrap"><div class="st-seg di-f">${fb("all","الكل")}${OF_ST.map(s => fb(s[0], s[1])).join("")}</div><span class="spacer"></span>
+    ${edit ? `<button class="btn sm primary" onclick="openOffer('${c.id}')">+ عرض</button>` : ""}</div>`;
+  h += `<div class="st-grid">${shown.map(x => ofCard(c, x, edit)).join("") || `<div class="small muted">مفيش عروض في الحالة دي.</div>`}${edit && f === "all" ? `<button class="st-addc" onclick="openOffer('${c.id}')">+ عرض جديد</button>` : ""}</div>`;
+  const note = strOf(c.id, "offer_note")[0], text = (note && note.data.text) || "";
+  if (edit || text) h += `<div class="st-sum"><label class="f" style="margin-top:0">ملاحظات عامة على العروض <span class="tiny muted">(إيه اللي اشتغل قبل كده، وإيه اللي العميل مش بيحب يعمله)</span></label>
+    <textarea class="inp" dir="auto" rows="3" ${edit ? "" : "readonly"} placeholder="مثلاً: العميل مش بيحب الخصم أكتر من 20%، والشحن المجاني اشتغل أحسن من الخصم في رمضان اللي فات" onchange="saveStratNote('${c.id}',this.value,'offer_note')">${esc(text)}</textarea></div>`;
+  return h;
+}
+function ofCard(c, x, edit){
+  const d = x.data, s = ofSt(d.status);
+  const row = (l, v) => v ? `<div class="st-f"><span>${l}</span><div>${v}</div></div>` : "";
+  const tx = v => v ? `<span dir="auto" style="white-space:pre-wrap">${esc(v)}</span>` : "";
+  const di = d.di && diIdeas(c.id).find(z => z.id === d.di);
+  const tags = [d.type ? `<span class="st-tag" dir="auto">${esc(d.type)}</span>` : "", d.value ? `<span class="st-tag" dir="auto"><b>${esc(d.value)}</b></span>` : ""].join("");
+  return `<div class="st-card di-card of-card">
+    <div class="st-ch"><div style="flex:1;min-width:0"><b dir="auto">${esc(d.title || "عرض")}</b>${d.occ ? `<div class="tiny muted" dir="auto">🗓 ${esc(d.occ)}</div>` : ""}</div>
+      ${edit ? `<select class="of-st chip ${s[2]}" title="غيّر الحالة" onchange="ofSetSt('${c.id}','${x.id}',this.value)">${OF_ST.map(o => `<option value="${o[0]}" ${o[0] === s[0] ? "selected" : ""}>${o[1]}</option>`).join("")}</select>` : `<span class="chip ${s[2]}">${s[1]}</span>`}</div>
+    ${tags ? `<div class="row" style="gap:4px">${tags}</div>` : ""}
+    ${d.from || d.to ? `<div class="row small" style="gap:6px">📅 ${ofDates(d)} ${s[0] === "done" || s[0] === "no" ? "" : ofWhen(d)}</div>` : ""}
+    ${d.why ? `<div class="small di-copy" dir="auto" style="white-space:pre-wrap">${esc(d.why)}</div>` : ""}
+    <div class="st-body">
+      ${row("المنتجات", tx(d.products))}
+      ${row("الكوبون", d.code ? `<b class="of-code" dir="ltr">${esc(d.code)}</b>` : "")}
+      ${row("الشروط", tx(d.cond))}
+      ${row("المنصات", (d.plats || []).map(p => `<span class="st-tag"><bdi>${esc(p)}</bdi></span>`).join(""))}
+      ${row("ملاحظات", tx(d.note))}
+      ${(d.extra || []).filter(e => e.value).map(e => row(`<span dir="auto">${esc(e.label || "خانة")}</span>`, tx(e.value))).join("")}
+      ${di ? row("التصميم", `<a href="#" onclick="ui.stTab='design';saveUi();render();return false">🎨 ${esc(di.data.title || "فكرة التصميم")} · ${diStatus(di.data).l}</a>`) : ""}
+    </div>
+    ${edit ? `<div class="row st-act">${di ? "" : `<button class="btn xs primary" onclick="ofToDesign('${c.id}','${x.id}')" title="يعمل فكرة في تاب Design ideas فيها تفاصيل العرض">🎨 اعمل منه فكرة تصميم</button>`}
+      <button class="btn xs" onclick="openOffer('${c.id}','${x.id}')">✏️ تعديل</button><button class="btn xs ghost" onclick="dupOffer('${c.id}','${x.id}')" title="نسخة">⧉</button><span class="spacer"></span><button class="btn xs ghost" onclick="delStrat('${c.id}','${x.id}')">🗑</button></div>` : ""}</div>`;
+}
+function openOffer(cid, id){
+  const x = id ? ofIdeas(cid).find(s => s.id === id) : null, d = x ? x.data : {};
+  const extraP = (d.plats || []).filter(p => !DI_PLATS.includes(p)), st = d.status || "idea";
+  openModal(`<h2>${x ? "تعديل عرض" : "عرض جديد"}</h2>
+    <div class="mp-form st-form">
+      <label class="f">اسم العرض</label><input class="inp" id="of_title" dir="auto" value="${esc(d.title || "")}" placeholder="مثلاً: خصم 20% على كل العطور في اليوم الوطني" autofocus>
+      <div class="two"><div><label class="f">نوع العرض</label><input class="inp" id="of_type" dir="auto" list="ofTypes" value="${esc(d.type || "")}" placeholder="اختار أو اكتب"><datalist id="ofTypes">${OF_TYPES.map(a => `<option value="${esc(a)}">`).join("")}</datalist></div>
+        <div><label class="f">قيمة العرض</label><input class="inp" id="of_value" dir="auto" value="${esc(d.value || "")}" placeholder="مثلاً: 20% أو 50 ر.س أو هدية عطر صغير"></div></div>
+      <label class="f">على أنهي منتجات</label><textarea class="inp" id="of_products" dir="auto" rows="2" placeholder="مثلاً: كل المتجر، أو قسم العود، أو أسماء منتجات معينة">${esc(d.products || "")}</textarea>
+      <label class="f">المناسبة</label><input class="inp" id="of_occ" dir="auto" list="ofOcc" value="${esc(d.occ || "")}" placeholder="اختار أو اكتب (اختياري)"><datalist id="ofOcc">${OF_OCC.map(a => `<option value="${esc(a)}">`).join("")}</datalist>
+      <div class="two"><div><label class="f">من يوم</label><input class="inp" type="date" id="of_from" value="${esc(d.from || "")}"></div><div><label class="f">لحد يوم</label><input class="inp" type="date" id="of_to" value="${esc(d.to || "")}"></div></div>
+      <div class="two"><div><label class="f">كود الكوبون</label><input class="inp" id="of_code" dir="ltr" value="${esc(d.code || "")}" placeholder="مثلاً NATIONAL20"></div>
+        <div><label class="f">الشروط</label><input class="inp" id="of_cond" dir="auto" value="${esc(d.cond || "")}" placeholder="مثلاً: على الطلبات فوق 200 ر.س"></div></div>
+      <label class="f">ليه العرض ده؟ <span class="tiny muted">(الفكرة أو الأنجل)</span></label><textarea class="inp" id="of_why" dir="auto" rows="2" placeholder="مثلاً: المنافسين كلهم عاملين خصم، فإحنا نعمل هدية بدل الخصم عشان نحافظ على السعر">${esc(d.why || "")}</textarea>
+      <label class="f">هيتعلن فين</label>${diChecks("of_plat", DI_PLATS, (d.plats || []).filter(p => !extraP.includes(p)))}
+      <input class="inp" id="of_plat_o" dir="auto" value="${esc(extraP.join("، "))}" placeholder="منصة تانية؟ (افصل بفاصلة)" style="margin-top:6px">
+      <label class="f">الحالة</label><div class="seg-pick">${OF_ST.map(o => `<label><input type="radio" name="of_st" value="${o[0]}" ${o[0] === st ? "checked" : ""}><span>${o[1]}</span></label>`).join("")}</div>
+      <label class="f">ملاحظات</label><textarea class="inp" id="of_note" dir="auto" rows="2" placeholder="أي حاجة تانية">${esc(d.note || "")}</textarea>
+      <div id="ofExtra" class="dyn" style="margin-top:10px">${(d.extra || []).map(extraRow).join("")}</div>
+      <button type="button" class="dyn-add" onclick="dynAdd('ofExtra', extraRow({}), true)">+ خانة جديدة <span class="tiny muted">(تسمّيها زي ما تحب)</span></button>
+    </div>
+    <div class="actions"><span class="spacer"></span><button class="btn" onclick="closeModal()">إلغاء</button><button class="btn primary" onclick="saveOffer('${cid}','${id || ""}')">حفظ</button></div>`, true);
+}
+async function saveOffer(cid, id){
+  const g = k => ($("#of_" + k) ? $("#of_" + k).value.trim() : "");
+  const d = { title: g("title"), type: g("type"), value: g("value"), products: g("products"), occ: g("occ"), from: g("from"), to: g("to"), code: g("code"), cond: g("cond"), why: g("why"),
+    plats: [...[...document.querySelectorAll('input[name="of_plat"]:checked')].map(i => i.value), ...g("plat_o").split(/[,،]/).map(t => t.trim()).filter(Boolean)],
+    status: (document.querySelector('input[name="of_st"]:checked') || {}).value || "idea", note: g("note"), extra: dynRead("ofExtra", ["label","value"]).filter(e => e.label || e.value) };
+  if (!d.title) d.title = [d.type, d.value, d.occ].filter(Boolean).join(" · ");
+  if (!d.title) return toast("اكتب اسم العرض");
+  if (d.from && d.to && d.to < d.from) return toast("يوم النهاية قبل يوم البداية");
+  const old = id ? ((ofIdeas(cid).find(s => s.id === id) || {}).data || {}) : {};
+  await stSave(cid, id, "offer_idea", { ...old, ...d });
+}
+async function ofSetSt(cid, id, v){
+  const x = ofIdeas(cid).find(s => s.id === id); if (!x) return;
+  try { await q(sb.from("strategy_items").update({ data: { ...x.data, status: v }, updated_at: new Date().toISOString() }).eq("id", id), "ofst"); x.data.status = v; toast("الحالة: " + ofSt(v)[1]); render(); }
+  catch(e){ toast("ماتحفظش: " + (e.message || e)); }
+}
+async function dupOffer(cid, id){ const x = ofIdeas(cid).find(s => s.id === id); if (!x) return; const d = JSON.parse(JSON.stringify(x.data)); delete d.di; d.status = "idea"; d.title = (d.title || "") + " (نسخة)"; await stSave(cid, "", "offer_idea", d); }
+/* makes a Design idea that carries the offer details, and links it back to the offer */
+async function ofToDesign(cid, id){
+  const x = ofIdeas(cid).find(s => s.id === id); if (!x) return; const d = x.data;
+  const note = [d.products && "المنتجات: " + d.products, (d.from || d.to) && `الفترة: ${d.from ? fmtShort(d.from) : "…"} لحد ${d.to ? fmtShort(d.to) : "…"}`, d.code && "الكوبون: " + d.code, d.cond && "الشروط: " + d.cond].filter(Boolean).join("\n");
+  const di = { title: "عرض: " + (d.title || ""), angle: DI_ANGLES[0], tagline: [d.value, d.type].filter(Boolean).join(" · ") || d.title, copy: d.why || "", plats: (d.plats || []).slice(), note, insp: [], sizes: [], from_offer: id };
+  try {
+    const r = await q(sb.from("strategy_items").insert({ client_id:cid, kind:"design_idea", data:di, sort: diIdeas(cid).length }).select(), "ofdi");
+    await q(sb.from("strategy_items").update({ data: { ...d, di: r[0].id }, updated_at: new Date().toISOString() }).eq("id", id), "ofdil");
+    await loadStrat(cid, true); toast("اتعملت فكرة تصميم ✓ عدّل فيها في Design ideas");
+  } catch(e){ toast("ماتعملتش: " + (e.message || e)); }
 }
