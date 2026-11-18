@@ -1,0 +1,2394 @@
+/* ================= Config ================= */
+const SB_URL = "https://apnxxhvjqnqgpryscixg.supabase.co";
+const SB_KEY = "sb_publishable_WXafq36LqstgndJfCjh0Gg_y52NhYYr";
+const JOBS = ["Media Buyer","Editor","Designer","Motion","UI","SEO","Programming","Social Media","Account Manager","Marketing Manager","CMO","Sales Manager"];
+let sb = null;
+
+/* ================= State ================= */
+let me = null;                // my profile
+let profiles = [], clients = [], members = [], tasks = [], ST = {};
+const M = {}, Mload = {};
+let ui = { tab: "today", date: todayK(), q: "", clientId: null, month: ymOf(todayK()), view: "platform" };
+try { Object.assign(ui, JSON.parse(localStorage.getItem("zs-team-ui")||"{}"), { date: todayK() }); } catch(e){}
+function saveUi(){ try { localStorage.setItem("zs-team-ui", JSON.stringify({ tab:ui.tab, clientId:ui.clientId, view:ui.view, month:ui.month, metricS:ui.metricS, metricL:ui.metricL, showTable:ui.showTable })); } catch(e){} }
+const isAdmin = () => me && me.role === "admin";
+const clientById = id => clients.find(c => c.id === id);
+const profileById = id => profiles.find(p => p.id === id);
+const myMembership = cid => members.find(m => m.client_id === cid && m.user_id === me.id);
+const canFiles = cid => isAdmin() || !!(myMembership(cid) || {}).see_files;
+const canSeeNumbers = cid => isAdmin() || !!(myMembership(cid) || {}).see_numbers;
+const myPlatforms = c => isAdmin() ? plats(c).map(p => p.name) : ((myMembership(c.id) || {}).platforms || []);
+function plats(c){ return (c.platforms||[]).map(p => typeof p === "string" ? { name:p, cur:c.currency||"SAR" } : p); }
+let LS = {}, LSload = {};
+async function loadLeadStats(cid, force){
+  if (LSload[cid] && !force) return LSload[cid];
+  LSload[cid] = (async () => { try { LS[cid] = await q(sb.from("lead_stats").select("d,tab,p,dep,leads,booked").eq("client_id", cid).order("d"), "ls"); } catch(e){ LS[cid] = []; } render(); })();
+  return LSload[cid];
+}
+function leadStats(c, from, to){
+  if (!(c.id in LS)) { LS[c.id] = null; loadLeadStats(c.id); return null; }
+  const L = (LS[c.id] || []).filter(r => r.d >= from && r.d <= to);
+  if (!L.length) return { n:0, b:0, rows:[], empty:true };
+  return { n: L.reduce((a, r) => a + r.leads, 0), b: L.reduce((a, r) => a + r.booked, 0), rows: L };
+}
+const initials = n => { n = String(n||"?").trim(); const parts = n.split(/\s+/); return (parts.length > 1 ? parts[0][0] + parts[1][0] : n.slice(0,2)); };
+function avatar(pid, size){ const p = profileById(pid); const nm = p ? (p.name || p.email) : "؟"; let h = 0; for (const ch of String(pid||"")) h = (h*31 + ch.charCodeAt(0)) >>> 0; const hues = ["var(--accent-soft)","var(--ok-cell)","var(--amb-cell)","var(--bad-cell)","var(--grey-chip)"]; const ink = ["var(--accent)","var(--ok-ink)","var(--amb-ink)","var(--bad-ink)","var(--muted)"]; const i = h % 5; return `<span class="av" title="${esc(nm)}" style="${size?`width:${size}px;height:${size}px;font-size:${Math.round(size*.42)}px;`:""}background:${hues[i]};color:${ink[i]}">${esc(initials(nm))}</span>`; }
+const personName = pid => { if (!pid || (me && pid === me.id && isAdmin())) return "انت"; const p = profileById(pid); return p ? (p.name || p.email) : "—"; };
+const assigneeOf = t => t.assigneeId || (profiles.find(p => p.role === "admin") || {}).id;
+const isMine = t => me && (t.assigneeId === me.id || (!t.assigneeId && isAdmin()));
+
+/* ================= Data ================= */
+function mapTask(r){ return { id:r.id, clientId:r.client_id, assigneeId:r.assignee_id, title:r.title, kind:r.kind, repeat:r.repeat, days:r.days||[], every:r.every, monthDay:r.month_day, date:r.date, time:r.time, note:r.note, brief:r.brief, needsReview:r.needs_review, skipFriday:r.skip_friday, paused:r.paused, created:r.created }; }
+function taskToDb(t){ return { client_id:t.clientId||null, assignee_id:t.assigneeId||null, title:t.title, kind:t.kind||null, repeat:t.repeat, days:t.days||[], every:t.every||null, month_day:t.monthDay||null, date:t.date||null, time:t.time||null, note:t.note||null, brief:t.brief||null, needs_review:!!t.needsReview, skip_friday:!!t.skipFriday, paused:!!t.paused }; }
+function mapMetric(r){ return { id:r.id, d:r.d, p:r.p, dep:r.dep||"", s:+r.s||0, ca:+r.ca||0, ms:+r.ms||0, ld:+r.ld||0, in:+r.ins||0, bk:+r.bk||0, bv:+r.bv||0, o:+r.o||0, sl:+r.sl||0, by:r.entered_by, reviewed:r.reviewed }; }
+async function q(promise, label){ const { data, error } = await promise; if (error) { console.error(label, error); throw error; } return data; }
+async function loadAll(){
+  const since = addDaysK(todayK(), -120);
+  const [p, c, m, t, s] = await Promise.all([
+    q(sb.from("profiles").select("*").order("created_at"), "profiles"),
+    q(sb.from("clients").select("*").order("name"), "clients"),
+    q(sb.from("client_members").select("*"), "members"),
+    q(sb.from("tasks").select("*"), "tasks"),
+    q(sb.from("task_status").select("*").gte("day", since), "status"),
+  ]);
+  c.forEach(x => { x.leadSheet = x.lead_sheet && x.lead_sheet.url ? x.lead_sheet : null; });
+  profiles = p; clients = c; members = m; tasks = t.map(mapTask);
+  ST = {}; for (const r of s) ST[r.task_id + "|" + r.day] = r;
+  me = profiles.find(x => x.id === me.id) || me;
+}
+async function loadMetrics(cid, force){
+  if (!canSeeNumbers(cid) && !isAdmin()) { const c = clientById(cid); if (!c || !myPlatforms(c).length) return; }
+  if (Mload[cid] && !force) return Mload[cid];
+  Mload[cid] = (async () => { try { const rows = await q(sb.from("metrics").select("*").eq("client_id", cid).order("d"), "metrics"); M[cid] = rows.map(mapMetric); } catch(e){ M[cid] = M[cid] || []; } render(); })();
+  return Mload[cid];
+}
+
+/* ================= Task status ================= */
+const stOf = (t, dk) => ST[t.id + "|" + dk];
+function stateOf(t, dk){ const s = stOf(t, dk); return s ? s.state : null; }
+const isDone = (id, dk) => { const s = ST[id + "|" + dk]; return !!s && (s.state === "done" || s.state === "approved" || s.state === "submitted"); };
+const isClosed = (t, dk) => { const s = stateOf(t, dk); return s === "done" || s === "approved"; };
+async function toggleDone(id, dk, reopenCid){
+  const t = tasks.find(x => x.id === id); if (!t) return;
+  const key = id + "|" + dk, cur = ST[key];
+  try {
+    if (cur && (cur.state === "done" || cur.state === "approved")) { await q(sb.from("task_status").delete().eq("task_id", id).eq("day", dk), "undone"); delete ST[key]; }
+    else { const row = { task_id:id, day:dk, state:"done", by_user:me.id, updated_at:new Date().toISOString() }; await q(sb.from("task_status").upsert(row), "done"); ST[key] = row; }
+  } catch(e){ toast("ماتحفظش، جرب تاني"); }
+  render(); if (reopenCid) openDayCard(reopenCid);
+}
+async function setDone(id, dk, val){
+  const key = id + "|" + dk;
+  if (val) { const row = { task_id:id, day:dk, state:"done", by_user:me.id, updated_at:new Date().toISOString() }; ST[key] = row; try { await sb.from("task_status").upsert(row); } catch(e){} }
+  else { delete ST[key]; try { await sb.from("task_status").delete().eq("task_id", id).eq("day", dk); } catch(e){} }
+}
+function overdueOnce(tk){ return tasks.filter(t => t.repeat === "once" && !t.paused && t.date && t.date < tk && !isClosed(t, t.date) && (!t.clientId || clientById(t.clientId)?.status !== "paused")); }
+const visibleTasks = () => isAdmin() ? tasks : tasks.filter(t => t.assigneeId === me.id);
+
+/* ================= Alerts ================= */
+function clientAlerts(c){
+  const out = []; if (c.status === "paused" || !M[c.id] || !canSeeNumbers(c.id)) return out;
+  const t = todayK(), y = addDaysK(t,-1), f3 = addDaysK(t,-3), tg = c.targets || {};
+  const rows = M[c.id].filter(r => r.d >= f3 && r.d <= y), a = agg(rows);
+  if (a.s > 0) {
+    if (c.type === "leads" && tg.cpl && a.cpl != null && a.cpl > tg.cpl) out.push(`تكلفة التحويل آخر 3 أيام <b class="num">${fmt2(a.cpl)}</b> أعلى من التارجت ${fmt2(tg.cpl)}`);
+    if (c.type === "leads" && a.conv === 0) out.push(`صرف <b class="num">${fmt(a.s)}</b> آخر 3 أيام من غير ولا تحويل`);
+    if (c.type === "store" && tg.minRoas && a.roas != null && a.sl && a.roas < tg.minRoas) out.push(`الـ ROAS آخر 3 أيام <b class="num">${fmt2(a.roas)}</b> أقل من التارجت ${fmt2(tg.minRoas)}`);
+    if (c.type === "store" && tg.maxCpp && a.cpp != null && a.cpp > tg.maxCpp) out.push(`الـ CPP آخر 3 أيام <b class="num">${fmt2(a.cpp)}</b> أعلى من التارجت ${fmt2(tg.maxCpp)}`);
+  }
+  if (M[c.id].length && !M[c.id].some(r => r.d === y)) out.push(`مسجلتش أرقام امبارح (${fmtShort(y)})`);
+  return out;
+}
+function quickKpi(c){
+  if (!M[c.id] || !canSeeNumbers(c.id)) return ""; const y = addDaysK(todayK(),-1), a = agg(M[c.id].filter(r => r.d === y)); if (!a.s && !a.sl) return "";
+  return `<span class="chip grey" title="أرقام امبارح">امبارح: صرف ${fmt(a.s)} · ${c.type === "store" ? `ROAS ${fmt2(a.roas)}` : `CPA ${fmt2(a.cpl)}`}</span>`;
+}
+
+/* ================= Render / nav ================= */
+const ICONS = {
+  today:'<path d="M4 6h16M4 12h10M4 18h7"/><circle cx="18" cy="17" r="3"/>',
+  clients:'<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M8 14h3"/>',
+  review:'<path d="M5 12l4 4L19 6"/>',
+  finance:'<rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18M16 15h2"/>',
+  settings:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>'
+};
+const ico = k => `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[k]}</svg>`;
+const SHELL2 = `<div class="shell"><aside class="side">
+  <div class="brand"><svg width="26" height="26" viewBox="0 0 48 48" aria-hidden="true"><rect class="zm-ink" x="0" y="28" width="12" height="20" rx="2"/><rect class="zm-brand" x="18" y="16" width="12" height="32" rx="2"/><rect class="zm-signal" x="36" y="0" width="12" height="12" rx="2"/><rect class="zm-brand" x="36" y="15" width="12" height="33" rx="2"/></svg><div><div class="nm">زياد إبراهيم</div><div class="sub">Work System</div></div></div>
+  <nav class="snav" id="tabs"></nav>
+  <div class="side-foot" id="who"></div>
+</aside><main class="main" id="view"><div class="card empty">بيحمّل…</div></main></div>`;
+const pageHead = (title, sub, actions) => `<div class="ph"><div><h1>${title}</h1>${sub ? `<div class="ph-sub">${sub}</div>` : ""}</div><span class="spacer"></span>${actions || ""}</div>`;
+function render(){
+  if (!me) return;
+  if (ui.tab === "team") { ui.tab = "settings"; ui.stab = "team"; }
+  if (!isAdmin() && (ui.tab === "review" || ui.tab === "finance")) ui.tab = "today";
+  const pending = isAdmin() ? reviewCount() : 0;
+  const tabs = isAdmin() ? [["today","Today"],["clients","Clients"],["review","Review"],["finance","Finance"],["settings","Settings"]] : [["today","My Tasks"],["clients","Clients"],["settings","Settings"]];
+  const cur = ui.tab === "client" ? "clients" : ui.tab;
+  const act = clients.filter(c => c.status !== "paused").sort((a,b) => (a.is_test - b.is_test) || a.name.localeCompare(b.name, "ar"));
+  $("#tabs").innerHTML = tabs.map(([k,l]) => `<button data-tab="${k}" class="${cur === k ? "active" : ""}">${ico(k === "today" ? "today" : k)}<span>${l}</span>${k === "review" && pending ? `<span class="nb">${pending}</span>` : ""}</button>` +
+    (k === "clients" && act.length ? `<div class="snav-sub">${act.map(c => `<a href="#" class="${ui.tab === "client" && ui.clientId === c.id ? "on" : ""}" onclick="go('client','${c.id}');return false">${c.logo_url ? clientLogo(c, 18) : `<span class="cdot ${c.type}"></span>`}${esc(c.name)}</a>`).join("")}</div>` : "")).join("");
+  $("#who").innerHTML = `<button class="whob" onclick="go('settings');ui.stab='account';render()">${avatar(me.id, 30)}<span><b>${esc(me.name || me.email)}</b><span class="tiny muted">${isAdmin() ? "Admin" : esc(me.job || "Team")}</span>${verLabel()}</span></button>`;
+  const v = $("#view");
+  if (ui.tab === "client") v.innerHTML = viewClient();
+  else if (ui.tab === "clients") v.innerHTML = viewClients();
+  else if (ui.tab === "review") v.innerHTML = viewReview();
+  else if (ui.tab === "settings") v.innerHTML = viewSettings();
+  else if (ui.tab === "finance" && isAdmin()) v.innerHTML = viewFinance();
+  else v.innerHTML = viewToday();
+}
+function go(tab, cid){ ui.tab = tab; if (cid) { ui.clientId = cid; ui.month = ymOf(addDaysK(todayK(), -1)); ui.selDay = null; loadMetrics(cid); } saveUi(); render(); window.scrollTo(0,0); }
+document.addEventListener("click", e => { const b = e.target.closest("#tabs button"); if (b) go(b.dataset.tab); });
+
+/* ================= Today ================= */
+function viewToday(){
+  if (!isAdmin()) return viewMyTasks();
+  const tk = todayK(), dk = ui.date, d = fromKey(dk), VT = visibleTasks();
+  const due = VT.filter(t => isDueOn(t, dk));
+  const overdue = dk === tk ? overdueOnce(tk).filter(t => VT.includes(t)) : [];
+  const doneN = due.filter(t => isDone(t.id, dk)).length, pct = due.length ? Math.round(doneN/due.length*100) : 0;
+  const groups = new Map(); for (const t of due) { const k = t.clientId || "_"; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(t); }
+  for (const t of overdue) { const k = t.clientId || "_"; if (!groups.has(k)) groups.set(k, []); }
+  const rel = dk === tk ? "النهارده" : dk === addDaysK(tk,1) ? "بكرة" : dk === addDaysK(tk,-1) ? "امبارح" : "";
+  const returned = !isAdmin() ? VT.filter(t => Object.values(ST).some(s => s.task_id === t.id && s.state === "returned")) : [];
+  let h = pageHead(isAdmin() ? "Today" : "My Tasks", isAdmin() ? "مهام النهارده لكل العملاء والفريق" : "التاسكات المسنودة عليك") + `<div class="daybar">
+    <button class="btn sm" onclick="ui.date=addDaysK(ui.date,1);render()" aria-label="اليوم اللي بعده">›</button>
+    <div class="date">${rel ? rel + " — " : ""}${fmtDate(d)}</div>
+    <button class="btn sm" onclick="ui.date=addDaysK(ui.date,-1);render()" aria-label="اليوم اللي قبله">‹</button>
+    ${dk !== tk ? `<button class="btn sm" onclick="ui.date=todayK();render()">ارجع للنهارده</button>` : ""}
+    <span class="spacer"></span>${isAdmin() ? `<button class="btn primary sm" onclick="openTask(null,{date:'${dk}',repeat:'once'})">+ مهمة</button>` : ""}</div>
+  <div class="strip"><span class="st-prog"><b class="num">${doneN}</b><span class="muted">/${due.length}</span> خلصت<span class="st-bar"><i style="width:${pct}%"></i></span></span>
+    ${reviewCount() ? `<a href="#" class="st-chip amb" onclick="go('review');return false">${reviewCount()} مستني مراجعتك ←</a>` : ""}
+    ${overdue.length ? `<span class="st-chip bad">${overdue.length} متأخرة</span>` : ""}</div>`;
+  if (returned.length) h += `<div class="remind" style="border-inline-start-color:var(--danger)"><span class="rm-ic">↩︎</span><div><div class="rm-t">زياد رجّعلك ${returned.length} ${returned.length === 1 ? "تاسك" : "تاسكات"} للتعديل</div><div class="small">${returned.map(t => `<a href="#" onclick="openSubmit('${t.id}','${returnedDay(t)}');return false">${esc(t.title)}</a>`).join("، ")}</div></div></div>`;
+  if (!clients.length && isAdmin()) return h + `<div class="card empty">مفيش عملاء لسه. روح على Clients وضيف أول عميل.</div>`;
+  if (!groups.size) return h + `<div class="card empty">${isAdmin() ? "مفيش مهام في اليوم ده 🎉" : "مفيش تاسكات عليك في اليوم ده 🎉"}</div>`;
+  for (const [kind, label, per] of [["monthlyReport","الريبورت الشهري", `عن ${monthLabel(ymAdd(ymOf(dk),-1))}`],["weeklyReport","الريبورت الأسبوعي","عن الأسبوع ده"]]) {
+    const ts = due.filter(t => t.kind === kind), pend = ts.filter(t => !isDone(t.id, dk)); if (!ts.length) continue;
+    const names = pend.map(t => { const c = clientById(t.clientId); return c ? `<a href="#" onclick="openDayCard('${c.id}');return false">${esc(c.name)}</a>` : "عام"; });
+    h += pend.length ? `<div class="remind"><span class="rm-ic">📄</span><div><div class="rm-t">النهارده يوم ${label} <span class="muted small">${per}</span></div><div class="small">لسه لازم يتعمل لـ ${pend.length} ${pend.length === 1 ? "عميل" : "عملاء"}: ${names.join("، ")}</div></div></div>`
+      : `<div class="remind ok"><span class="rm-ic">✓</span><div><div class="rm-t">${label} خلص لكل العملاء</div></div></div>`;
+  }
+  const info = [...groups.entries()].map(([cid, ts]) => {
+    const c = cid === "_" ? null : clientById(cid), od = overdue.filter(t => (t.clientId || "_") === cid);
+    const dn = ts.filter(t => isDone(t.id, dk)).length, pending = ts.filter(t => !isDone(t.id, dk));
+    const waiting = ts.filter(t => stateOf(t, dk) === "submitted").length;
+    const al = c && dk === tk ? clientAlerts(c) : [];
+    const team = [...new Set(ts.map(t => t.assigneeId).filter(x => x && x !== me.id))];
+    return { cid, c, ts, od, dn, pending, waiting, al, team, all: !pending.length && !od.length };
+  }).sort((a,b) => { if (a.cid === "_") return 1; if (b.cid === "_") return -1; if (a.all !== b.all) return a.all ? 1 : -1; const rk = y => y.pending.filter(t => /Report$/.test(t.kind||"")).length + y.od.length + y.al.length + y.waiting; if (rk(a) !== rk(b)) return rk(b) - rk(a); return (a.c?.name||"").localeCompare(b.c?.name||"","ar"); });
+  h += `<div class="tgrid">${info.map(x => {
+    const total = x.ts.length, p = total ? Math.round(x.dn/total*100) : 100, next = x.od[0] || x.pending[0];
+    return `<button class="tcard${x.all ? " done" : ""}" onclick="openDayCard('${x.cid}')">
+      <div class="tc-top">${x.c ? clientLogo(x.c, 28) : ""}<span class="tc-name">${x.c ? esc(x.c.name) : "مهام عامة"}</span>${x.c ? `<span class="chip grey">${x.c.type === "store" ? "متجر" : "ليدز"}</span>` : ""}<span class="spacer"></span>
+        ${x.all ? `<span class="chip ok">خلص ✓</span>` : `<span class="tc-count num">${x.dn}<span class="muted">/${total}</span></span>`}</div>
+      <div class="tc-bar"><i style="width:${p}%"></i></div>
+      <div class="row" style="gap:4px">${x.c ? `<span class="tc-plats">${plats(x.c).map(pp => badge(pp.name)).join("")}</span>` : ""}<span class="spacer"></span>${x.team.map(pid => avatar(pid, 22)).join("")}</div>
+      ${x.c && quickKpi(x.c) ? `<div class="tc-kpi">${quickKpi(x.c)}</div>` : ""}
+      ${x.c && bestYesterday(x.c) && bestYesterday(x.c).best ? `<div class="tc-best">🏆 <b>${esc(bestYesterday(x.c).best.name)}</b> أرخص منصة امبارح · ${bestYesterday(x.c).R.unit} <span class="num">${fmt2(bestYesterday(x.c).best.cost)}</span></div>` : ""}
+      <div class="tc-flags">${x.pending.some(t => t.kind === "monthlyReport") ? `<span class="chip rp">📄 الريبورت الشهري</span>` : ""}${x.pending.some(t => t.kind === "weeklyReport") ? `<span class="chip rp">📄 الريبورت الأسبوعي</span>` : ""}${x.waiting ? `<span class="chip amb">${isAdmin() ? `${x.waiting} مستني مراجعتك` : `${x.waiting} عند زياد للمراجعة`}</span>` : ""}${x.od.length ? `<span class="chip warn">${x.od.length} متأخرة</span>` : ""}${x.al.length ? `<span class="chip warn">⚠️ ${x.al.length} تنبيه</span>` : ""}</div>
+      <div class="tc-next">${next ? `<span class="muted">الجاي:</span> ${esc(next.title)}${isAdmin() && next.assigneeId && next.assigneeId !== me.id ? ` <span class="muted">· ${esc(personName(next.assigneeId))}</span>` : ""}` : `<span class="muted">مفيش حاجة فاضلة</span>`}</div>
+    </button>`;
+  }).join("")}</div>`;
+  return h;
+}
+function returnedDay(t){ const s = Object.values(ST).find(s => s.task_id === t.id && s.state === "returned"); return s ? s.day : todayK(); }
+function taskRow(t, dk, cid){
+  const st = stOf(t, dk), state = st ? st.state : null, mine = isMine(t), c = t.clientId ? clientById(t.clientId) : null;
+  const closed = state === "done" || state === "approved";
+  let action = "", stateChip = "";
+  if (state === "submitted") stateChip = `<span class="chip amb">${isAdmin() ? "مستني مراجعتك" : "اتسلّم · مستني المراجعة"}</span>`;
+  if (state === "approved") stateChip = `<span class="chip ok">اتوافق عليه ✓</span>`;
+  if (state === "returned") stateChip = `<span class="chip warn">اترجع للتعديل</span>`;
+  if (mine && t.kind === "metrics" && c) action = `<button class="btn xs primary" onclick="openEntry('${c.id}','${addDaysK(dk,-1)}','${t.id}','${dk}')">✍️ سجّل الأرقام</button>`;
+  if (mine && t.kind === "meeting" && c && isAdmin()) action = `<button class="btn xs primary" onclick="openMeeting('${c.id}','${t.id}','${dk}')">📅 حدد الميعاد</button>`;
+  if (mine && t.needsReview && !isAdmin() && !closed && state !== "submitted") action = `<button class="btn xs primary" onclick="openSubmit('${t.id}','${dk}')">${state === "returned" ? "سلّم تاني" : "سلّم"}</button>`;
+  if (isAdmin() && state === "submitted") action = `<button class="btn xs primary" onclick="openReviewItem('${t.id}','${dk}')">راجع</button>`;
+  const canTick = mine && !(t.needsReview && !isAdmin());
+  const box = canTick ? `<input type="checkbox" ${closed ? "checked" : ""} onchange="toggleDone('${t.id}','${dk}'${cid ? `,'${cid}'` : ""})" aria-label="خلصت">` : `<span class="tbox ${closed ? "on" : state === "submitted" ? "half" : ""}"></span>`;
+  return `<div class="task ${closed ? "done" : ""}">${box}
+    <div class="t"><div class="title">${esc(t.title)} ${stateChip}</div>
+      <div class="meta">${isAdmin() && t.assigneeId && t.assigneeId !== me.id ? `${avatar(t.assigneeId, 16)} ${esc(personName(t.assigneeId))} · ` : ""}${t.time ? esc(t.time) + " · " : ""}${esc(repeatText(t))}${t.note ? " · " + esc(t.note) : ""}</div>
+      ${t.brief ? `<div class="brief">${esc(t.brief)}</div>` : ""}
+      ${state === "returned" && st.review_note ? `<div class="brief bad">↩︎ ${esc(st.review_note)}</div>` : ""}</div>
+    ${action}${isAdmin() ? `<button class="btn ghost sm" onclick="openTask('${t.id}')">تعديل</button>` : ""}</div>`;
+}
+function openDayCard(cid){
+  const dk = ui.date, tk = todayK(), c = cid === "_" ? null : clientById(cid), VT = visibleTasks();
+  const ts = VT.filter(t => isDueOn(t, dk) && (t.clientId || "_") === cid);
+  const od = dk === tk ? overdueOnce(tk).filter(t => VT.includes(t) && (t.clientId || "_") === cid) : [];
+  const al = c && dk === tk ? clientAlerts(c) : [];
+  const dn = ts.filter(t => isDone(t.id, dk)).length;
+  const mineFirst = list => list.slice().sort((a,b) => (isMine(b) - isMine(a)));
+  openModal(`<div class="row" style="margin-bottom:4px"><h2 style="margin:0">${c ? esc(c.name) : "مهام عامة"}</h2>${c ? `<span class="chip grey">${c.type === "store" ? "متجر" : "ليدز"}</span>` : ""}<span class="spacer"></span><span class="num small muted">${dn}/${ts.length}</span></div>
+    <div class="small muted" style="margin-bottom:10px">${fmtDate(fromKey(dk))}</div>
+    ${c ? fileChips(c) : ""}
+    ${al.map(a => `<div class="alert">⚠️ ${a}</div>`).join("")}
+    ${c && bestYesterday(c) ? adviceBox(c, [{ label:"امبارح", adv: bestYesterday(c) }]) : ""}
+    ${od.length ? `<div class="small" style="color:var(--danger);font-weight:700;margin:8px 0 2px">متأخرة من أيام فاتت</div>${od.map(t => taskRow(t, t.date, cid)).join("")}` : ""}
+    ${ts.length ? `<div class="small muted" style="font-weight:700;margin:10px 0 2px">مهام اليوم</div>${mineFirst(ts).map(t => taskRow(t, dk, cid)).join("")}` : ""}
+    <div class="actions">${c && isAdmin() ? `<button class="btn sm" onclick="openDataReceived('${c.id}')">📥 العميل بعت داتا</button>` : ""}${c ? `<button class="btn sm" onclick="closeModal();go('client','${c.id}')">صفحة العميل ←</button>` : ""}${isAdmin() ? `<button class="btn sm" onclick="openTask(null,{date:'${dk}',repeat:'once'${c ? `,clientId:'${c.id}'` : ""}})">+ مهمة</button>` : ""}<span class="spacer"></span><button class="btn" onclick="closeModal()">قفل</button></div>`);
+}
+
+/* ================= Submit (member) ================= */
+let SUB = {};
+function openSubmit(tid, dk){
+  const t = tasks.find(x => x.id === tid); if (!t) return; const c = clientById(t.clientId), st = stOf(t, dk);
+  SUB = { tid, dk, file: null };
+  openModal(`<h2>تسليم: ${esc(t.title)}</h2><div class="small muted" style="margin:-6px 0 10px">${c ? esc(c.name) + " · " : ""}${fmtDate(fromKey(dk))}</div>
+    ${t.brief ? `<div class="brief" style="margin-bottom:10px"><b>البريف:</b> ${esc(t.brief)}</div>` : ""}
+    ${st && st.state === "returned" && st.review_note ? `<div class="brief bad" style="margin-bottom:10px">↩︎ تعليق زياد: ${esc(st.review_note)}</div>` : ""}
+    <label class="f">لينك (درايف، فيديو، تصميم…)</label><input class="inp" id="sbLink" dir="ltr" placeholder="https://" value="${esc(st && st.link || "")}">
+    <label class="f">أو ارفع ملف (لحد 50 ميجا)</label><input type="file" id="sbFile" class="inp" onchange="SUB.file=this.files[0]||null">
+    ${st && st.file_name ? `<div class="tiny muted" style="margin-top:4px">الملف اللي اتسلّم قبل كده: ${esc(st.file_name)}</div>` : ""}
+    <label class="f">ملاحظة لزياد (اختياري)</label><textarea class="inp" id="sbNote">${esc(st && st.state !== "returned" ? st.note || "" : "")}</textarea>
+    <div id="sbErr" class="small" style="color:var(--danger);margin-top:6px"></div>
+    <div class="actions"><span class="spacer"></span><button class="btn" onclick="closeModal()">إلغاء</button><button class="btn primary" id="sbBtn" onclick="doSubmit()">ابعت لزياد</button></div>`);
+}
+async function doSubmit(){
+  const link = $("#sbLink").value.trim(), note = $("#sbNote").value.trim(), f = SUB.file;
+  if (!link && !f && !note) { $("#sbErr").textContent = "حط لينك أو ملف أو ملاحظة على الأقل"; return; }
+  if (f && f.size > 50*1024*1024) { $("#sbErr").textContent = "الملف أكبر من 50 ميجا. ارفعه على الدرايف وحط اللينك."; return; }
+  $("#sbBtn").disabled = true; $("#sbBtn").textContent = f ? "⏳ بيرفع الملف…" : "⏳ بيبعت…";
+  try {
+    const prev = ST[SUB.tid + "|" + SUB.dk];
+    let file_path = prev && prev.file_path || null, file_name = prev && prev.file_name || null;
+    if (f) {
+      const safe = f.name.replace(/[^\w.\-]+/g, "_").slice(-80);
+      file_path = `${me.id}/${SUB.tid}/${Date.now()}_${safe}`; file_name = f.name;
+      const { error } = await sb.storage.from("deliveries").upload(file_path, f, { upsert: false, contentType: f.type || undefined });
+      if (error) throw error;
+    }
+    const row = { task_id: SUB.tid, day: SUB.dk, state: "submitted", by_user: me.id, link: link || null, note: note || null, file_path, file_name, review_note: null, updated_at: new Date().toISOString() };
+    await q(sb.from("task_status").upsert(row), "submit"); ST[SUB.tid + "|" + SUB.dk] = row;
+    closeModal(); render(); toast("اتسلّم ✓ — زياد هيشوفه في المراجعة");
+  } catch(e){ $("#sbErr").textContent = "ماتبعتش: " + (e.message || e); $("#sbBtn").disabled = false; $("#sbBtn").textContent = "ابعت لزياد"; }
+}
+
+/* ================= Review (admin) ================= */
+function pendingSubs(){ return Object.values(ST).filter(s => s.state === "submitted").map(s => ({ s, t: tasks.find(x => x.id === s.task_id) })).filter(x => x.t).sort((a,b) => (b.s.updated_at||"").localeCompare(a.s.updated_at||"")); }
+let unreviewed = [];
+async function loadUnreviewed(){ if (!isAdmin()) return; try { const rows = await q(sb.from("metrics").select("client_id,d,p,dep,s,ca,ms,ld,ins,o,entered_by").eq("reviewed", false).order("d", { ascending:false }).limit(500), "unrev"); unreviewed = rows; } catch(e){ unreviewed = []; } render(); }
+function unreviewedGroups(){ const g = new Map(); for (const r of unreviewed) { const k = r.client_id + "|" + r.d + "|" + r.entered_by; if (!g.has(k)) g.set(k, { cid:r.client_id, d:r.d, by:r.entered_by, rows:[] }); g.get(k).rows.push(r); } return [...g.values()]; }
+const reviewCount = () => pendingSubs().length + unreviewedGroups().length;
+function viewReview(){
+  const subs = pendingSubs(), mg = unreviewedGroups();
+  let h = pageHead("Review", "التسليمات والأرقام اللي مستنية رأيك", `<button class="btn sm" onclick="refreshAll()">↻ تحديث</button>`);
+  if (!subs.length && !mg.length) return h + `<div class="card empty">مفيش حاجة مستنية مراجعتك ✓</div>`;
+  if (subs.length) h += `<div class="section-title" style="margin-top:0"><h3>تسليمات (${subs.length})</h3></div>` + subs.map(({ s, t }) => { const c = clientById(t.clientId); return `<div class="card rv">
+      <div class="row">${avatar(s.by_user, 30)}<div style="flex:1;min-width:0"><div><b>${esc(personName(s.by_user))}</b> سلّم <b>${esc(t.title)}</b>${c ? ` · ${esc(c.name)}` : ""}</div><div class="tiny muted">${fmtDate(fromKey(s.day))} · ${s.updated_at ? timeAgo(s.updated_at) : ""}</div></div></div>
+      ${s.note ? `<div class="brief" style="margin-top:8px">${esc(s.note)}</div>` : ""}
+      <div class="row" style="margin-top:10px">${s.link ? `<a class="link" href="${esc(normUrl(s.link))}" target="_blank" rel="noopener">🔗 افتح اللينك</a>` : ""}${s.file_path ? `<button class="btn xs" onclick="openFile('${esc(s.file_path)}')">📎 ${esc(s.file_name || "الملف")}</button>` : ""}<span class="spacer"></span>
+        <button class="btn sm danger" onclick="openReturn('${t.id}','${s.day}')">↩︎ رجّع بتعليق</button><button class="btn sm primary" onclick="approve('${t.id}','${s.day}')">✓ موافق</button></div></div>`; }).join("");
+  if (mg.length) h += `<div class="section-title"><h3>أرقام سجّلها الفريق (${mg.length})</h3></div>` + mg.map(g => { const c = clientById(g.cid); const a = agg(g.rows.map(r => ({ ...r, in: r.ins }))); return `<div class="card rv"><div class="row">${avatar(g.by, 30)}<div style="flex:1"><div><b>${esc(personName(g.by))}</b> سجّل أرقام <b>${[...new Set(g.rows.map(r => r.p))].map(esc).join(" و ")}</b>${c ? ` · ${esc(c.name)}` : ""}</div><div class="tiny muted">${fmtDate(fromKey(g.d))} · صرف <span class="num">${fmt(a.s)}</span>${a.conv ? ` · ${fmt(a.conv)} تحويل · CPA <span class="num">${fmt2(a.cpl)}</span>` : ""}${a.o ? ` · ${fmt(a.o)} أوردر` : ""}</div></div>
+      <button class="btn sm" onclick="closeModal();go('client','${g.cid}')">افتح</button><button class="btn sm primary" onclick="markReviewed('${g.cid}','${g.d}','${g.by}')">✓ تمام</button></div></div>`; }).join("");
+  return h;
+}
+function timeAgo(iso){ const m = Math.round((Date.now() - new Date(iso)) / 60000); if (m < 1) return "دلوقتي"; if (m < 60) return `من ${m} دقيقة`; const hh = Math.round(m/60); if (hh < 24) return `من ${hh} ساعة`; return `من ${Math.round(hh/24)} يوم`; }
+async function openFile(path){ try { const { data, error } = await sb.storage.from("deliveries").createSignedUrl(path, 3600); if (error) throw error; window.open(data.signedUrl, "_blank", "noopener"); } catch(e){ toast("مقدرش يفتح الملف"); } }
+function openReviewItem(tid, dk){ go("review"); closeModal(); }
+async function approve(tid, dk){ const key = tid + "|" + dk; try { await q(sb.from("task_status").update({ state:"approved", updated_at:new Date().toISOString() }).eq("task_id", tid).eq("day", dk), "approve"); ST[key] = { ...ST[key], state:"approved" }; toast("اتوافق عليه ✓ — اتحفظ في Deliveries بتاعة العميل"); DELIV = {}; } catch(e){ toast("ماتحفظش"); } render(); }
+function openReturn(tid, dk){ const t = tasks.find(x => x.id === tid);
+  openModal(`<h2>رجّع "${esc(t.title)}"</h2><label class="f">التعليق اللي هيوصله</label><textarea class="inp" id="rtNote" autofocus placeholder="مثلاً: خلّي الخط أكبر والسعر واضح"></textarea>
+    <div class="actions"><span class="spacer"></span><button class="btn" onclick="closeModal()">إلغاء</button><button class="btn primary" onclick="doReturn('${tid}','${dk}')">رجّعه</button></div>`); }
+async function doReturn(tid, dk){ const note = $("#rtNote").value.trim(); if (!note) { toast("اكتب التعليق"); return; } const key = tid + "|" + dk;
+  try { await q(sb.from("task_status").update({ state:"returned", review_note:note, updated_at:new Date().toISOString() }).eq("task_id", tid).eq("day", dk), "return"); ST[key] = { ...ST[key], state:"returned", review_note:note }; closeModal(); toast("اترجع ✓"); } catch(e){ toast("ماتحفظش"); } render(); }
+async function markReviewed(cid, d, by){ try { await q(sb.from("metrics").update({ reviewed:true }).eq("client_id", cid).eq("d", d).eq("entered_by", by), "rev"); unreviewed = unreviewed.filter(r => !(r.client_id === cid && r.d === d && r.entered_by === by)); toast("تمام ✓"); } catch(e){ toast("ماتحفظش"); } render(); }
+
+/* ================= Team (admin) ================= */
+function viewTeam(){
+  const team = profiles.filter(p => p.id !== me.id);
+  let h = `<div class="row" style="margin-bottom:12px"><h2>الفريق والصلاحيات</h2><span class="small muted">${team.length} من 6</span><span class="spacer"></span><button class="btn primary sm" onclick="openInvite()">+ ضيف عضو</button></div>`;
+  if (!team.length) return h + `<div class="card empty">لسه مفيش حد في الفريق. دوس "ضيف عضو"، واعمله يوزر وباسورد تبعتهمله.</div>`;
+  h += `<p class="small muted" style="margin:-4px 0 12px">تحت كل واحد: هو شغال على أنهي عملاء، وبيعمل إيه ويشوف إيه في كل عميل. أي علامة تغيّرها بتتحفظ على طول.</p>`;
+  h += `<div class="card" style="padding:4px 16px">${team.map(p => { const cs = members.filter(m => m.user_id === p.id); return `<div class="tm-block"><div class="trow" style="border:0">${avatar(p.id, 34)}<div style="flex:1;min-width:0"><div><b>${esc(p.name || p.email)}</b> <span class="chip grey">${esc(p.job || "—")}</span>${!p.active ? ` <span class="chip warn">متوقف</span>` : ""}</div>
+      <div class="tiny muted" dir="ltr">${esc(p.email || "")}</div>
+      </div><button class="btn sm primary" onclick="openTask(null,{assigneeId:'${p.id}'})">+ تاسك ليه</button><button class="btn sm" onclick="openMember('${p.id}')">✏️ الاسم والعملاء والباسورد</button></div>
+      <div class="perm-list">${cs.length ? cs.map(m => { const c = clientById(m.client_id); return c ? permRow(m, c, "client") : ""; }).join("") : `<div class="small muted" style="padding:6px 0 12px">مش مسنود على أي عميل. دوس «الاسم والعملاء» واختارله عملاء.</div>`}</div>`; }).join("")}</div>`;
+
+  return h;
+}
+function genPass(){ const a = "abcdefghjkmnpqrstuvwxyz", A = "ABCDEFGHJKLMNPQRSTUVWXYZ", d = "23456789"; const pick = (set, n) => Array.from(crypto.getRandomValues(new Uint32Array(n)), x => set[x % set.length]).join(""); return pick(A,1) + pick(a,4) + pick(d,3); }
+function openInvite(){
+  openModal(`<h2>ضيف عضو للفريق</h2><p class="small muted">هتعمله يوزر وباسورد، وتبعتهمله على الواتساب. يقدر يغيّر الباسورد بعد ما يدخل.</p>
+    <div class="two"><div><label class="f">الاسم</label><input class="inp" id="ivName" autofocus placeholder="أحمد محمد"></div>
+      <div><label class="f">الشغلانة</label><select class="inp" id="ivJob">${JOBS.map(j => `<option>${j}</option>`).join("")}</select></div>
+      <div><label class="f">اليوزر (حروف إنجليزي وأرقام)</label><input class="inp" id="ivUser" dir="ltr" placeholder="ahmed" autocomplete="off"></div>
+      <div><label class="f">الباسورد</label><div class="row" style="gap:6px;flex-wrap:nowrap"><input class="inp" id="ivPass" dir="ltr" value="${genPass()}" autocomplete="off"><button class="btn sm" type="button" onclick="$('#ivPass').value=genPass()" title="باسورد جديد">↻</button></div></div></div>
+    <div id="ivErr" class="small" style="color:var(--danger);margin-top:6px"></div>
+    <div class="actions"><span class="spacer"></span><button class="btn" onclick="closeModal()">إلغاء</button><button class="btn primary" id="ivBtn" onclick="doInvite()">اعمل الحساب</button></div>`);
+}
+async function callInvite(body){ const { data, error } = await sb.functions.invoke("invite-member", { body }); if (error) { let msg = error.message; try { const j = await error.context.json(); msg = j.error || msg; } catch(_){} throw new Error(msg); } if (data && data.error) throw new Error(data.error); return data; }
+const ERR_AR = { username_taken:"اليوزر ده مستخدم قبل كده، اختار غيره", bad_username:"اليوزر لازم 3 حروف على الأقل، إنجليزي وأرقام بس من غير مسافات", short_password:"الباسورد لازم 8 حروف على الأقل", not_admin:"الحساب ده مش أدمن" };
+async function doInvite(){
+  const name = $("#ivName").value.trim(), username = $("#ivUser").value.trim().toLowerCase(), password = $("#ivPass").value.trim(), job = $("#ivJob").value;
+  if (!name) { $("#ivErr").textContent = "اكتب الاسم"; return; }
+  if (!/^[a-z0-9._-]{3,40}$/.test(username)) { $("#ivErr").textContent = ERR_AR.bad_username; return; }
+  if (password.length < 8) { $("#ivErr").textContent = ERR_AR.short_password; return; }
+  if (profiles.length >= 7) { $("#ivErr").textContent = "الفريق وصل 6 أعضاء"; return; }
+  $("#ivBtn").disabled = true; $("#ivBtn").textContent = "⏳ بيعمل الحساب…";
+  try { const r = await callInvite({ action:"create", username, password, name, job }); await loadAll(); render(); showCreds(name, username, password, r && r.id); }
+  catch(e){ $("#ivErr").textContent = ERR_AR[e.message] || ("ماتعملش: " + e.message); $("#ivBtn").disabled = false; $("#ivBtn").textContent = "اعمل الحساب"; }
+}
+function credsText(name, username, password){ return `أهلاً ${name} 👋\nده حسابك على سيستم الشغل:\n\nاللينك: ${location.origin + location.pathname}\nاليوزر: ${username}\nالباسورد: ${password}\n\nتقدر تغيّر الباسورد من علامة ⚙︎ فوق بعد ما تدخل.`; }
+function showCreds(name, username, password, pid){
+  const txt = credsText(name, username, password);
+  openModal(`<h2>الحساب جاهز ✓</h2><p class="small muted">ابعت الرسالة دي لـ ${esc(name)} على الواتساب. الباسورد مش هيظهر تاني، فانسخه دلوقتي.</p>
+    <textarea class="inp" id="crTxt" style="min-height:190px;font-family:var(--font-ar)" readonly>${esc(txt)}</textarea>
+    <div class="actions">${pid ? `<button class="btn sm" onclick="openMember('${pid}')">امسكه على عملاء ←</button>` : ""}<span class="spacer"></span><button class="btn" onclick="closeModal()">قفل</button><button class="btn primary" onclick="copyText(document.getElementById('crTxt').value)">📋 انسخ الرسالة</button></div>`);
+}
+async function copyText(t){ try { await navigator.clipboard.writeText(t); toast("اتنسخ ✓"); } catch(e){ const el = $("#crTxt"); if (el) { el.select(); document.execCommand && document.execCommand("copy"); toast("اتنسخ ✓"); } } }
+function openSetPass(pid){ const p = profileById(pid);
+  openModal(`<h2>باسورد جديد لـ ${esc(p.name || p.email)}</h2><p class="small muted">الباسورد القديم هيتلغي، وهتبعتله الجديد.</p>
+    <div class="row" style="gap:6px;flex-wrap:nowrap"><input class="inp" id="spPass" dir="ltr" value="${genPass()}"><button class="btn sm" onclick="$('#spPass').value=genPass()">↻</button></div>
+    <div id="spErr" class="small" style="color:var(--danger);margin-top:6px"></div>
+    <div class="actions"><span class="spacer"></span><button class="btn" onclick="openMember('${pid}')">رجوع</button><button class="btn primary" id="spBtn" onclick="doSetPass('${pid}')">غيّر الباسورد</button></div>`); }
+async function doSetPass(pid){ const p = profileById(pid), pass = $("#spPass").value.trim(); if (pass.length < 8) { $("#spErr").textContent = ERR_AR.short_password; return; }
+  $("#spBtn").disabled = true; try { await callInvite({ action:"set_password", id:pid, password:pass }); showCreds(p.name || p.email, p.email, pass, null); } catch(e){ $("#spErr").textContent = ERR_AR[e.message] || e.message; $("#spBtn").disabled = false; } }
+let MF = {};
+function openMember(pid){
+  const p = profileById(pid); if (!p) return;
+  MF = { pid, rows: clients.map(c => { const m = members.find(x => x.client_id === c.id && x.user_id === pid); return { cid:c.id, on:!!m, platforms: m ? m.platforms.slice() : [], see: m ? m.see_numbers : false, files: m ? !!m.see_files : false }; }) };
+  openModal(`<div class="row">${avatar(pid, 36)}<h2 style="margin:0">${esc(p.name || p.email)}</h2><span class="spacer"></span><span class="tiny muted" dir="ltr">يوزر: ${esc(p.email || "")}</span></div>
+    <div class="two"><div><label class="f">الاسم</label><input class="inp" id="mfName" value="${esc(p.name || "")}"></div><div><label class="f">الشغلانة</label><select class="inp" id="mfJob">${JOBS.map(j => `<option ${p.job === j ? "selected" : ""}>${j}</option>`).join("")}</select></div></div>
+    <label class="check"><input type="checkbox" id="mfActive" ${p.active ? "checked" : ""}> شغال (لو شلت العلامة مش هيقدر يشوف أي حاجة)</label>
+    <div class="section"><h3>العملاء اللي شغال عليهم</h3><p class="tiny muted" style="margin:4px 0 8px">المنصات: اللي يقدر يسجّل أرقامها (للـ Media Buyer). "يشوف نتايج العميل كلها": المبيعات والتوتال وكل المنصات، في Total. "الملفات": يشوف لينكات وملفات العميل ويرفع ملفات.</p>
+    ${clients.map((c, i) => `<div class="mrow"><label class="check" style="margin:0;min-width:150px"><input type="checkbox" ${MF.rows[i].on ? "checked" : ""} onchange="MF.rows[${i}].on=this.checked;this.closest('.mrow').classList.toggle('off',!this.checked)"> <b>${esc(c.name)}</b></label>
+      <div class="mrow-opts">${plats(c).map(pp => `<label class="pchk"><input type="checkbox" ${MF.rows[i].platforms.includes(pp.name) ? "checked" : ""} onchange="MF.rows[${i}].platforms=this.checked?[...MF.rows[${i}].platforms,'${jsq(pp.name)}']:MF.rows[${i}].platforms.filter(x=>x!=='${jsq(pp.name)}')">${badge(pp.name)}</label>`).join("")}
+      <label class="check" style="margin:0"><input type="checkbox" ${MF.rows[i].see ? "checked" : ""} onchange="MF.rows[${i}].see=this.checked"> يشوف نتايج العميل كلها</label><label class="check" style="margin:0"><input type="checkbox" ${MF.rows[i].files ? "checked" : ""} onchange="MF.rows[${i}].files=this.checked"> الملفات</label></div></div>`).join("") || `<div class="small muted">مفيش عملاء لسه.</div>`}</div>
+    <div class="actions"><button class="btn danger sm" onclick="removeMember('${pid}')">شيله من الفريق</button><button class="btn sm" onclick="openSetPass('${pid}')">🔑 غيّر الباسورد</button><span class="spacer"></span><button class="btn" onclick="closeModal()">إلغاء</button><button class="btn primary" onclick="saveMember()">حفظ</button></div>`, true);
+  document.querySelectorAll(".mrow").forEach((el, i) => el.classList.toggle("off", !MF.rows[i].on));
+}
+async function saveMember(){
+  try {
+    await q(sb.from("profiles").update({ name: $("#mfName").value.trim(), job: $("#mfJob").value, active: $("#mfActive").checked }).eq("id", MF.pid), "member");
+    const keep = MF.rows.filter(r => r.on).map(r => ({ client_id:r.cid, user_id:MF.pid, platforms:r.platforms, see_numbers:r.see, see_files:r.files }));
+    const drop = MF.rows.filter(r => !r.on).map(r => r.cid);
+    if (drop.length) await q(sb.from("client_members").delete().eq("user_id", MF.pid).in("client_id", drop), "drop");
+    if (keep.length) await q(sb.from("client_members").upsert(keep), "keep");
+    await loadAll(); closeModal(); render(); toast("اتحفظ ✓");
+  } catch(e){ toast("ماتحفظش: " + (e.message || e)); }
+}
+function removeMember(pid){ const p = profileById(pid);
+  openModal(`<h2>تشيل ${esc(p.name || p.email)} من الفريق؟</h2><p>حسابه هيتمسح، والتاسكات اللي عليه هتفضل من غير حد مسنود عليها.</p><div class="actions"><span class="spacer"></span><button class="btn" onclick="openMember('${pid}')">رجوع</button><button class="btn primary" style="background:var(--danger);border-color:var(--danger)" onclick="doRemove('${pid}')">شيله</button></div>`); }
+async function doRemove(pid){ try { await callInvite({ action:"remove", id:pid }); await loadAll(); closeModal(); render(); toast("اتشال"); } catch(e){ toast("ماتشالش: " + e.message); } }
+
+/* ================= Clients ================= */
+function viewClients(){
+  const qx = ui.q.trim().toLowerCase();
+  const list = clients.filter(c => !qx || c.name.toLowerCase().includes(qx)).sort((a,b) => (a.is_test - b.is_test) || (a.status === "paused") - (b.status === "paused") || a.name.localeCompare(b.name,"ar"));
+  let h = pageHead("Clients", isAdmin() ? `${clients.length} عميل` : "العملاء اللي شغال عليهم") + `<div class="row" style="margin-bottom:12px"><input class="search" placeholder="دوّر على عميل…" value="${esc(ui.q)}" oninput="ui.q=this.value;render();const s=document.querySelector('.search');s.focus();s.setSelectionRange(s.value.length,s.value.length)">${isAdmin() ? `<button class="btn primary sm" onclick="openSettings()">+ عميل جديد</button>` : ""}</div>`;
+  if (!list.length) return h + `<div class="card empty">${isAdmin() ? "مفيش عملاء." : "زياد لسه مامسكّكش على أي عميل."}</div>`;
+  const ym = ymOf(todayK());
+  for (const c of list) if (canSeeNumbers(c.id) && !Mload[c.id]) loadMetrics(c.id);
+  h += `<div class="grid">${list.map(c => { const a = M[c.id] && canSeeNumbers(c.id) ? agg(monthRows(c.id, ym)) : null, al = clientAlerts(c).length, team = members.filter(m => m.client_id === c.id).map(m => m.user_id);
+    return `<div class="card client" onclick="go('client','${c.id}')">
+      <div class="row">${clientLogo(c, 34)}<div class="name">${esc(c.name)}</div><span class="spacer"></span>${isAdmin() ? clientPayBadge(c) : ""}${c.status === "paused" ? `<span class="chip grey">متوقف</span>` : ""}<span class="chip grey">${c.type === "store" ? "🛒 متجر" : "📞 ليدز"}</span></div>
+      <div class="row" style="gap:4px">${plats(c).map(p => badge(p.name)).join("")}<span class="spacer"></span>${isAdmin() ? team.map(pid => avatar(pid, 22)).join("") : ""}</div>
+      ${a && (a.s || a.sl) ? `<div class="small">${MONTHS[+ym.slice(5)-1]}: صرف <b class="num">${fmt(a.s)}</b> · ${c.type === "store" ? `ROAS <b class="num">${fmt2(a.roas)}</b>` : `تحويلات <b class="num">${fmt(a.conv)}</b> · CPA <b class="num">${fmt2(a.cpl)}</b>`}</div>` : canSeeNumbers(c.id) ? `<div class="small muted">مفيش أرقام الشهر ده لسه</div>` : `<div class="small muted">${myPlatforms(c).length ? "بتسجّل أرقام: " + myPlatforms(c).map(esc).join("، ") : "تاسكات بس"}</div>`}
+      ${al ? `<div class="small" style="color:var(--warn)">⚠️ ${al} تنبيه</div>` : ""}</div>`; }).join("")}</div>`;
+  return h;
+}
+function viewClient(){
+  const c = clientById(ui.clientId); if (!c) { ui.tab = "clients"; return viewClients(); }
+  const tk = todayK(), ym = ui.month, see = canSeeNumbers(c.id), mp = myPlatforms(c);
+  if (!Mload[c.id]) loadMetrics(c.id);
+  let h = `<div class="row" style="margin-bottom:10px"><button class="btn sm" onclick="go('clients')">→ العملاء</button>${clientLogo(c, 40, isAdmin())}<h2 style="font-size:21px">${esc(c.name)}</h2><span class="chip grey">${c.type === "store" ? "🛒 متجر" : "📞 ليدز"}</span><span class="spacer"></span>
+    ${(isAdmin() || mp.length) ? `<button class="btn sm primary" onclick="openEntry('${c.id}','${addDaysK(tk,-1)}')">✍️ سجّل أرقام</button>` : ""}
+    ${isAdmin() ? `<button class="btn sm" onclick="openDataReceived('${c.id}')">📥 العميل بعت داتا</button><button class="btn sm" onclick="go('settings');ui.stab='clients';ui.sClient='${c.id}';render()">${ico("settings")} Settings</button>` : ""}</div>
+  <div class="row" style="gap:6px;margin-bottom:10px">${plats(c).map(p => `<span class="chip grey pname" style="padding:3px 10px 3px 6px">${badge(p.name)} ${esc(p.name)}${p.cur !== c.currency ? ` <span class="tiny">(${p.cur})</span>` : ""}</span>`).join("")}${(c.depts||[]).length ? `<span class="tiny muted" style="margin-right:6px">الأقسام: ${c.depts.map(esc).join("، ")}</span>` : ""}</div>
+  ${fileChips(c)}
+  ${isAdmin() ? clientTeamLine(c) : ""}`;
+  return h + clientBody(c, ym, see, mp);
+}
+
+/* ================= Entry ================= */
+let E = {};
+async function openEntry(cid, d, taskId, taskDay){
+  const c = clientById(cid); if (!c) return;
+  await loadMetrics(cid);
+  E = { cid, d, taskId, taskDay }; renderEntry();
+}
+function renderEntry(){
+  const c = clientById(E.cid), d = E.d, ex = (M[c.id]||[]).filter(r => r.d === d), rate = c.usdRate || c.usd_rate || 1;
+  const allowed = myPlatforms(c), P = plats(c).filter(p => allowed.includes(p.name)), admin = isAdmin();
+  const get = (p, dep, f) => { const r = ex.find(x => x.p === p && (x.dep||"") === (dep||"")); return r && r[f] ? r[f] : ""; };
+  const sIn = (p, dep) => { const v = get(p.name, dep, "s"), fx = p.cur && p.cur !== c.currency, rt = rateFor(c, p.cur) || 1; return `<input class="inp n" data-p="${esc(p.name)}" data-dep="${esc(dep)}" data-f="s" data-rate="${fx ? rt : 1}" type="number" step="0.01" min="0" value="${v && fx ? r2(v/rt) : v}" placeholder="${fx ? esc(p.cur) : ""}">`; };
+  let body;
+  if (!P.length && !admin) body = `<div class="note">مفيش منصات مسموحلك تسجّلها للعميل ده.</div>`;
+  else if (c.type === "store") {
+    body = `<h3 style="margin-bottom:4px">١- الإعلانات</h3><table class="t entry"><thead><tr><th>المنصة</th><th>الصرف</th><th>الأوردرات <span class="tiny muted">(حسب المنصة)</span></th></tr></thead><tbody>
+      ${P.map(p => `<tr><td>${pname(p.name)} ${p.cur && p.cur !== c.currency ? `<span class="tiny muted">(الصرف بالـ ${esc(p.cur)}${rateFor(c, p.cur) ? ` · 1 = ${fmt2(rateFor(c, p.cur))} ${esc(c.currency)}` : ""})</span>` : ""}</td><td>${sIn(p,"")}</td><td><input class="inp n" data-p="${esc(p.name)}" data-dep="" data-f="o" type="number" min="0" value="${get(p.name,"","o")}"></td></tr>`).join("")}</tbody></table>
+      ${admin ? `<div class="section"><h3>٢- المتجر ${c.store_platform ? `(${esc(c.store_platform)})` : "(زد / سلة)"}</h3><div class="two">
+        <div><label class="f">الـ Value — المبيعات (${esc(c.currency)})</label><input class="inp" data-p="_store" data-f="sl" type="number" step="0.01" min="0" value="${get("_store","","sl")}"></div>
+        <div><label class="f">أوردرات المتجر الفعلية <span class="tiny">(اختياري)</span></label><input class="inp" data-p="_store" data-f="o" type="number" min="0" value="${get("_store","","o")}"></div></div>
+        <div class="tiny muted" style="margin-top:6px">لو سبت أوردرات المتجر فاضية، السيستم هيحسب الأوردرات من مجموع أوردرات المنصات.</div></div>` : ""}`;
+  } else {
+    const D = (c.depts||[]).length ? c.depts : [""];
+    body = `<div class="tscroll" style="border:0"><table class="t entry"><thead><tr><th>${D[0] ? "القسم" : ""}</th><th>صرف</th><th>مكالمات</th><th>رسائل</th><th>Leads</th></tr></thead><tbody>
+      ${P.map(p => `<tr class="ph"><td colspan="5">${pname(p.name)} ${p.cur && p.cur !== c.currency ? `<span class="tiny muted">(الصرف بالـ ${esc(p.cur)}${rateFor(c, p.cur) ? ` · 1 = ${fmt2(rateFor(c, p.cur))} ${esc(c.currency)}` : ""})</span>` : ""}</td></tr>` + D.map(dep => `<tr><td class="small">${esc(dep)}</td><td>${sIn(p, dep)}</td>
+          <td><input class="inp n" data-p="${esc(p.name)}" data-dep="${esc(dep)}" data-f="ca" type="number" min="0" value="${get(p.name,dep,"ca")}"></td>
+          <td><input class="inp n" data-p="${esc(p.name)}" data-dep="${esc(dep)}" data-f="ms" type="number" min="0" value="${get(p.name,dep,"ms")}"></td>
+          <td><input class="inp n" data-p="${esc(p.name)}" data-dep="${esc(dep)}" data-f="ld" type="number" min="0" value="${get(p.name,dep,"ld")}"></td></tr>`).join("")).join("")}</tbody></table></div>
+      ${admin ? `<div class="section"><h3 style="margin-bottom:6px">الحجوزات الفعلية <span class="tiny muted">(لو العميل بعتها)</span></h3><div class="row">
+        ${D.map(dep => `<div><div class="tiny muted">${esc(dep || "الحجوزات")}</div><input class="inp n" data-p="_bk" data-dep="${esc(dep)}" data-f="bk" type="number" min="0" value="${get("_bk",dep,"bk")}"></div>`).join("")}
+        <div><div class="tiny muted">قيمة الحجوزات (${esc(c.currency)})</div><input class="inp n" data-p="_bk" data-dep="${esc(D[0])}" data-f="bv" type="number" step="0.01" min="0" value="${get("_bk",D[0],"bv")}"></div></div></div>` : ""}`;
+  }
+  openModal(`<div class="row"><h2 style="margin:0">أرقام ${esc(c.name)}</h2><span class="spacer"></span>
+      <button class="btn sm" onclick="E.d=addDaysK(E.d,1);renderEntry()" aria-label="اليوم اللي بعده">›</button><input type="date" class="inp" style="width:auto" value="${d}" onchange="E.d=this.value;renderEntry()"><button class="btn sm" onclick="E.d=addDaysK(E.d,-1);renderEntry()" aria-label="اليوم اللي قبله">‹</button></div>
+    <div class="small muted" style="margin:6px 0 10px">${fmtDate(fromKey(d))} · العملة ${esc(c.currency)}${!admin ? " · زياد هيراجع الأرقام دي" : ""}</div>
+    ${body}<div id="enErr" class="small" style="color:var(--danger)"></div>
+    <div class="actions"><span class="spacer"></span><button class="btn" onclick="closeModal()">إلغاء</button><button class="btn primary" id="enBtn" onclick="saveEntry()">حفظ</button></div>`, true);
+}
+async function saveEntry(){
+  const c = clientById(E.cid), rate = c.usd_rate || 1, map = {}, admin = isAdmin();
+  document.querySelectorAll("#modal [data-f]").forEach(inp => {
+    const v = parseFloat(inp.value); if (!isFinite(v) || v <= 0) return;
+    const p = inp.dataset.p, dep = inp.dataset.dep || "", f = inp.dataset.f, k = p + "|" + dep;
+    map[k] = map[k] || { client_id:c.id, d:E.d, p, dep, entered_by:me.id, reviewed: admin || me.job === "Media Buyer", updated_at:new Date().toISOString() };
+    map[k][f === "in" ? "ins" : f] = inp.dataset.rate && +inp.dataset.rate !== 1 ? Math.round(v * +inp.dataset.rate * 10000) / 10000 : v;
+  });
+  const editable = admin ? null : myPlatforms(c);
+  $("#enBtn").disabled = true;
+  try {
+    let del = sb.from("metrics").delete().eq("client_id", c.id).eq("d", E.d);
+    if (editable) del = del.in("p", editable);
+    await q(del, "del");
+    const rows = Object.values(map);
+    if (rows.length) await q(sb.from("metrics").insert(rows), "ins");
+    if (E.taskId) await setDone(E.taskId, E.taskDay, true);
+    await loadMetrics(c.id, true); if (admin) loadUnreviewed();
+    closeModal(); render(); toast(admin ? "اتحفظ ✓" : "اتحفظ ✓ — زياد هيراجعه");
+  } catch(e){ const m = String(e.message || e); $("#enErr").textContent = /duplicate key/i.test(m) ? "اليوم ده فيه أرقام متسجلة لنفس المنصة. اعمل refresh للصفحة وافتح الفورم تاني، هتلاقي الأرقام القديمة تعدّل عليها." : /row-level security/i.test(m) ? "مش مسموحلك تسجّل أرقام المنصة دي. كلّم زياد." : "ماتحفظش: " + m; $("#enBtn").disabled = false; }
+}
+async function saveSalesTarget(cid, ym){
+  const c = clientById(cid), v = parseFloat($("#stVal").value), val = isFinite(v) && v > 0 ? v : 0;
+  const tg = Object.assign({}, c.targets || {}); tg.salesMonths = Object.assign({}, tg.salesMonths || {});
+  if ($("#stDef").checked) { tg.sales = val || undefined; delete tg.salesMonths[ym]; } else tg.salesMonths[ym] = val;
+  try { await q(sb.from("clients").update({ targets: tg }).eq("id", cid), "target"); c.targets = tg; closeModal(); render(); toast("اتحفظ ✓"); } catch(e){ toast("ماتحفظش"); }
+}
+
+/* ================= Client settings (admin) ================= */
+let F = {};
+function openSettings(id){
+  const c = id ? clientById(id) : null;
+  F = { rates: Object.assign({}, c && c.usd_rate ? { USD: +c.usd_rate } : {}, (c && c.cur_rates) || {}), id, type: c?.type || "leads", platforms: c ? JSON.parse(JSON.stringify(plats(c))) : [{name:"Meta",cur:"SAR"},{name:"TikTok",cur:"SAR"},{name:"Snapchat",cur:"SAR"}], depts: c ? (c.depts||[]).slice() : [], links: c ? JSON.parse(JSON.stringify(c.links||[])) : [], currency: c?.currency || "SAR" };
+  const tg = c?.targets || {};
+  openModal(`<h2>${c ? "إعدادات " + esc(c.name) : "عميل جديد"}</h2>
+    <div class="two">
+      <div><label class="f">اسم العميل</label><input class="inp" id="sName" value="${esc(c?.name||"")}" autofocus></div>
+      <div><label class="f">نوع العميل</label><select class="inp" id="sType" onchange="F.type=this.value;drawSettingsDyn()"><option value="leads" ${F.type==="leads"?"selected":""}>📞 ليدز</option><option value="store" ${F.type==="store"?"selected":""}>🛒 متجر</option></select></div>
+      <div><label class="f">عملة الحساب</label><select class="inp" id="sCur" onchange="F.currency=this.value;drawSettingsDyn()">${["SAR","USD","EGP","AED","KWD","QAR"].map(x => `<option ${F.currency===x?"selected":""}>${x}</option>`).join("")}</select></div>
+      <div></div></div>
+    <div id="sDyn"></div>
+    <div class="section"><h3>التارجت <span class="tiny muted">(كله اختياري)</span></h3><div class="two">
+      <div class="only-store"><label class="f">تارجت المبيعات الشهري</label><input class="inp" id="tSales" type="number" value="${tg.sales ?? ""}"></div>
+      <div class="only-store"><label class="f">منصة المتجر</label><select class="inp" id="sStore"><option value="">—</option>${["سلة","زد","Shopify","WordPress"].map(x => `<option ${c?.store_platform===x?"selected":""}>${x}</option>`).join("")}</select></div>
+      <div class="only-leads"><label class="f">أقصى تكلفة تحويل (CPA)</label><input class="inp" id="tCpl" type="number" step="0.01" value="${tg.cpl ?? ""}"></div>
+      <div class="only-store"><label class="f">أقل ROAS (Breakeven)</label><input class="inp" id="tRoas" type="number" step="0.01" value="${tg.minRoas ?? ""}"></div>
+      <div class="only-store"><label class="f">أقصى CPP</label><input class="inp" id="tCpp" type="number" step="0.01" value="${tg.maxCpp ?? ""}"></div></div></div>
+    <div class="section"><h3>اللينكات</h3><p class="small muted" style="margin:4px 0 0">اللينكات بقت في «ملفات العميل» في صفحة العميل: تضيفها وتعدّل أسماءها من هناك، والفريق كمان.</p><div id="sLinks" hidden></div></div>
+    <div class="section"><label class="f" style="margin-top:0">ملاحظات (انت بس اللي بتشوفها)</label><textarea class="inp" id="sNotes">${esc(c?.notes||"")}</textarea>
+      <label class="f">الحالة</label><select class="inp" id="sStatus"><option value="active">شغال</option><option value="paused" ${c?.status==="paused"?"selected":""}>متوقف مؤقتاً</option></select>
+      ${!c ? `<label class="check"><input type="checkbox" id="sDefaults" checked> ضيف المهام الأساسية</label>` : ""}</div>
+    <div class="actions">${c ? `<button class="btn danger" onclick="deleteClient('${c.id}')">مسح العميل</button>` : ""}<span class="spacer"></span><button class="btn" onclick="closeModal()">إلغاء</button><button class="btn primary" onclick="saveSettings()">حفظ</button></div>`, true);
+  drawSettingsDyn(); drawLinks();
+}
+function drawSettingsDyn(){
+  $("#sDyn").innerHTML = `<div class="section"><h3>المنصات</h3>
+    ${F.platforms.map((p,i) => `<div class="lrow">${badge(p.name)}<input class="inp" style="max-width:220px" value="${esc(p.name)}" oninput="F.platforms[${i}].name=this.value"><select class="inp" style="max-width:160px;min-width:150px" onchange="F.platforms[${i}].cur=this.value;drawSettingsDyn()" title="عملة الصرف على المنصة دي">${CURS.map(x => `<option value="${x}" ${(p.cur || F.currency) === x ? "selected" : ""}>${x}${x === F.currency ? " (الحساب)" : ""}</option>`).join("")}</select><button class="btn ghost sm" onclick="F.platforms.splice(${i},1);drawSettingsDyn()" aria-label="شيل">✕</button></div>`).join("")}
+    <div class="row" style="gap:4px;margin-top:4px">${PLATFORM_PRESETS.filter(n => !F.platforms.some(p => p.name.toLowerCase() === n.toLowerCase())).map(n => `<button class="btn xs" onclick="F.platforms.push({name:'${n}',cur:F.currency});drawSettingsDyn()">${badge(n)} ${n}</button>`).join("")}<button class="btn xs" onclick="F.platforms.push({name:'',cur:F.currency});drawSettingsDyn()">+ منصة تانية</button></div></div>${ratesBlock()}
+  ${F.type === "leads" ? `<div class="section"><h3>الأقسام</h3>${F.depts.map((d,i) => `<div class="lrow"><input class="inp" style="max-width:260px" value="${esc(d)}" oninput="F.depts[${i}]=this.value"><button class="btn ghost sm" onclick="F.depts.splice(${i},1);drawSettingsDyn()" aria-label="شيل">✕</button></div>`).join("")}<button class="btn xs" onclick="F.depts.push('');drawSettingsDyn()">+ قسم</button></div>` : ""}`;
+  document.querySelectorAll("#modal .only-leads").forEach(x => x.style.display = F.type === "leads" ? "" : "none");
+  document.querySelectorAll("#modal .only-store").forEach(x => x.style.display = F.type === "store" ? "" : "none");
+}
+function drawLinks(){ $("#sLinks").innerHTML = F.links.map((l,i) => `<div class="lrow"><input class="inp" style="max-width:160px" value="${esc(l.label)}" placeholder="الاسم" oninput="F.links[${i}].label=this.value"><input class="inp" value="${esc(l.url)}" placeholder="اللينك" dir="ltr" oninput="F.links[${i}].url=this.value"><button class="btn ghost sm" onclick="F.links.splice(${i},1);drawLinks()" aria-label="شيل">✕</button></div>`).join(""); }
+async function saveSettings(){
+  const name = $("#sName").value.trim(); if (!name) { toast("اكتب اسم العميل"); return; }
+  const pn = sel => { const v = parseFloat($(sel)?.value); return isFinite(v) && v > 0 ? v : undefined; };
+  const old = F.id ? clientById(F.id) : null;
+  const curNow = $("#sCur").value, need = [...new Set(F.platforms.filter(p => p.name.trim()).map(p => p.cur || curNow))].filter(x => x !== curNow);
+  const missing = need.filter(x => !(+F.rates[x] > 0)); if (missing.length) { toast(`حط سعر ${missing.join(" و ")} بالـ ${curNow}`); return; }
+  const rates = {}; need.forEach(x => rates[x] = +F.rates[x]);
+  const data = { name, type: F.type, currency: curNow, usd_rate: rates.USD || (old && old.usd_rate) || 3.75, cur_rates: rates,
+    platforms: F.platforms.map(p => ({ name: p.name.trim(), cur: p.cur || F.currency })).filter(p => p.name),
+    depts: F.type === "leads" ? F.depts.map(d => d.trim()).filter(Boolean) : [],
+    targets: F.type === "store" ? { sales: pn("#tSales"), salesMonths: (old && old.targets && old.targets.salesMonths) || {}, minRoas: pn("#tRoas"), maxCpp: pn("#tCpp") } : { cpl: pn("#tCpl") },
+    store_platform: F.type === "store" ? $("#sStore").value : null,
+    notes: $("#sNotes").value, status: $("#sStatus").value };
+  try {
+    if (F.id) { await q(sb.from("clients").update(data).eq("id", F.id), "upd"); Object.assign(old, data); }
+    else {
+      const [row] = await q(sb.from("clients").insert(data).select(), "new"); clients.push(row);
+      if ($("#sDefaults")?.checked) { const rows = DEFAULT_TASKS.map(d => taskToDb({ ...d, clientId: row.id })); const ins = await q(sb.from("tasks").insert(rows).select(), "deftasks"); tasks.push(...ins.map(mapTask)); }
+      F.id = row.id;
+    }
+    closeModal(); go("client", F.id); toast("اتحفظ ✓");
+  } catch(e){ toast("ماتحفظش: " + (e.message || e)); }
+}
+function deleteClient(id){ const c = clientById(id); openModal(`<h2>مسح ${esc(c.name)}؟</h2><p>العميل ومهامه وأرقامه هيتمسحوا من السيستم.</p><div class="actions"><span class="spacer"></span><button class="btn" onclick="openSettings('${id}')">رجوع</button><button class="btn primary" style="background:var(--danger);border-color:var(--danger)" onclick="confirmDelete('${id}')">امسح</button></div>`); }
+async function confirmDelete(id){ try { await q(sb.from("clients").delete().eq("id", id), "del"); clients = clients.filter(c => c.id !== id); tasks = tasks.filter(t => t.clientId !== id); closeModal(); go("clients"); toast("اتمسح"); } catch(e){ toast("ماتمسحش"); } }
+
+/* ================= Task form (admin) ================= */
+let formDays = [];
+function openTask(id, preset){
+  const t = id ? tasks.find(x => x.id === id) : Object.assign({ repeat: preset && preset.assigneeId ? "once" : "daily", days:[], monthDay:1, every:2, date: todayK() }, preset||{});
+  const presetJob = !id && t.assigneeId ? ((profileById(t.assigneeId)||{}).job || "") : "";
+  formDays = (t.days||[]).slice();
+  const team = profiles.filter(p => p.id !== me.id && p.active);
+  openModal(`<h2>${id ? "تعديل مهمة" : "مهمة جديدة"}</h2>
+    <label class="f">المهمة</label><input class="inp" id="tTitle" value="${esc(t.title||"")}" autofocus>
+    <div class="two"><div><label class="f">العميل</label><select class="inp" id="tClient"><option value="">— مهمة عامة —</option>${clients.map(c => `<option value="${c.id}" ${t.clientId===c.id?"selected":""}>${esc(c.name)}</option>`).join("")}</select></div>
+      <div><label class="f">مسنودة على</label><select class="inp" id="tAssignee" onchange="document.getElementById('tReview').checked=!!this.value && this.selectedOptions[0].dataset.job!=='Media Buyer'"><option value="">انت</option>${team.map(p => `<option value="${p.id}" data-job="${esc(p.job||"")}" ${t.assigneeId===p.id?"selected":""}>${esc(p.name || p.email)} · ${esc(p.job||"")}</option>`).join("")}</select></div></div>
+    <label class="check"><input type="checkbox" id="tReview" ${t.needsReview || (!id && t.assigneeId && presetJob !== "Media Buyer") ? "checked" : ""}> محتاجة تسليم ومراجعة (العضو يدوس "سلّم" ويحط لينك أو ملف)</label>
+    <label class="f">البريف / التفاصيل (اختياري)</label><textarea class="inp" id="tBrief" placeholder="مثلاً: فيديو 15 ثانية عمودي، الخصم 5% باين في أول 3 ثواني">${esc(t.brief||"")}</textarea>
+    <label class="f">بتتكرر إمتى؟</label><select class="inp" id="tRepeat" onchange="repeatFields()">${Object.entries(REPEAT_LABEL).map(([k,v]) => `<option value="${k}" ${t.repeat===k?"selected":""}>${v}</option>`).join("")}</select><div id="tRF"></div>
+    <div class="two"><div><label class="f">الوقت (اختياري)</label><input class="inp" id="tTime" value="${esc(t.time||"")}"></div><div><label class="f">ملاحظة (اختياري)</label><input class="inp" id="tNote" value="${esc(t.note||"")}"></div></div>
+    ${id ? `<label class="check"><input type="checkbox" id="tPaused" ${t.paused?"checked":""}> وقّف المهمة دي مؤقتاً</label>` : ""}
+    <div class="actions">${id ? `<button class="btn danger" onclick="deleteTask('${id}')">مسح</button>` : ""}<span class="spacer"></span><button class="btn" onclick="closeModal()">إلغاء</button><button class="btn primary" onclick="saveTask('${id||""}')">حفظ</button></div>`);
+  openTask._t = t; repeatFields();
+}
+function repeatFields(){
+  const r = $("#tRepeat").value, t = openTask._t, box = $("#tRF");
+  if (r === "days" || r === "weekly") box.innerHTML = `<label class="f">${r==="weekly"?"يوم الأسبوع":"الأيام"}</label><div class="daypick">${DAY_ORDER.map(d => `<button type="button" class="${formDays.includes(d)?"on":""}" onclick="toggleDay(${d},this,'${r}')">${DAYS[d]}</button>`).join("")}</div>`;
+  else if (r === "monthly") box.innerHTML = `<label class="f">يوم كام في الشهر؟</label><input class="inp" id="tMonthDay" type="number" min="1" max="31" value="${t.monthDay||1}">`;
+  else if (r === "once") box.innerHTML = `<label class="f">التاريخ</label><input class="inp" id="tDate" type="date" value="${t.date||todayK()}">`;
+  else if (r === "interval") box.innerHTML = `<label class="f">كل كام يوم؟</label><input class="inp" id="tEvery" type="number" min="2" max="30" value="${t.every||2}">`;
+  else box.innerHTML = `<label class="check"><input type="checkbox" id="tSkipFri" ${t.skipFriday?"checked":""}> ما عدا الجمعة</label>`;
+}
+function toggleDay(d, el, r){ if (r === "weekly") { formDays = [d]; el.parentNode.querySelectorAll("button").forEach(b => b.classList.remove("on")); el.classList.add("on"); return; } const i = formDays.indexOf(d); if (i>=0) formDays.splice(i,1); else formDays.push(d); el.classList.toggle("on"); }
+async function saveTask(id){
+  const title = $("#tTitle").value.trim(); if (!title) { toast("اكتب اسم المهمة"); return; }
+  const repeat = $("#tRepeat").value; if ((repeat === "days" || repeat === "weekly") && !formDays.length) { toast("اختار يوم"); return; }
+  const base = id ? tasks.find(t => t.id === id) : {};
+  const t = Object.assign({}, base, { title, clientId: $("#tClient").value || null, assigneeId: $("#tAssignee").value || null, needsReview: $("#tReview").checked, brief: $("#tBrief").value.trim(), repeat, time: $("#tTime").value.trim(), note: $("#tNote").value.trim(),
+    days: (repeat==="days"||repeat==="weekly") ? formDays.slice() : [], monthDay: repeat==="monthly" ? Math.max(1, Math.min(31, parseInt($("#tMonthDay").value)||1)) : null,
+    every: repeat==="interval" ? Math.max(2, parseInt($("#tEvery").value)||2) : null, date: repeat==="once" ? $("#tDate").value : null,
+    skipFriday: repeat==="daily" ? !!$("#tSkipFri")?.checked : false, paused: id ? !!$("#tPaused")?.checked : false });
+  try {
+    if (id) { await q(sb.from("tasks").update(taskToDb(t)).eq("id", id), "task"); Object.assign(base, t); }
+    else { const [row] = await q(sb.from("tasks").insert({ ...taskToDb(t), created_by: me.id }).select(), "task"); tasks.push(mapTask(row)); }
+    if (t.assigneeId && t.clientId && !members.some(m => m.client_id === t.clientId && m.user_id === t.assigneeId)) {
+      try { await q(sb.from("client_members").insert({ client_id:t.clientId, user_id:t.assigneeId, platforms:[], see_numbers:false, see_files:false }), "automember"); await loadAll(); } catch(e){}
+    }
+    closeModal(); render(); toast(t.assigneeId ? `اتحفظت ✓ — هتظهر عند ${String(personName(t.assigneeId)).split(" ")[0]}` : "اتحفظت ✓");
+  } catch(e){ toast("ماتحفظتش: " + (e.message || e)); }
+}
+async function deleteTask(id){ try { await q(sb.from("tasks").delete().eq("id", id), "deltask"); tasks = tasks.filter(t => t.id !== id); closeModal(); render(); toast("اتمسحت"); } catch(e){ toast("ماتمسحتش"); } }
+function openDataReceived(cid){ const c = clientById(cid);
+  openModal(`<h2>📥 ${esc(c.name)} بعت داتا جديدة</h2><label class="f">إيه اللي بعته؟ (اختياري)</label><input class="inp" id="drNote" autofocus>
+    <label class="f">هتراجعها إمتى؟</label><select class="inp" id="drWhen"><option value="0">النهارده</option><option value="1">بكرة</option></select>
+    <div class="actions"><span class="spacer"></span><button class="btn" onclick="closeModal()">إلغاء</button><button class="btn primary" onclick="saveDataReceived('${cid}')">اعمل تاسك</button></div>`); }
+async function saveDataReceived(cid){ const t = { clientId: cid, title: "راجع الداتا الجديدة اللي العميل بعتها", repeat: "once", date: addDaysK(todayK(), +$("#drWhen").value), note: $("#drNote").value.trim(), kind: "data" };
+  try { const [row] = await q(sb.from("tasks").insert({ ...taskToDb(t), created_by: me.id }).select(), "data"); tasks.push(mapTask(row)); closeModal(); render(); toast("اتعمل التاسك ✓"); } catch(e){ toast("ماتعملش"); } }
+function openMeeting(cid, taskId, dk){ const c = clientById(cid);
+  openModal(`<h2>📅 ميتينج الريبورت الشهري — ${esc(c.name)}</h2><div class="two"><div><label class="f">اليوم</label><input class="inp" type="date" id="mtDate" value="${dk}"></div><div><label class="f">الساعة</label><input class="inp" id="mtTime" placeholder="مثلاً: 8 بالليل"></div></div>
+    <div class="row" style="margin-top:8px"><button class="btn xs" onclick="$('#mtDate').value='${dk}'">يوم التقرير</button><button class="btn xs" onclick="$('#mtDate').value='${addDaysK(dk,1)}'">تاني يوم</button></div>
+    <div class="actions"><span class="spacer"></span><button class="btn" onclick="closeModal()">إلغاء</button><button class="btn primary" onclick="saveMeeting('${cid}','${taskId}','${dk}')">حفظ</button></div>`); }
+async function saveMeeting(cid, taskId, dk){ const t = { clientId: cid, title: "ميتينج الريبورت الشهري", repeat: "once", date: $("#mtDate").value || dk, time: $("#mtTime").value.trim(), kind: "meetingEvent" };
+  try { const [row] = await q(sb.from("tasks").insert({ ...taskToDb(t), created_by: me.id }).select(), "meet"); tasks.push(mapTask(row)); await setDone(taskId, dk, true); closeModal(); render(); toast("الميعاد اتحط ✓"); } catch(e){ toast("ماتحفظش"); } }
+
+/* ================= Modals ================= */
+function openModal(html, wide){ const m = $("#modal"); m.className = "modal" + (wide ? " wide" : ""); m.innerHTML = html; $("#modalBg").classList.add("show"); const f = m.querySelector("[autofocus]"); if (f) f.focus(); }
+function closeModal(){ $("#modalBg").classList.remove("show"); }
+
+/* ================= Account ================= */
+function openAccount(){
+  openModal(`<h2>حسابك</h2><div class="row">${avatar(me.id, 40)}<div><b>${esc(me.name || "")}</b><div class="tiny muted" dir="ltr">${esc(me.email || "")}</div></div></div>
+    <label class="f">اسمك</label><input class="inp" id="acName" value="${esc(me.name||"")}">
+    <label class="f">باسورد جديد (اختياري)</label><input class="inp" id="acPass" type="password" autocomplete="new-password" placeholder="8 حروف على الأقل">
+    <div class="actions"><button class="btn danger sm" onclick="signOut()">تسجيل خروج</button><span class="spacer"></span><button class="btn" onclick="closeModal()">إلغاء</button><button class="btn primary" onclick="saveAccount()">حفظ</button></div>`);
+}
+async function saveAccount(){ const name = $("#acName").value.trim(), pass = $("#acPass").value;
+  try { if (name && name !== me.name) { await q(sb.from("profiles").update({ name }).eq("id", me.id), "name"); me.name = name; const p = profileById(me.id); if (p) p.name = name; }
+    if (pass) { if (pass.length < 8) { toast("الباسورد لازم 8 حروف على الأقل"); return; } const { error } = await sb.auth.updateUser({ password: pass }); if (error) throw error; }
+    closeModal(); render(); toast("اتحفظ ✓"); } catch(e){ toast("ماتحفظش: " + (e.message || e)); } }
+async function signOut(){ await sb.auth.signOut(); location.reload(); }
+
+/* ================= Auth screens ================= */
+function authScreen(mode, msg){
+  document.body.classList.add("auth");
+  const titles = { login:"تسجيل الدخول", signup:"إنشاء حساب الأدمن", forgot:"نسيت الباسورد", setpass:"اعمل باسورد لحسابك" };
+  $("#app").innerHTML = `<div class="authbox">
+    <div class="brand" style="margin-bottom:22px"><svg width="34" height="34" viewBox="0 0 48 48" aria-hidden="true"><rect class="zm-ink" x="0" y="28" width="12" height="20" rx="2"/><rect class="zm-brand" x="18" y="16" width="12" height="32" rx="2"/><rect class="zm-signal" x="36" y="0" width="12" height="12" rx="2"/><rect class="zm-brand" x="36" y="15" width="12" height="33" rx="2"/></svg><span class="nm" style="font-size:22px">زياد إبراهيم</span><span class="sub">· سيستم الشغل</span></div>
+    <h2 style="margin-bottom:4px">${titles[mode]}</h2>
+    ${mode === "setpass" ? `<p class="small muted">اعمل باسورد جديد تدخل بيه بعد كده.</p>` : mode === "signup" ? `<p class="small muted">أول حساب بيتعمل بيبقى الأدمن (زياد). أعضاء الفريق بيدخلوا باليوزر والباسورد اللي زياد بيعملهوملهم.</p>` : mode === "forgot" ? `<p class="small muted">ده للأدمن بس. لو انت في الفريق ونسيت الباسورد، كلّم زياد يعملك واحد جديد.</p>` : ""}
+    ${mode !== "setpass" ? `<label class="f">${mode === "login" ? "اليوزر أو الإيميل" : "الإيميل"}</label><input class="inp" id="auEmail" type="${mode === "login" ? "text" : "email"}" dir="ltr" autocomplete="username" autocapitalize="none">` : ""}
+    ${mode === "signup" ? `<label class="f">اسمك</label><input class="inp" id="auName">` : ""}
+    ${mode !== "forgot" ? `<label class="f">الباسورد</label><input class="inp" id="auPass" type="password" dir="ltr" autocomplete="${mode === "login" ? "current-password" : "new-password"}">` : ""}
+    <div id="auMsg" class="small" style="margin-top:10px;color:${msg && msg.ok ? "var(--ok)" : "var(--danger)"}">${msg ? esc(msg.t) : ""}</div>
+    <button class="btn primary" style="width:100%;margin-top:14px;height:42px" id="auBtn" onclick="authSubmit('${mode}')">${{ login:"دخول", signup:"اعمل الحساب", forgot:"ابعتلي لينك", setpass:"احفظ الباسورد وادخل" }[mode]}</button>
+    <div class="row small" style="margin-top:14px;justify-content:center;gap:16px">
+      ${mode === "login" ? `<a href="#" onclick="authScreen('forgot');return false" title="للأدمن. أعضاء الفريق يكلموا زياد">نسيت الباسورد؟</a>` : mode !== "setpass" ? `<a href="#" onclick="authScreen('login');return false">رجوع لتسجيل الدخول</a>` : ""}
+    </div></div>`;
+  const f = $("#auEmail") || $("#auPass"); if (f) f.focus();
+  document.querySelectorAll(".authbox input").forEach(i => i.addEventListener("keydown", e => { if (e.key === "Enter") authSubmit(mode); }));
+}
+async function authSubmit(mode){
+  const email = ($("#auEmail")||{}).value?.trim(), pass = ($("#auPass")||{}).value, btn = $("#auBtn"), msg = t => { $("#auMsg").style.color = "var(--danger)"; $("#auMsg").textContent = t; };
+  btn.disabled = true;
+  try {
+    if (mode === "login") { const login = email && !email.includes("@") ? email.toLowerCase() + "@team.ziad-system.app" : email; const { error } = await sb.auth.signInWithPassword({ email: login, password: pass }); if (error) throw new Error(/invalid/i.test(error.message) ? "اليوزر أو الباسورد غلط" : error.message); btn.textContent = "⏳ بيفتح…"; await boot(); return; }
+    else if (mode === "signup") { if (!pass || pass.length < 8) throw new Error("الباسورد لازم 8 حروف على الأقل"); const { data, error } = await sb.auth.signUp({ email, password: pass, options: { data: { name: $("#auName").value.trim() }, emailRedirectTo: location.origin + location.pathname } }); if (error) throw error; if (!data.session) { $("#auMsg").style.color = "var(--ok)"; $("#auMsg").textContent = "اتبعتلك إيميل تأكيد. دوس على اللينك اللي فيه وبعدين ادخل."; btn.disabled = false; return; } }
+    else if (mode === "forgot") { const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname }); if (error) throw error; $("#auMsg").style.color = "var(--ok)"; $("#auMsg").textContent = "لو الإيميل متسجل، هيوصلك لينك تعمل منه باسورد جديد."; btn.disabled = false; return; }
+    else if (mode === "setpass") { if (!pass || pass.length < 8) throw new Error("الباسورد لازم 8 حروف على الأقل"); const { error } = await sb.auth.updateUser({ password: pass }); if (error) throw error; history.replaceState(null, "", location.pathname); needPass = false; await boot(); }
+  } catch(e){ msg(e.message || String(e)); btn.disabled = false; }
+}
+
+/* ================= Boot ================= */
+let needPass = /type=(invite|recovery)/.test(location.hash);
+let booting = false;
+async function boot(){
+  if (booting) return; booting = true;
+  try { await bootInner(); } finally { booting = false; }
+}
+async function bootInner(){
+  const { data: { session } } = await sb.auth.getSession();
+  if (!session) { authScreen("login"); return; }
+  if (needPass) { authScreen("setpass"); return; }
+  me = { id: session.user.id, email: session.user.email };
+  document.body.classList.remove("auth");
+  $("#app").innerHTML = SHELL2;
+  try { await loadAll(); } catch(e){ $("#view").innerHTML = `<div class="alert">مقدرش يحمّل الداتا: ${esc(e.message || e)}</div>`; return; }
+  if (!me.active) { $("#view").innerHTML = `<div class="card empty">حسابك متوقف. كلّم زياد.</div>`; return; }
+  render();
+  for (const c of clients) if (canSeeNumbers(c.id) || myPlatforms(c).length) loadMetrics(c.id);
+  loadUnreviewed();
+  try {
+    sb.channel("live").on("postgres_changes", { event: "*", schema: "public", table: "task_status" }, () => refreshStatus())
+      .on("postgres_changes", { event: "*", schema: "public", table: "tasks" }, () => refreshAll(true)).subscribe();
+  } catch(e){}
+}
+let rsT = null;
+function refreshStatus(){ clearTimeout(rsT); rsT = setTimeout(async () => { try { const s = await q(sb.from("task_status").select("*").gte("day", addDaysK(todayK(), -120)), "st"); ST = {}; for (const r of s) ST[r.task_id + "|" + r.day] = r; render(); } catch(e){} }, 400); }
+async function refreshAll(silent){ try { await loadAll(); loadUnreviewed(); render(); if (!silent) toast("اتحدث ✓"); } catch(e){} }
+window.addEventListener("focus", () => { if (me && me.role) refreshStatus(); });
+document.addEventListener("keydown", e => { if (e.key === "Escape") closeModal(); });
+let lastDay = todayK();
+setInterval(() => { const k = todayK(); if (k !== lastDay) { if (ui.date === lastDay) ui.date = k; lastDay = k; render(); } }, 60000);
+
+function start(){
+  if (!window.supabase) { document.getElementById("app").innerHTML = `<div class="authbox"><h2>مقدرش يحمّل السيستم</h2><p class="small muted">اتأكد من النت وجرب تاني.</p></div>`; return; }
+  sb = window.supabase.createClient(SB_URL, SB_KEY, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
+  sb.auth.onAuthStateChange((ev) => { if (ev === "PASSWORD_RECOVERY") { needPass = true; authScreen("setpass"); } if (ev === "SIGNED_OUT") { me = null; authScreen("login"); } if (ev === "SIGNED_IN" && !me && !needPass && document.body.classList.contains("auth")) setTimeout(boot, 0); });
+  boot();
+  checkVersion(); setInterval(checkVersion, 60000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) checkVersion(); });
+  window.addEventListener("focus", checkVersion);
+}
+
+/* ================= Auto update (beats GitHub Pages cache) ================= */
+let pendingVersion = null;
+async function checkVersion(){
+  const cur = window.__APP_VERSION; if (!cur || cur === "dev") return;
+  try {
+    const r = await fetch("version.json?t=" + Date.now(), { cache: "no-store" }); if (!r.ok) return;
+    const j = await r.json(); if (!j.v || j.v === cur) return;
+    applyUpdate(j.v);
+  } catch(e){}
+}
+function applyUpdate(v){
+  let tried = ""; try { tried = sessionStorage.getItem("upd_" + v) || ""; } catch(e){}
+  if (tried) return; // already reloaded once for this version; CDN may still be catching up
+  const busy = ($("#modalBg") && $("#modalBg").classList.contains("show")) || (typeof CPtimer !== "undefined" && CPtimer) || (document.activeElement && document.activeElement.closest && document.activeElement.closest(".cp-ed"));
+  if (busy) { pendingVersion = v; showUpdateBar(); return; }
+  try { sessionStorage.setItem("upd_" + v, "1"); } catch(e){}
+  location.replace(location.pathname + "?v=" + encodeURIComponent(v) + location.hash);
+}
+function showUpdateBar(){
+  if (document.getElementById("updBar")) return;
+  const d = document.createElement("div"); d.id = "updBar";
+  d.style.cssText = "position:fixed;bottom:16px;left:50%;transform:translateX(-50%);z-index:9999;background:var(--accent);color:#fff;padding:10px 16px;border-radius:var(--radius);display:flex;gap:12px;align-items:center;box-shadow:0 6px 24px rgba(0,0,0,.25);font-size:14px";
+  d.innerHTML = `فيه نسخة جديدة من السيستم <button class="btn xs" onclick="applyUpdate(pendingVersion)">حدّث دلوقتي</button>`;
+  document.body.appendChild(d);
+}
+const _closeModal0 = closeModal;
+closeModal = function(){ _closeModal0(); if (pendingVersion) setTimeout(() => applyUpdate(pendingVersion), 300); };
+
+/* ================= Platform comparison (best platform) ================= */
+function platformRank(c, rows){
+  const ad = adRows(rows), isStore = c.type === "store";
+  const list = platformsInUse(c, ad).map(n => { const a = agg(ad.filter(r => r.p === n)); const res = isStore ? a.po : a.conv; return { name:n, s:a.s, res, cost: res ? a.s / res : null, a }; }).filter(x => x.s > 0 || x.res > 0);
+  const ranked = list.filter(x => x.cost != null && x.s > 0).sort((a,b) => a.cost - b.cost);
+  const total = list.reduce((t,x) => t + x.s, 0);
+  const n = ranked.length, near = (a, b) => Math.abs(a - b) <= Math.max(a, b) * 0.02; // within 2% = same price
+  const allSame = n > 1 && near(ranked[0].cost, ranked[n-1].cost);
+  const lows = n > 1 && !allSame ? ranked.filter(x => near(x.cost, ranked[0].cost)) : [];
+  const highs = n > 1 && !allSame ? ranked.filter(x => near(x.cost, ranked[n-1].cost)) : [];
+  return { list, ranked, total, lows, highs, allSame, best: lows.length === 1 ? lows[0] : null, worst: highs.length === 1 ? highs[0] : null, unit: isStore ? "CPP" : "CPA", resName: isStore ? "أوردر" : "تحويل" };
+}
+function platformAdvice(c, rows, when){
+  const R = platformRank(c, rows), cu = cur(c), zero = R.list.filter(x => x.s > 0 && !x.res);
+  const res0 = R.resName === "أوردر" ? "أوردرات" : "تحويلات";
+  const names = L => L.map(x => `<b>${esc(x.name)}</b>`).join(" و ");
+  let t = "";
+  if (R.allSame) t = `كل المنصات ${when} نفس الـ ${R.unit} تقريبًا: <b class="num">${fmt2(R.ranked[0].cost)}</b> ${cu}`;
+  else if (R.lows.length) {
+    const lo = R.lows[0], hi = R.highs[0], one = R.lows.length === 1;
+    t = one ? `${names(R.lows)} أرخص منصة ${when}: ${R.unit} <b class="num">${fmt2(lo.cost)}</b> ${cu} (${fmt(lo.res)} ${R.resName})`
+            : `${names(R.lows)} الأرخص ${when}، بنفس الـ ${R.unit} تقريبًا: <b class="num">${fmt2(lo.cost)}</b> ${cu}`;
+    if (hi && hi.cost > lo.cost * 1.3) {
+      const x = hi.cost / lo.cost, many = R.highs.length > 1;
+      t += ` · ${names(R.highs)} ${many ? "الأغلى" : "الأغلى"}: ${R.unit} <b class="num">${fmt2(hi.cost)}</b> ${cu} (${x >= 2 ? `أغلى ${fmt(x,1)} مرة` : `أغلى بـ ${fmt((x-1)*100)}%`})`;
+      const hiSpend = R.highs.reduce((a, h) => a + h.s, 0);
+      if (hiSpend / R.total >= 0.15) t += `. فكّر تنقل جزء من ميزانية ${R.highs.map(h => esc(h.name)).join(" و ")} لـ ${R.lows.map(l => esc(l.name)).join(" أو ")}.`;
+    }
+  }
+  if (zero.length) t += `${t ? " · " : ""}${names(zero)} صرفت ${fmt(zero.reduce((s,z) => s + z.s, 0))} ${cu} من غير ${res0}.`;
+  if (!t) return null;
+  const tg = c.targets || {}, T = c.type === "store" ? tg.maxCpp : tg.cpl;
+  const lo = R.lows[0], hi = R.highs[0], ratio = lo && hi ? hi.cost / lo.cost : 1;
+  const hiShare = R.highs.reduce((a, h) => a + h.s, 0) / (R.total || 1);
+  let level = "good";
+  if (zero.length || (T && ((hi && hi.cost > T && hiShare >= 0.1) || (lo && lo.cost > T) || (R.allSame && R.ranked[0].cost > T))) || (ratio >= 2.5 && hiShare >= 0.15)) level = "bad";
+  else if (ratio >= 1.3 || (T && hi && hi.cost > T)) level = "warn";
+  return { html: t, best: R.best, worst: R.worst, R, level, lows: R.lows, highs: R.highs, ratio, zero, T, suggest: hi && ratio >= 1.3 && hiShare >= 0.15 };
+}
+function adviceBox(c, items){
+  items = items.filter(x => x.adv); if (!items.length) return "";
+  const rank = { good:0, warn:1, bad:2 }, top = items.reduce((m, x) => rank[x.adv.level] > rank[m] ? x.adv.level : m, "good");
+  const cu = cur(c);
+  const plat = x => `<span class="adv-p">${badge(x.name)}${esc(x.name)}</span>`;
+  const row = ({ label, adv: a }) => { const R = a.R, unit = R.unit, rn = R.resName;
+    let b = "";
+    if (R.allSame) b += `<div class="adv-line"><span class="adv-k ${a.level === "bad" ? "bad" : "ok"}">نفس السعر</span>${R.ranked.map(plat).join("")}<span class="adv-v">${money(unit, R.ranked[0].cost, cu)}</span></div>`;
+    else if (a.lows.length) {
+      const lo = a.lows[0];
+      b += `<div class="adv-line"><span class="adv-k ok">الأرخص</span>${a.lows.map(plat).join("")}<span class="adv-v">${money(unit, lo.cost, cu)}${a.lows.length === 1 ? `<span class="sep">·</span><bdi><b class="num">${fmt(lo.res)}</b> ${rn}</bdi>` : ""}</span></div>`;
+      if (a.highs.length && a.ratio >= 1.3) { const hi = a.highs[0];
+        b += `<div class="adv-line"><span class="adv-k ${a.ratio >= 2.5 ? "bad" : "warn"}">الأغلى</span>${a.highs.map(plat).join("")}<span class="adv-v">${money(unit, hi.cost, cu)}<span class="sep">·</span><bdi><b>${a.ratio >= 2 ? `أغلى ${fmt(a.ratio,1)} مرة` : `أغلى بـ ${fmt((a.ratio-1)*100)}%`}</b></bdi></span></div>`; }
+    }
+    if (a.zero.length) b += `<div class="adv-line"><span class="adv-k bad">من غير نتيجة</span>${a.zero.map(plat).join("")}<span class="adv-v">صرفت ${money("", a.zero.reduce((s2,z) => s2 + z.s, 0), cu, 0)} من غير ${rn === "أوردر" ? "أوردرات" : "تحويلات"}</span></div>`;
+    if (a.T && a.lows[0] && a.lows[0].cost > a.T) b += `<div class="adv-tip bad">حتى أرخص منصة فوق التارجت (${money(unit, a.T, cu)})</div>`;
+    else if (a.T && a.highs[0] && a.highs[0].cost > a.T) b += `<div class="adv-tip">${a.highs.map(h => esc(h.name)).join(" و ")} فوق التارجت (${money(unit, a.T, cu)})</div>`;
+    if (a.suggest) b += `<div class="adv-tip">← فكّر تنقل جزء من ميزانية <b>${a.highs.map(h => esc(h.name)).join(" و ")}</b> لـ <b>${a.lows.map(l => esc(l.name)).join(" أو ")}</b></div>`;
+    return `<div class="adv-row lv-${a.level}"><div class="adv-when"><span class="adv-dot"></span>${label}</div><div class="adv-body">${b}</div></div>`; };
+  return `<div class="adv-box lv-${top}">${items.map(row).join("")}</div>`;
+}
+function bestYesterday(c){ if (!M[c.id] || !canSeeNumbers(c.id)) return null; const y = addDaysK(todayK(), -1); return platformAdvice(c, M[c.id].filter(r => r.d === y), "امبارح"); }
+function platformCards(c, rows){
+  const R = platformRank(c, rows); if (!R.list.length) return "";
+  const cu = cur(c), order = R.list.slice().sort((a,b) => (a.cost == null) - (b.cost == null) || (a.cost ?? 0) - (b.cost ?? 0) || b.s - a.s);
+  return `<div class="pgrid">${order.map(x => { const isB = R.lows.includes(x), isW = R.highs.includes(x);
+    return `<div class="pcard${isB ? " best" : ""}${isW ? " worst" : ""}">
+      <div class="pc-top">${badge(x.name)}<b>${esc(x.name)}</b><span class="spacer"></span>${isB ? `<span class="chip ok">الأرخص</span>` : isW ? `<span class="chip warn">الأغلى</span>` : ""}</div>
+      ${isAdmin() && !window.__noOwner && platformOwner(c, x.name) ? `<div class="pc-own">${avatar(platformOwner(c, x.name), 16)} ${esc(String(personName(platformOwner(c, x.name))).split(" ")[0])}</div>` : ""}
+      <div class="pc-main"><span class="pc-l">${R.unit}</span><span class="pc-v num">${x.cost != null ? fmt2(x.cost) : x.s ? "مفيش " + R.resName : "—"}</span>${x.cost != null ? `<span class="pc-u">${cu}</span>` : ""}</div>
+      <div class="pc-kv"><div><span>الصرف</span><b class="num">${fmt(x.s)}</b></div><div><span>${R.resName === "أوردر" ? "أوردرات" : "تحويلات"}</span><b class="num">${fmt(x.res)}</b></div><div><span>من الصرف</span><b class="num">${R.total ? fmt(x.s/R.total*100) : 0}%</b></div></div>
+    </div>`; }).join("")}</div>`;
+}
+function dayDetail(c, d, dr){
+  const date = fmtDate(fromKey(d));
+  if (!dr.length) return `<div class="det"><div class="row"><h3>${date}</h3></div><div class="small muted" style="margin-top:4px">لسه مفيش أرقام لليوم ده.</div><button class="btn primary sm" style="margin-top:10px" onclick="openEntry('${c.id}','${d}')">✍️ سجّل أرقام اليوم ده</button></div>`;
+  const ad = adRows(dr), a = agg(c.type === "store" ? dr : ad), adv = platformAdvice(c, dr, "في اليوم ده");
+  let h = `<div class="det"><div class="row"><h3>تفاصيل ${date}</h3><span class="spacer"></span><button class="btn sm" onclick="openEntry('${c.id}','${d}')">✏️ تعديل الأرقام</button></div>`;
+  if (c.type === "store" && window.__slice) h += `<div class="kv"><div>الصرف<b>${fmt(a.s)} ${cur(c)}</b></div><div>الأوردرات (حسب المنصات)<b>${fmt(a.po)}</b></div><div>CPP<b>${a.po ? fmt2(a.s/a.po) + " " + cur(c) : "—"}</b></div></div>`;
+  else if (c.type === "store") h += `<div class="kv"><div>الصرف<b>${fmt(a.s)} ${cur(c)}</b></div><div>المبيعات<b>${fmt(a.sl)} ${cur(c)}</b></div><div>ROAS<b>${a.sl ? fmt2(a.roas) : "—"}</b></div><div>الأوردرات<b>${fmt(a.o)}</b></div><div>CPP<b>${a.cpp != null ? fmt2(a.cpp) + " " + cur(c) : "—"}</b></div><div>AOV<b>${a.aov != null ? fmt(a.aov) + " " + cur(c) : "—"}</b></div></div>`;
+  else { const bk = agg(dr.filter(r => r.p === "_bk")); h += `<div class="kv"><div>الصرف<b>${fmt(a.s)} ${cur(c)}</b></div><div>التحويلات<b>${fmt(a.conv)}</b></div><div>تكلفة التحويل<b>${a.cpl != null ? fmt2(a.cpl) + " " + cur(c) : "—"}</b></div><div>ليدز / رسائل / مكالمات<b>${fmt(a.ld)} / ${fmt(a.ms)} / ${fmt(a.ca)}</b></div>${bk.bk ? `<div>حجوزات فعلية<b>${fmt(bk.bk)}</b></div>` : ""}</div>`; }
+  if (adv) h += adviceBox(c, [{ label:"اليوم ده", adv }]);
+  h += `<div class="small muted" style="margin:14px 0 8px">المنصات في اليوم ده</div>` + platformCards(c, dr);
+  if (c.type !== "store") { const D = deptsInUse(c, ad); if (D.length) { const DS = D.map(dp => ({ name:dp, color:"var(--accent)", ...agg(ad.filter(r => r.dep === dp)) })).filter(x => x.s > 0 || x.conv > 0); if (DS.length) h += `<div class="small muted" style="margin-top:14px">حسب القسم</div>` + bars(DS.sort((x,y) => y.s - x.s), a.s, c, x => ` · <b>${fmt(x.conv)}</b> تحويل · CPA <b>${x.cpl != null ? fmt2(x.cpl) : "—"}</b>`); } }
+  return h + `</div>`;
+}
+function weekAdvice(c){
+  if (!M[c.id]) return ""; const t = todayK(), rows = M[c.id].filter(r => r.d >= addDaysK(t,-7) && r.d <= addDaysK(t,-1));
+  return adviceBox(c, [{ label:"امبارح", adv: bestYesterday(c) }, { label:"آخر 7 أيام", adv: platformAdvice(c, rows, "آخر 7 أيام") }]);
+}
+
+/* ================= Team results on client dashboard ================= */
+function platformOwner(c, p){ const m = members.find(m => m.client_id === c.id && (m.platforms||[]).includes(p)); return m ? m.user_id : null; }
+function teamSlices(c){
+  const ms = members.filter(m => m.client_id === c.id && (m.platforms||[]).length);
+  if (!ms.length) return [];
+  const taken = new Set(ms.flatMap(m => m.platforms));
+  const mine = plats(c).map(p => p.name).filter(p => !taken.has(p));
+  const out = ms.map(m => ({ id:m.user_id, name:personName(m.user_id), platforms:m.platforms }));
+  if (mine.length) out.unshift({ id:me.id, name:"انت", platforms:mine, self:true });
+  return out;
+}
+const sliceRows = (rows, sl) => adRows(rows).filter(r => sl.platforms.includes(r.p));
+function teamBlock(c, ym, rows, prev){
+  const S = teamSlices(c); if (!S.length) return "";
+  const store = c.type === "store", cu = cur(c), total = agg(adRows(rows)).s;
+  const L = S.map(sl => { const R = sliceRows(rows, sl), x = agg(R), px = agg(sliceRows(prev, sl));
+    const res = store ? x.po : x.conv, cost = res ? x.s / res : null, pres = store ? px.po : px.conv, pcost = pres ? px.s / pres : null;
+    const byDays = new Set(R.filter(r => r.by === sl.id).map(r => r.d)), last = R.filter(r => r.by === sl.id).map(r => r.d).sort().pop();
+    const pend = R.filter(r => r.reviewed === false).length;
+    return { ...sl, x, res, cost, pcost, byDays:byDays.size, last, pend }; });
+  const ranked = L.filter(l => l.cost != null), best = ranked.length > 1 ? ranked.reduce((a,b) => b.cost < a.cost ? b : a) : null;
+  const unit = store ? "CPP" : "CPA", resName = store ? "أوردر" : "تحويل", sel = (ui.pf||{})[c.id] || "";
+  let h = `<div class="section-title" style="margin-bottom:0"><h3>نتايج الفريق</h3><span class="tiny muted">كل واحد على المنصات اللي ماسكها، الشهر ده</span><span class="spacer"></span>
+    <span class="tiny muted">الداشبورد تعرض:</span><div class="seg"><button class="${!sel?"on":""}" onclick="setPf('${c.id}','')">الكل</button>${S.map(s => `<button class="${sel===s.id?"on":""}" onclick="setPf('${c.id}','${s.id}')">${esc(s.self ? "انت" : String(s.name).split(" ")[0])}</button>`).join("")}</div></div>
+  <div class="pgrid" style="margin-bottom:16px">${L.map(l => { const isB = best && best.id === l.id;
+    const dl = l.cost != null && l.pcost ? (l.cost - l.pcost) / l.pcost * 100 : null;
+    return `<div class="pcard tm${isB ? " best" : ""}${sel === l.id ? " sel" : ""}" onclick="setPf('${c.id}','${sel === l.id ? "" : l.id}')" style="cursor:pointer">
+      <div class="pc-top">${avatar(l.id, 26)}<b>${esc(l.name)}</b><span class="spacer"></span>${isB ? `<span class="chip ok">🏆 أرخص ${unit}</span>` : ""}</div>
+      <div class="tiny muted" style="margin:2px 0 8px">${l.platforms.map(p => `<span class="pname" style="margin-left:8px">${badge(p)} ${esc(p)}</span>`).join("")}</div>
+      <div class="pc-main"><span class="pc-l">${unit}</span><span class="pc-v num">${l.cost != null ? fmt2(l.cost) : l.x.s ? "مفيش " + resName : "—"}</span>${l.cost != null ? `<span class="pc-u">${cu}</span>` : ""}</div>
+      ${dl != null ? `<div class="d ${dl <= 0 ? "up" : "down"}" style="font-size:12px">${dl <= 0 ? "▼" : "▲"} ${fmt(Math.abs(dl))}% عن الشهر اللي فات</div>` : ""}
+      <div class="pc-kv"><div><span>الصرف</span><b class="num">${fmt(l.x.s)}</b></div><div><span>${store ? "أوردرات" : "تحويلات"}</span><b class="num">${fmt(l.res)}</b></div><div><span>من الصرف</span><b class="num">${total ? fmt(l.x.s/total*100) : 0}%</b></div></div>
+      <div class="tiny muted" style="margin-top:8px">${l.self ? "" : l.byDays ? `سجّل ${fmt(l.byDays)} يوم الشهر ده · آخر مرة ${fmtDate(fromKey(l.last))}` : "لسه ماسجّلش أرقام الشهر ده"}${l.pend ? ` · <span style="color:var(--warn)">${l.pend} محتاجة مراجعة</span>` : ""}</div>
+    </div>`; }).join("")}</div>`;
+  return h;
+}
+function setPf(cid, pid){ ui.pf = ui.pf || {}; if (pid) ui.pf[cid] = pid; else delete ui.pf[cid]; ui.selDay = null; saveUi(); render(); }
+function personDash(c, ym, rows, prev, sl, opt){
+  opt = opt || {};
+  const R = sliceRows(rows, sl), PR = sliceRows(prev, sl), x = agg(R), px = agg(PR), store = c.type === "store", cu = cur(c);
+  const total = agg(adRows(rows)).s, res = store ? x.po : x.conv, pres = store ? px.po : px.conv, cost = res ? x.s/res : null, pcost = pres ? px.s/pres : null;
+  let h = `<div class="stats">`; h += `
+    <div class="stat"><div class="l">الصرف${opt.noShare ? "" : ` · ${total ? fmt(x.s/total*100) : 0}% من صرف العميل`}</div><div class="n">${fmt(x.s)} <span class="small muted">${cu}</span></div>${deltaHtml(x.s, px.s, true)}</div>
+    <div class="stat"><div class="l">${store ? "الأوردرات (حسب المنصات)" : `التحويلات · ليدز ${fmt(x.ld)} · رسائل ${fmt(x.ms)} · مكالمات ${fmt(x.ca)}`}</div><div class="n">${fmt(res)}</div>${deltaHtml(res, pres, true)}</div>
+    <div class="stat"><div class="l">${store ? "CPP" : "تكلفة التحويل"}</div><div class="n">${cost != null ? `<span class="hl">${fmt2(cost)}</span>` : "—"} <span class="small muted">${cu}</span></div>${deltaHtml(cost, pcost, false)}</div></div>`;
+  h += `<div class="section-title" style="margin-bottom:8px"><h3>المنصات في الشهر</h3></div>` + (window.__noOwner = true, platformCards(c, R)); window.__noOwner = false;
+  const key = store ? "metricS" : "metricL", keep = ui[key];
+  if (store && (!ui[key] || ui[key] === "roas" || ui[key] === "sl")) ui[key] = "cpp";
+  window.__slicePl = sl.platforms; window.__slice = true; window.__noOwner = true; try { if (!opt.noCal) h += calendar(c, ym, R); } finally { window.__slice = false; window.__noOwner = false; } ui[key] = keep;
+  return h;
+}
+
+
+/* ================= Member client view ================= */
+function memberClientView(c, ym, see, mp){
+  const myT = tasks.filter(t => t.clientId === c.id && t.assigneeId === me.id);
+  const tasksHtml = `<div class="section-title"><h3>تاسكاتك على العميل ده (${myT.length})</h3></div><div class="card">${myT.map(t => `<div class="task"><div class="t"><div class="title">${esc(t.title)}</div><div class="meta">${esc(repeatText(t))}</div></div></div>`).join("") || `<div class="small muted">مفيش.</div>`}</div>`;
+  if (!see && !mp.length) return filesBlock(c) + tasksHtml;
+  let h = `<div class="row" style="margin:6px 0 12px"><div class="monthnav"><button class="btn sm" onclick="ui.month=ymAdd(ui.month,1);ui.selDay=null;saveUi();render()" aria-label="الشهر اللي بعده">›</button><div class="m">${monthLabel(ym)}</div><button class="btn sm" onclick="ui.month=ymAdd(ui.month,-1);ui.selDay=null;saveUi();render()" aria-label="الشهر اللي قبله">‹</button></div><span class="spacer"></span><button class="btn xs" onclick="loadMetrics('${c.id}',true)">↻ تحديث</button></div>`;
+  if (!M[c.id]) return h + `<div class="card empty">بيحمّل الأرقام…</div>`;
+  const rows = monthRows(c.id, ym), prev = monthRows(c.id, ymAdd(ym,-1));
+  if (!ui.selDay || !ui.selDay.startsWith(ym)) { const dd = rows.map(r => r.d).sort(); ui.selDay = dd.length ? dd[dd.length-1] : null; }
+  if (mp.length) {
+    const sl = { id:me.id, name:me.name || "انت", platforms:mp };
+    if (!sliceRows(rows, sl).length) h += `<div class="section-title" style="margin-top:4px"><h3>${avatar(me.id, 24)} نتايجك</h3></div><div class="card small muted">لسه مفيش أرقام لـ ${mp.map(esc).join(" و ")} في ${monthLabel(ym)}. سجّلها من زرار "سجّل أرقام" فوق.</div>`;
+    else h += personDash(c, ym, rows, prev, sl, { member:true, see, noCal:see });
+  }
+  if (see) {
+    const adm = profiles.find(p => p.role === "admin");
+    h += `<div class="section-title" style="margin-top:26px;padding-top:18px;border-top:1px solid var(--line)"><h3>${adm ? avatar(adm.id, 24) : ""} نتايج العميل كلها</h3><span class="tiny muted">من داشبورد ${esc(adm ? (adm.name || "زياد") : "زياد")}: كل المنصات والمبيعات والتوتال</span></div>`;
+    const a = agg(rows);
+    let full = c.type === "store" ? storeDash2(c, ym, rows, a, agg(prev)) : leadsDash2(c, ym, rows, agg(adRows(rows)), agg(adRows(prev)));
+    if (mp.length) full = full.replace('<span class="hl">', '<span>');
+    full = full.replace(/<button class="btn xs ghost" style="padding:0 4px" onclick="openSalesTarget\([^)]*\)">[^<]*<\/button>/g, "");
+    h += full;
+  }
+  return h + filesBlock(c) + tasksHtml;
+}
+
+/* ================= Client files ================= */
+const FILES = {};
+async function loadFiles(cid){ try { FILES[cid] = await q(sb.from("client_files").select("*").eq("client_id", cid).order("created_at", { ascending:false }), "files"); } catch(e){ FILES[cid] = []; } render(); }
+const fileIcon = n => { const e = String(n).split(".").pop().toLowerCase(); return /^(png|jpe?g|gif|webp|svg|heic)$/.test(e) ? "🖼️" : /^(mp4|mov|avi|webm|mkv)$/.test(e) ? "🎬" : e === "pdf" ? "📕" : /^(xlsx?|csv)$/.test(e) ? "📊" : /^(docx?|txt)$/.test(e) ? "📄" : /^(pptx?|key)$/.test(e) ? "📽️" : /^(zip|rar|7z)$/.test(e) ? "🗜️" : "📎"; };
+const fsize = b => !b ? "" : b > 1048576 ? fmt(b/1048576, 1) + " MB" : fmt(Math.max(1, b/1024)) + " KB";
+function filesBlock(c){
+  if (!canFiles(c.id)) return "";
+  if (!(c.id in FILES)) { FILES[c.id] = null; loadFiles(c.id); }
+  const L = FILES[c.id];
+  let h = `<div class="section-title"><h3>ملفات العميل${L && L.length ? ` (${L.length})` : ""}</h3><span class="tiny muted">لينكات درايف واسم كل ملف. أي حد على العميل يقدر يضيف ويعدّل، والتعديل بيتحفظ لوحده.</span></div>`;
+  if (L === null) return h + `<div class="card empty">بيحمّل…</div>`;
+  const row = f => `<div class="flink">
+      <span class="fl-ic">${f.url ? "🔗" : fileIcon(f.name)}</span>
+      <input class="inp fl-name" value="${esc(f.name)}" placeholder="اسم الملف (مثلاً: لوجو المتجر)" onchange="editFile('${f.id}','name',this)">
+      ${f.url != null || !f.path ? `<input class="inp fl-url" dir="ltr" value="${esc(f.url || "")}" placeholder="https://drive.google.com/..." onchange="editFile('${f.id}','url',this)">` : `<span class="fl-url tiny muted">ملف مرفوع</span>`}
+      ${f.url ? `<a class="btn xs" href="${esc(normUrl(f.url))}" target="_blank" rel="noopener">افتح ↗</a>` : f.path ? `<button class="btn xs" onclick="openClientFile('${f.id}')">⬇️ تحميل</button>` : ""}
+      ${isAdmin() || f.uploaded_by === me.id ? `<button class="btn xs ghost" onclick="delFile('${f.id}')" aria-label="امسح">🗑</button>` : `<span style="width:30px"></span>`}
+      <span class="fl-who tiny muted">${avatar(f.updated_by || f.uploaded_by, 16)} ${esc(personName(f.updated_by || f.uploaded_by))}${(f.updated_at || f.created_at) ? " · " + fmtDate(new Date(f.updated_at || f.created_at)) : ""}${f.updated_by ? " (آخر تعديل)" : ""}</span>
+    </div>`;
+  return h + `<div class="card" style="padding:10px 16px">${L.map(row).join("") || `<div class="small muted" style="padding:4px 0 10px">مفيش ملفات لسه. حط لينك الدرايف واسمه تحت.</div>`}
+    <div class="flink fl-new"><span class="fl-ic">➕</span>
+      <input class="inp fl-name" id="nfName_${c.id}" placeholder="اسم الملف (مثلاً: صور المنتجات)">
+      <input class="inp fl-url" id="nfUrl_${c.id}" dir="ltr" placeholder="حط لينك الدرايف هنا" onkeydown="if(event.key==='Enter')addFileLink('${c.id}')">
+      <button class="btn xs primary" onclick="addFileLink('${c.id}')">ضيف</button></div></div>`;
+}
+async function addFileLink(cid){
+  const n = $("#nfName_" + cid), u = $("#nfUrl_" + cid), url = u.value.trim(); let name = n.value.trim();
+  if (!url) { u.focus(); return toast("حط اللينك الأول"); }
+  if (!name) name = /drive\.google|docs\.google/.test(url) ? "ملف درايف" : "لينك";
+  try { await q(sb.from("client_files").insert({ client_id:cid, name, url, uploaded_by:me.id }), "addlink"); toast("اتضاف ✓"); loadFiles(cid); }
+  catch(e){ toast("ماتضافش: " + (e.message || e)); }
+}
+async function editFile(id, field, el){
+  const f = Object.values(FILES).flat().find(x => x && x.id === id); if (!f) return;
+  const v = el.value.trim(); if (field === "name" && !v) { el.value = f.name; return; }
+  const patch = { [field]: v, updated_by: me.id, updated_at: new Date().toISOString() };
+  try { await q(sb.from("client_files").update(patch).eq("id", id), "editfile"); Object.assign(f, patch); toast("اتحفظ ✓"); render(); }
+  catch(e){ el.value = f[field] || ""; toast("ماتحفظش: " + (e.message || e)); }
+}
+async function uploadFiles(cid, input){
+  const fs = [...(input.files || [])]; if (!fs.length) return;
+  let ok = 0;
+  for (const f of fs) {
+    toast(`بيرفع ${f.name}…`);
+    const ext = (f.name.includes(".") ? f.name.split(".").pop() : "bin").replace(/[^a-z0-9]/gi, "").slice(0, 8) || "bin";
+    const path = `${cid}/${crypto.randomUUID()}.${ext}`;
+    try {
+      const { error } = await sb.storage.from("client-files").upload(path, f, { contentType: f.type || undefined });
+      if (error) throw error;
+      await q(sb.from("client_files").insert({ client_id:cid, name:f.name, path, size:f.size, uploaded_by:me.id }), "fileins");
+      ok++;
+    } catch(e){ toast(`${f.name} ماترفعش: ${/exceeded|too large|413/i.test(String(e.message)) ? "الملف كبير أوي (الحد 50 ميجا)" : e.message}`); }
+  }
+  input.value = ""; if (ok) toast(`اترفع ${ok} ${ok === 1 ? "ملف" : "ملفات"} ✓`);
+  loadFiles(cid);
+}
+async function openClientFile(id){
+  const f = Object.values(FILES).flat().find(x => x && x.id === id); if (!f) return;
+  const { data, error } = await sb.storage.from("client-files").createSignedUrl(f.path, 120, { download: f.name });
+  if (error) return toast("مش عارف أفتحه: " + error.message);
+  const a = document.createElement("a"); a.href = data.signedUrl; a.rel = "noopener"; document.body.appendChild(a); a.click(); a.remove();
+}
+function delFile(id){ const f = Object.values(FILES).flat().find(x => x && x.id === id); if (!f) return;
+  openModal(`<h2>تمسح «${esc(f.name)}»؟</h2><p class="small muted">هيتمسح من عند الكل.</p><div class="actions"><span class="spacer"></span><button class="btn" onclick="closeModal()">لا</button><button class="btn primary" style="background:var(--danger);border-color:var(--danger)" onclick="doDelFile('${id}')">امسح</button></div>`); }
+async function doDelFile(id){ const f = Object.values(FILES).flat().find(x => x && x.id === id); if (!f) return;
+  try { await sb.storage.from("client-files").remove([f.path]); await q(sb.from("client_files").delete().eq("id", id), "filedel"); closeModal(); toast("اتمسح"); loadFiles(f.client_id); } catch(e){ toast("ماتمسحش: " + e.message); } }
+
+
+/* ================= Inline permissions ================= */
+const PERM_HELP = { plat:"المنصات اللي يسجّل أرقامها", nums:"يشوف نتايج العميل كلها (المبيعات والتوتال وكل المنصات)", files:"يشوف لينكات وملفات العميل ويرفع ملفات" };
+function permRow(m, c, label){
+  const head = label === "client" ? `<b>${esc(c.name)}</b>` : `${avatar(m.user_id, 22)} <b>${esc(personName(m.user_id))}</b> <span class="tiny muted">${esc((profileById(m.user_id)||{}).job || "")}</span>`;
+  const P = plats(c);
+  return `<div class="perm">
+    <div class="perm-h">${head}</div>
+    <div class="perm-o">
+      ${P.length && (((profileById(m.user_id)||{}).job === "Media Buyer") || (m.platforms||[]).length) ? `<span class="perm-g" title="${PERM_HELP.plat}"><span class="tiny muted">يسجّل أرقام:</span>${P.map(pp => { const on = (m.platforms||[]).includes(pp.name); return `<button class="ptog${on ? " on" : ""}" title="${esc(pp.name)}" onclick="togPerm('${c.id}','${m.user_id}','plat','${jsq(pp.name)}')">${badge(pp.name)}</button>`; }).join("")}</span>` : ""}
+      <label class="perm-c" title="${PERM_HELP.nums}"><input type="checkbox" ${m.see_numbers ? "checked" : ""} onchange="togPerm('${c.id}','${m.user_id}','see_numbers')"> يشوف نتايج العميل كلها</label>
+      <label class="perm-c" title="${PERM_HELP.files}"><input type="checkbox" ${m.see_files ? "checked" : ""} onchange="togPerm('${c.id}','${m.user_id}','see_files')"> الملفات</label>
+      <label class="perm-c" title="الميديا بلان والحملات">الخطة: <select class="inp sm" style="width:auto;padding:2px 6px" onchange="togPerm('${c.id}','${m.user_id}','plan_access',this.value)">${[["none","مقفولة"],["view","يشوفها"],["edit","يعدّل فيها"]].map(([k,l]) => `<option value="${k}" ${(m.plan_access || "none") === k ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+      ${label !== "client" ? `<button class="btn xs ghost" title="شيله من العميل ده" onclick="unassign('${c.id}','${m.user_id}')">✕</button>` : ""}
+    </div></div>`;
+}
+async function togPerm(cid, uid, what, val){
+  const m = members.find(x => x.client_id === cid && x.user_id === uid); if (!m) return;
+  const patch = {};
+  if (what === "plan_access") patch.plan_access = val;
+  else if (what === "plat") { const ps = (m.platforms||[]).includes(val) ? m.platforms.filter(x => x !== val) : [...(m.platforms||[]), val]; patch.platforms = ps; }
+  else patch[what] = !m[what];
+  const old = { ...m }; Object.assign(m, patch); render();
+  try { await q(sb.from("client_members").update(patch).eq("client_id", cid).eq("user_id", uid), "perm"); toast("اتحفظ ✓"); }
+  catch(e){ Object.assign(m, old); render(); toast("ماتحفظش: " + (e.message || e)); }
+}
+async function assign(cid, sel){
+  const uid = sel.value; if (!uid) return;
+  try { await q(sb.from("client_members").upsert({ client_id:cid, user_id:uid, platforms:[], see_numbers:false, see_files:false }), "assign"); await loadAll(); render(); toast("اتضاف ✓ — اختار هو يعمل إيه"); }
+  catch(e){ toast("ماتضافش: " + (e.message || e)); }
+}
+async function unassign(cid, uid){
+  try { await q(sb.from("client_members").delete().eq("client_id", cid).eq("user_id", uid), "unassign"); await loadAll(); render(); toast("اتشال من العميل"); }
+  catch(e){ toast("ماتشالش: " + (e.message || e)); }
+}
+function clientTeamCard(c){
+  const ms = members.filter(m => m.client_id === c.id), free = profiles.filter(p => p.id !== me.id && p.active && !ms.some(m => m.user_id === p.id));
+  return `<div class="card perm-card" style="margin-bottom:12px"><div class="row" style="margin-bottom:${ms.length ? 6 : 0}px"><h3 style="margin:0;font-size:15px">الفريق على العميل ده</h3><span class="tiny muted">مين شغال، وبيعمل إيه ويشوف إيه. التغيير بيتحفظ على طول.</span><span class="spacer"></span>
+    ${free.length ? `<select class="inp" style="width:auto;padding:4px 8px;font-size:13px" onchange="assign('${c.id}', this)"><option value="">+ ضيف حد من الفريق</option>${free.map(p => `<option value="${p.id}">${esc(p.name || p.email)} · ${esc(p.job || "")}</option>`).join("")}</select>` : ""}</div>
+    ${ms.length ? ms.map(m => permRow(m, c, "member")).join("") : `<div class="small muted" style="margin-top:6px">انت بس اللي شغال عليه.</div>`}</div>`;
+}
+
+function fileChips(c){
+  if (!canFiles(c.id)) return "";
+  if (!(c.id in FILES)) { FILES[c.id] = null; loadFiles(c.id); }
+  const L = (FILES[c.id] || []).filter(f => f.url);
+  if (!L.length) return "";
+  return `<div class="links" style="margin-bottom:10px">${L.slice(0, 8).map(f => `<a class="link" href="${esc(normUrl(f.url))}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${esc(f.name)}</a>`).join("")}${L.length > 8 ? `<span class="tiny muted">+${L.length - 8}</span>` : ""}</div>`;
+}
+
+
+/* ================= Settings ================= */
+function clientTeamLine(c){
+  const ms = members.filter(m => m.client_id === c.id);
+  return `<div class="row small muted" style="gap:8px;margin-bottom:12px">الفريق: ${ms.length ? ms.map(m => `<span class="pname">${avatar(m.user_id, 22)} ${esc(String(personName(m.user_id)).split(" ")[0])}${m.platforms.length ? ` <span class="tiny">(${m.platforms.map(esc).join("، ")})</span>` : ""}</span>`).join("") : "انت بس"}
+    <a href="#" class="tiny" onclick="go('settings');ui.stab='clients';ui.sClient='${c.id}';render();return false">الصلاحيات ←</a></div>`;
+}
+function viewSettings(){
+  const tabs = isAdmin() ? [["team","Team & Permissions"],["clients","Clients"],["sync","Backup & Sheets"],["account","Account"]] : [["account","Account"]];
+  if (!tabs.some(t => t[0] === ui.stab)) ui.stab = tabs[0][0];
+  let h = pageHead("Settings", isAdmin() ? "الفريق والصلاحيات، وإعدادات كل عميل، وحسابك" : "حسابك") +
+    `<div class="stabs">${tabs.map(([k,l]) => `<button class="${ui.stab === k ? "on" : ""}" onclick="ui.stab='${k}';saveUi();render()">${l}</button>`).join("")}</div>`;
+  if (ui.stab === "team") h += viewTeam();
+  else if (ui.stab === "clients") h += settingsClients();
+  else if (ui.stab === "sync") h += settingsSync();
+  else h += settingsAccount();
+  return h;
+}
+function settingsClients(){
+  const list = clients.slice().sort((a,b) => (a.is_test - b.is_test) || (a.status === "paused") - (b.status === "paused") || a.name.localeCompare(b.name, "ar"));
+  let h = `<div class="row" style="margin-bottom:12px"><h2>العملاء</h2><span class="small muted">العملة، والمنصات، والتارجت، ومين شغال على كل عميل</span><span class="spacer"></span><button class="btn primary sm" onclick="openSettings()">+ عميل جديد</button></div>`;
+  h += list.map(c => { const open = ui.sClient === c.id, ms = members.filter(m => m.client_id === c.id);
+    return `<div class="card scl${open ? " open" : ""}" id="scl_${c.id}">
+      <div class="scl-h" onclick="ui.sClient=${open ? "null" : `'${c.id}'`};render()">
+        ${clientLogo(c, 30)}<b>${esc(c.name)}</b>
+        <span class="chip grey">${c.type === "store" ? "متجر" : "ليدز"}</span><span class="chip grey">${esc(c.currency || "SAR")}</span>
+        ${c.status === "paused" ? `<span class="chip warn">متوقف</span>` : ""}
+        <span class="scl-p">${plats(c).map(p => badge(p.name)).join("")}</span>
+        <span class="spacer"></span>
+        <span class="scl-av">${ms.map(m => avatar(m.user_id, 22)).join("")}</span>
+        <span class="tiny muted">${open ? "▲" : "▼"}</span></div>
+      ${open ? `<div class="scl-b">
+        <div class="kvs">
+          <div><span>العملة</span><b>${esc(c.currency || "SAR")}${Object.entries(c.cur_rates || {}).filter(([k]) => plats(c).some(p => p.cur === k)).map(([k, v]) => ` · 1 ${esc(k)} = ${fmt2(v)}`).join("")}</b></div>
+          <div><span>المنصات</span><b>${plats(c).map(p => esc(p.name) + (p.cur !== c.currency ? ` (${esc(p.cur)})` : "")).join("، ") || "—"}</b></div>
+          ${c.type === "store" ? `<div><span>التارجت</span><b>${[c.targets?.sales ? "مبيعات " + fmt(c.targets.sales) : "", c.targets?.minRoas ? "ROAS " + fmt2(c.targets.minRoas) : "", c.targets?.maxCpp ? "CPP " + fmt2(c.targets.maxCpp) : ""].filter(Boolean).join(" · ") || "—"}</b></div>` : `<div><span>الأقسام</span><b>${(c.depts||[]).map(esc).join("، ") || "—"}</b></div><div><span>التارجت</span><b>${c.targets?.cpl ? "CPA " + fmt2(c.targets.cpl) : "—"}</b></div>`}
+        </div>
+        <div class="row" style="margin:12px 0 4px;gap:10px">${clientLogo(c, 56, true)}<div><b>لوجو العميل</b><div class="row" style="gap:6px;margin-top:4px"><button class="btn xs" onclick="pickClientLogo('${c.id}')">${c.logo_url ? "غيّر اللوجو" : "+ ارفع لوجو"}</button>${c.logo_url ? `<button class="btn xs ghost" onclick="removeLogo('${c.id}')">شيله</button>` : ""}</div></div></div>
+        <div class="row" style="margin:10px 0 4px"><button class="btn sm primary" onclick="openSettings('${c.id}')">✏️ عدّل العميل (العملة، المنصات، التارجت…)</button><button class="btn sm" onclick="go('client','${c.id}')">افتح الداشبورد</button><span class="spacer"></span><span class="tiny muted">الحالة:</span> <span class="seg-pick">${[["active","شغال"],["paused","متوقف"]].map(([k, l]) => `<label><input type="radio" name="cst_${c.id}" ${(c.status === "paused" ? "paused" : "active") === k ? "checked" : ""} onchange="setClientStatus('${c.id}','${k}')"><span>${l}</span></label>`).join("")}</span></div>
+        ${billingLine(c)}
+        ${c.type === "leads" ? leadSheetEditor(c) : ""}
+        ${clientTeamCard(c)}
+      </div>` : ""}
+    </div>`; }).join("");
+  return h;
+}
+function settingsAccount(){
+  return `<div class="card" style="max-width:520px">
+    <div class="row" style="margin-bottom:6px">${avatar(me.id, 44)}<div><b>${esc(me.name || "")}</b><div class="tiny muted" dir="ltr">${esc(me.email || "")}</div></div></div>
+    <label class="f">اسمك</label><input class="inp" id="acName" value="${esc(me.name||"")}">
+    <label class="f">باسورد جديد (اختياري)</label><input class="inp" id="acPass" type="password" autocomplete="new-password" placeholder="8 حروف على الأقل">
+    <div class="actions"><button class="btn danger sm" onclick="signOut()">تسجيل خروج</button><span class="spacer"></span><button class="btn primary" onclick="saveAccount()">حفظ</button></div></div>`;
+}
+
+
+/* ================= Client page: side views (Total / each person / files / tasks) ================= */
+function clientViews(c, see, mp){
+  const R = [], O = [];
+  if (isAdmin()) {
+    R.push({ k:"total", l:"Total", sub:"العميل كله" });
+    for (const sl of teamSlices(c)) R.push({ k:sl.id, l: sl.self ? "انت" : String(sl.name).split(" ")[0], sub: sl.platforms.join("، "), sl, av:sl.id });
+  } else {
+    if (mp.length) R.push({ k:"me", l:"نتايجي", sub: mp.join("، "), sl:{ id:me.id, name:me.name || "انت", platforms:mp, self:true }, av:me.id });
+    if (see) R.push({ k:"total", l:"Total", sub:"العميل كله" });
+  }
+  if (canFiles(c.id)) O.push({ k:"files", l:"Files", sub:"لينكات وملفات العميل" });
+  if (isAdmin()) O.push({ k:"visa", l:"Visa", sub:"بيانات الكروت · ليك انت بس" });
+  O.push({ k:"notes", l:"Notes", sub: isAdmin() ? "التأخيرات والمشاكل بالتاريخ" : "ملاحظاتك على العميل" });
+  O.push({ k:"deliv", l:"Deliveries", sub: isAdmin() ? "التسليمات اللي اتعملت" : "تسليماتك على العميل" });
+  O.push({ k:"tasks", l:"Tasks", sub: isAdmin() ? "كل مهام العميل" : "تاسكاتك على العميل" });
+  const P = [];
+  if (canPlan(c.id)) { P.push({ k:"mplan", l:"Media plan", sub:"الميزانية والحملات" }); P.push({ k:"camps", l:"Campaigns", sub:"Search · PMax" }); }
+  return { R, O, P };
+}
+function sliceMetric(c, sl, ym){
+  if (!M[c.id]) return "";
+  const x = agg(sl ? sliceRows(monthRows(c.id, ym), sl) : adRows(monthRows(c.id, ym)));
+  if (c.type === "store" && !sl) { const a = agg(monthRows(c.id, ym)); return a.sl ? `ROAS ${fmt2(a.roas)}` : ""; }
+  const res = c.type === "store" ? x.po : x.conv; return res ? `${c.type === "store" ? "CPP" : "CPA"} ${fmt2(x.s/res)}` : "";
+}
+function clientBody(c, ym, see, mp){
+  const { R, O, P } = clientViews(c, see, mp), all = [...R, ...P, ...O];
+  ui.cv = ui.cv || {};
+  let k = ui.cv[c.id]; if (!all.some(v => v.k === k)) k = (R[0] || O[0]).k;
+  const v = all.find(x => x.k === k);
+  const item = x => `<button class="${x.k === k ? "on" : ""}" onclick="ui.cv=ui.cv||{};ui.cv['${c.id}']='${x.k}';ui.selDay=null;saveUi();render()">
+      ${x.av ? avatar(x.av, 22) : `<span class="cv-ic">${x.k === "total" ? "Σ" : x.k === "files" ? "⌗" : x.k === "deliv" ? "↗" : x.k === "mplan" ? "▤" : x.k === "camps" ? "◎" : x.k === "notes" ? "✎" : x.k === "visa" ? "▭" : "✓"}</span>`}
+      <span class="cv-t"><b>${esc(x.l)}</b><span>${esc(x.sub)}</span></span>
+      ${R.includes(x) ? `<span class="cv-m">${sliceMetric(c, x.sl, ym)}</span>` : ""}</button>`;
+  const nav = `<nav class="cnav">${R.length ? `<div class="cnav-l">Results</div>${R.map(item).join("")}` : ""}${P.length ? `<div class="cnav-l">Plan</div>${P.map(item).join("")}` : ""}<div class="cnav-l">Client</div>${O.map(item).join("")}</nav>`;
+  return `<div class="cvw">${nav}<div class="cvbody">${clientPanel(c, ym, v, see, mp)}</div></div>`;
+}
+function pickDay(v){ if (!v) return; ui.month = v.slice(0,7); ui.selDay = v; saveUi(); render(); const c = clientById(ui.clientId); if (c) { const v2 = (ui.cv || {})[c.id]; openDay(c.id, v, v2 && v2 !== "total" ? 1 : 0); } }
+function monthNav(c, ym){ return `<div class="row" style="margin:0 0 12px"><label class="daypick-btn" title="اختار يوم">📅 ${ui.selDay && ui.selDay.startsWith(ym) ? fmtDate(fromKey(ui.selDay)) : "اختار يوم"}<input type="date" value="${ui.selDay || ""}" max="${todayK()}" onclick="try{this.showPicker()}catch(e){}" onchange="pickDay(this.value)"></label><div class="monthnav"><button class="btn sm" onclick="ui.month=ymAdd(ui.month,1);ui.selDay=null;saveUi();render()" aria-label="الشهر اللي بعده">›</button><div class="m">${monthLabel(ym)}</div><button class="btn sm" onclick="ui.month=ymAdd(ui.month,-1);ui.selDay=null;saveUi();render()" aria-label="الشهر اللي قبله">‹</button></div><span class="spacer"></span><button class="btn xs" onclick="loadMetrics('${c.id}',true)">↻ تحديث</button></div>`; }
+function sliceAdvice(c, sl){
+  if (!M[c.id] || sl.platforms.length < 2) return "";
+  const t = todayK(), r7 = sliceRows(M[c.id].filter(r => r.d >= addDaysK(t,-7) && r.d <= addDaysK(t,-1)), sl), ry = sliceRows(M[c.id].filter(r => r.d === addDaysK(t,-1)), sl);
+  return adviceBox(c, [{ label:"امبارح", adv: platformAdvice(c, ry, "امبارح") }, { label:"آخر 7 أيام", adv: platformAdvice(c, r7, "آخر 7 أيام") }]);
+}
+function clientPanel(c, ym, v, see, mp){
+  const head = (t, sub, av) => `<div class="cv-head">${av ? avatar(av, 30) : ""}<div><h2>${t}</h2>${sub ? `<div class="ph-sub">${sub}</div>` : ""}</div></div>`;
+  if (v.k === "files") return head("Files", "لينكات درايف وملفات العميل، وأي حد على العميل يقدر يضيف ويعدّل") + filesBlock(c).replace(/^<div class="section-title">[\s\S]*?<\/div>/, "");
+  if (v.k === "mplan") return mediaPlanView(c);
+  if (v.k === "camps") return campaignsView(c);
+  if (v.k === "notes") return clientNotesView(c);
+  if (v.k === "visa") return isAdmin() ? visaView(c) : "";
+  if (v.k === "deliv") return head("Deliveries", "كل اللي اتسلّم على العميل ده: اللينكات والملفات، مين سلّمها وإمتى") + delivBlock(c);
+  if (v.k === "tasks") {
+    const ct = isAdmin() ? tasks.filter(t => t.clientId === c.id) : tasks.filter(t => t.clientId === c.id && t.assigneeId === me.id);
+    let h = head("Tasks", isAdmin() ? `${ct.length} مهمة على العميل ده` : "التاسكات المسنودة عليك") + (isAdmin() ? `<div class="row" style="margin-bottom:10px"><span class="spacer"></span><button class="btn sm primary" onclick="openTask(null,{clientId:'${c.id}'})">+ مهمة</button></div>` : "");
+    h += `<div class="card">${ct.map(t => `<div class="task"><div class="t"><div class="title">${esc(t.title)} ${t.paused ? `<span class="chip grey">متوقفة</span>` : ""}</div><div class="meta">${isAdmin() ? (t.assigneeId && t.assigneeId !== me.id ? `${avatar(t.assigneeId, 16)} ${esc(personName(t.assigneeId))} · ` : "انت · ") : ""}${esc(repeatText(t))}${t.needsReview ? " · محتاجة مراجعة" : ""}</div></div>${isAdmin() ? `<button class="btn ghost sm" onclick="openTask('${t.id}')">تعديل</button>` : ""}</div>`).join("") || `<div class="small muted">مفيش مهام.</div>`}</div>`;
+    if (c.notes && isAdmin()) h += `<div class="section-title"><h3>ملاحظات</h3></div><div class="card small" style="white-space:pre-wrap">${esc(c.notes)}</div>`;
+    return h;
+  }
+  if (!M[c.id]) return monthNav(c, ym) + `<div class="card empty">بيحمّل الأرقام…</div>`;
+  const rows = monthRows(c.id, ym), prev = monthRows(c.id, ymAdd(ym,-1));
+  if (!ui.selDay || !ui.selDay.startsWith(ym)) { const dd = rows.map(r => r.d).sort(); ui.selDay = dd.length ? dd[dd.length-1] : null; }
+  const isCurMonth = ym === ymOf(addDaysK(todayK(), -1));
+  if (v.k === "total") {
+    let h = head("Total", `نتايج العميل كلها: كل المنصات${c.type === "store" ? " والمبيعات" : ""}`);
+    if (isAdmin()) h += clientAlerts(c).map(x => `<div class="alert">⚠️ ${x}</div>`).join("");
+    h += monthNav(c, ym);
+    if (isCurMonth) h += weekAdvice(c);
+    const a = agg(rows);
+    let full = c.type === "store" ? storeDash2(c, ym, rows, a, agg(prev)) : leadsDash2(c, ym, rows, agg(adRows(rows)), agg(adRows(prev)));
+    if (!isAdmin()) full = full.replace(/<button class="btn xs ghost" style="padding:0 4px" onclick="openSalesTarget\([^)]*\)">[^<]*<\/button>/g, "");
+    return h + full;
+  }
+  const sl = v.sl;
+  let h = head(esc(sl.self ? (isAdmin() ? "نتايجك انت" : "نتايجي") : sl.name), `${sl.platforms.map(esc).join("، ")} بس${c.type === "store" && (isAdmin() || !see) ? " · المبيعات والـ ROAS في Total" : ""}`, sl.id);
+  h += monthNav(c, ym);
+  if (!sliceRows(rows, sl).length) return h + `<div class="card small muted">لسه مفيش أرقام لـ ${sl.platforms.map(esc).join(" و ")} في ${monthLabel(ym)}.${(isAdmin() || mp.length) ? ` سجّلها من زرار "سجّل أرقام" فوق.` : ""}</div>`;
+  if (!isAdmin() && see) h += clientOverview(c, ym, rows, prev);
+  if (isCurMonth) h += alertsHtml(sliceAlerts(c, sl)) + sliceAdvice(c, sl);
+  if (isAdmin() && !sl.self) { const pend = sliceRows(rows, sl).filter(r => r.reviewed === false).length, byD = new Set(sliceRows(rows, sl).filter(r => r.by === sl.id).map(r => r.d)).size;
+    h += `<div class="small muted" style="margin:-4px 0 10px">${byD ? `سجّل ${daysAr(byD)} في ${monthLabel(ym)}` : "لسه ماسجّلش أرقام الشهر ده"}${pend ? ` · <span style="color:var(--warn)">فيه أرقام مستنية مراجعتك</span>` : ""}</div>`; }
+  return h + personDash(c, ym, rows, prev, sl, { noShare: !isAdmin() && !see });
+}
+
+const _metricDefs0 = metricDefs;
+metricDefs = function(c, ad, rows){ const d = _metricDefs0(c, ad, rows); if (window.__slice && c.type === "store") { delete d.roas; delete d.sl; } return d; };
+
+const _deltaHtml0 = deltaHtml;
+deltaHtml = function(cur, prev, goodUp){ if (cur == null || prev == null || !prev) return ""; return _deltaHtml0(cur, prev, goodUp); };
+
+const daysAr = n => n === 1 ? "يوم واحد" : n === 2 ? "يومين" : n <= 10 ? `${n} أيام` : `${n} يوم`;
+
+
+/* ================= Deliveries archive per client ================= */
+let DELIV = {};
+async function loadDeliv(cid){
+  const ids = tasks.filter(t => t.clientId === cid).map(t => t.id);
+  if (!ids.length) { DELIV[cid] = []; return render(); }
+  try { DELIV[cid] = await q(sb.from("task_status").select("*").in("task_id", ids).in("state", ["approved","submitted","returned"]).order("updated_at", { ascending:false }), "deliv"); }
+  catch(e){ DELIV[cid] = []; }
+  render();
+}
+function delivBlock(c){
+  if (!(c.id in DELIV)) { DELIV[c.id] = null; loadDeliv(c.id); }
+  const L = DELIV[c.id];
+  if (L === null) return `<div class="card empty">بيحمّل…</div>`;
+  const rows = L.filter(s => s.link || s.file_path || s.note);
+  if (!rows.length) return `<div class="card small muted">لسه مفيش تسليمات على العميل ده. لما حد يسلّم تاسك هتلاقيه هنا، ولما تعتمده بيفضل محفوظ.</div>`;
+  const ui2 = ui.dv = ui.dv || "all", f = ui2 === "all" ? rows : rows.filter(s => s.state === ui2);
+  const cnt = st => rows.filter(s => s.state === st).length;
+  const tag = st => st === "approved" ? `<span class="chip ok">اتعتمد</span>` : st === "submitted" ? `<span class="chip amb">مستني مراجعة</span>` : `<span class="chip warn">اترجع للتعديل</span>`;
+  let h = `<div class="seg" style="margin-bottom:12px">${[["all",`الكل (${rows.length})`],["approved",`اتعتمد (${cnt("approved")})`],["submitted",`مستني (${cnt("submitted")})`],["returned",`اترجع (${cnt("returned")})`]].map(([k,l]) => `<button class="${ui2===k?"on":""}" onclick="ui.dv='${k}';render()">${l}</button>`).join("")}</div>`;
+  h += `<div class="card" style="padding:4px 16px">${f.map(s => { const t = tasks.find(x => x.id === s.task_id) || {};
+    return `<div class="dlv">
+      <div class="row" style="gap:8px">${avatar(s.by_user, 24)}<b>${esc(t.title || "تاسك")}</b>${tag(s.state)}<span class="spacer"></span><span class="tiny muted">${esc(personName(s.by_user))} · ${fmtDate(fromKey(String(s.day).slice(0,10)))}</span></div>
+      ${s.note ? `<div class="small" style="margin:6px 0 0;white-space:pre-wrap">${esc(s.note)}</div>` : ""}
+      ${s.review_note && s.state === "returned" ? `<div class="small" style="margin-top:6px;color:var(--warn)">تعليقك: ${esc(s.review_note)}</div>` : ""}
+      <div class="row" style="margin-top:8px;gap:8px">${s.link ? `<a class="btn xs" href="${esc(normUrl(s.link))}" target="_blank" rel="noopener">🔗 افتح اللينك</a><span class="tiny muted dlv-url" dir="ltr">${esc(s.link)}</span>` : ""}${s.file_path ? `<button class="btn xs" onclick="openFile('${esc(s.file_path)}')">📎 ${esc(s.file_name || "الملف")}</button>` : ""}
+      ${isAdmin() && s.state === "submitted" ? `<span class="spacer"></span><button class="btn xs primary" onclick="approve('${s.task_id}','${String(s.day).slice(0,10)}')">✓ اعتمد</button>` : ""}</div>
+    </div>`; }).join("") || `<div class="small muted" style="padding:12px 0">مفيش حاجة هنا.</div>`}</div>`;
+  return h;
+}
+
+
+/* ================= My Tasks (team members) ================= */
+function myTaskCard(t, dk, extra){
+  const st = stOf(t, dk), state = st ? st.state : null, c = t.clientId ? clientById(t.clientId) : null;
+  const closed = state === "done" || state === "approved";
+  let action = "";
+  if (t.kind === "metrics" && c && !closed) action = `<button class="btn sm primary" onclick="openEntry('${c.id}','${addDaysK(dk,-1)}','${t.id}','${dk}')">✍️ سجّل الأرقام</button>`;
+  else if (t.needsReview && !closed && state !== "submitted") action = `<button class="btn sm primary" onclick="openSubmit('${t.id}','${dk}')">${state === "returned" ? "↩︎ سلّم تاني" : "سلّم ↑"}</button>`;
+  else if (!t.needsReview) action = `<button class="btn sm ${closed ? "" : "primary"}" onclick="toggleDone('${t.id}','${dk}')">${closed ? "↺ رجّعها" : "✓ خلصت"}</button>`;
+  const tag = state === "submitted" ? `<span class="chip amb">مستني مراجعة زياد</span>` : state === "approved" ? `<span class="chip ok">اتعتمد ✓</span>` : state === "done" ? `<span class="chip ok">خلصت ✓</span>` : state === "returned" ? `<span class="chip warn">اترجعتلك</span>` : "";
+  return `<div class="mt${closed ? " done" : ""}${state === "returned" ? " ret" : ""}">
+    <div class="mt-main">
+      <div class="mt-top">${c ? `<span class="mt-client"><span class="cdot ${c.type}"></span>${esc(c.name)}</span>` : `<span class="mt-client">عام</span>`}${extra ? `<span class="tiny muted">${extra}</span>` : ""}${tag}</div>
+      <div class="mt-title">${esc(t.title)}</div>
+      ${t.brief ? `<div class="mt-brief">${esc(t.brief)}</div>` : ""}
+      ${state === "returned" && st.review_note ? `<div class="mt-note">↩︎ تعليق زياد: ${esc(st.review_note)}</div>` : ""}
+      ${(t.time || t.note) ? `<div class="tiny muted" style="margin-top:4px">${[t.time, t.note].filter(Boolean).map(esc).join(" · ")}</div>` : ""}
+    </div>
+    <div class="mt-act">${action}</div></div>`;
+}
+function viewMyTasks(){
+  const tk = todayK(), dk = ui.date, VT = visibleTasks();
+  const due = VT.filter(t => isDueOn(t, dk));
+  const overdue = dk === tk ? overdueOnce(tk).filter(t => VT.includes(t)) : [];
+  const returned = VT.filter(t => Object.values(ST).some(s => s.task_id === t.id && s.state === "returned"));
+  const stateIn = t => stateOf(t, dk);
+  const todo = due.filter(t => !isDone(t.id, dk) && stateIn(t) !== "returned" && !returned.includes(t));
+  const waiting = due.filter(t => stateIn(t) === "submitted");
+  const done = due.filter(t => stateIn(t) === "done" || stateIn(t) === "approved");
+  const doneN = due.filter(t => isDone(t.id, dk)).length, pct = due.length ? Math.round(doneN / due.length * 100) : 0;
+  const rel = dk === tk ? "النهارده" : dk === addDaysK(tk,1) ? "بكرة" : dk === addDaysK(tk,-1) ? "امبارح" : "";
+  let h = pageHead("My Tasks", `أهلاً ${esc(String(me.name || "").split(" ")[0])} 👋`);
+  h += `<div class="mt-bar">
+    <div class="daynav"><button class="btn xs" onclick="ui.date=addDaysK(ui.date,1);render()" aria-label="اليوم اللي بعده">›</button><b>${rel ? rel + " · " : ""}${fmtDate(fromKey(dk))}</b><button class="btn xs" onclick="ui.date=addDaysK(ui.date,-1);render()" aria-label="اليوم اللي قبله">‹</button>${dk !== tk ? `<button class="btn xs ghost" onclick="ui.date=todayK();render()">النهارده</button>` : ""}</div>
+    <span class="spacer"></span>
+    ${due.length ? `<span class="st-prog"><b class="num">${doneN}</b><span class="muted">/${due.length}</span> خلصت<span class="st-bar"><i style="width:${pct}%"></i></span></span>` : ""}</div>`;
+  const sec = (title, list, opt) => list.length ? `<div class="mt-sec"><div class="mt-h">${title} <span class="muted num">${list.length}</span></div>${list.map(t => myTaskCard(t, opt && opt.day ? opt.day(t) : dk, opt && opt.extra ? opt.extra(t) : "")).join("")}</div>` : "";
+  h += sec("↩︎ اترجعتلك للتعديل", returned, { day: t => returnedDay(t) });
+  h += sec("⚠️ متأخرة", overdue.filter(t => !returned.includes(t)), { day: t => t.date, extra: t => `كانت يوم ${fmtDate(fromKey(t.date))}` });
+  h += sec(dk === tk ? "المطلوب النهارده" : "المطلوب في اليوم ده", todo);
+  if (!todo.length && !returned.length && !overdue.length) h += `<div class="mt-empty">${due.length ? "خلّصت كل اللي عليك في اليوم ده 🎉" : "مفيش تاسكات عليك في اليوم ده"}</div>`;
+  h += sec("مستني مراجعة زياد", waiting);
+  h += sec("خلصت", done);
+  // upcoming 7 days
+  if (dk === tk) {
+    const up = [];
+    for (let i = 1; i <= 7; i++) { const d2 = addDaysK(tk, i); for (const t of VT) if (isDueOn(t, d2) && t.repeat !== "daily") up.push({ t, d2 }); }
+    if (up.length) h += `<div class="mt-sec"><div class="mt-h">الجاي في الأسبوع ده <span class="muted num">${up.length}</span></div><div class="card" style="padding:4px 14px">${up.slice(0, 12).map(({ t, d2 }) => { const c = clientById(t.clientId); return `<div class="up-row"><span class="up-d">${d2 === addDaysK(tk,1) ? "بكرة" : fmtDate(fromKey(d2)).replace(/^\S+\s/, "")}</span><span class="up-t">${esc(t.title)}</span>${c ? `<span class="mt-client"><span class="cdot ${c.type}"></span>${esc(c.name)}</span>` : ""}</div>`; }).join("")}</div></div>`;
+  }
+  return h;
+}
+
+
+/* ================= Bidi: keep Latin/numbers readable inside Arabic ================= */
+// "CPP 75 ر.س" as one readable unit: [unit][number][currency], each isolated
+function money(unit, v, cu, dec){
+  const n = dec === 0 ? fmt(v) : fmt2(v);
+  return `<bdi class="money" dir="rtl">${unit ? `<bdi class="mu">${unit}</bdi> ` : ""}<bdi><b class="num">${n}</b></bdi> <bdi class="mc">${cu}</bdi></bdi>`;
+}
+const LATIN_RUN = /[A-Za-z0-9$€£][A-Za-z0-9.,%×:+\-\/_@#&$€£]*(?:[  ]+(?:[&+\-–|·][  ]+)?[A-Za-z0-9$€£][A-Za-z0-9.,%×:+\-\/_@#&$€£]*)*/g;
+const BIDI_SKIP = new Set(["SCRIPT","STYLE","TEXTAREA","INPUT","SELECT","OPTION","BDI","SVG","CODE","PRE"]);
+function isolateLatin(root){
+  if (!root) return;
+  const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, { acceptNode(n){
+    if (!/[A-Za-z0-9]/.test(n.nodeValue)) return NodeFilter.FILTER_REJECT;
+    for (let p = n.parentNode; p && p !== root; p = p.parentNode) { if (BIDI_SKIP.has(p.nodeName.toUpperCase()) || (p.classList && (p.classList.contains("pb") || p.classList.contains("nob")))) return NodeFilter.FILTER_REJECT; if (p.getAttribute && p.getAttribute("dir") === "ltr") return NodeFilter.FILTER_REJECT; }
+    return NodeFilter.FILTER_ACCEPT; } });
+  const nodes = []; while (w.nextNode()) nodes.push(w.currentNode);
+  for (const n of nodes) {
+    const t = n.nodeValue; LATIN_RUN.lastIndex = 0; if (!LATIN_RUN.test(t)) continue; LATIN_RUN.lastIndex = 0;
+    // whole text node is Latin -> isolate the parent element instead of splitting
+    const frag = document.createDocumentFragment(); let last = 0, m;
+    while ((m = LATIN_RUN.exec(t))) { if (m.index > last) frag.appendChild(document.createTextNode(t.slice(last, m.index))); const b = document.createElement("bdi"); b.dir = "ltr"; b.textContent = m[0]; frag.appendChild(b); last = m.index + m[0].length; }
+    if (last < t.length) frag.appendChild(document.createTextNode(t.slice(last)));
+    n.parentNode.replaceChild(frag, n);
+  }
+}
+const _render0 = render;
+render = function(){ _render0(); try { isolateLatin(document.getElementById("view")); isolateLatin(document.getElementById("tabs")); } catch(e){} };
+const _openModal0 = openModal;
+openModal = function(html, wide){ _openModal0(html, wide); try { isolateLatin(document.getElementById("modal")); } catch(e){} };
+
+
+/* ================= Lead sheet block on leads dashboards ================= */
+function leadSheetBlock(c, ls){
+  if (!c.leadSheet) return "";
+  const meta = c.lead_meta || {}, cu = cur(c);
+  const sync = meta.last_sync ? `آخر قراية للشيت: ${fmtDate(new Date(meta.last_sync))} ${new Date(meta.last_sync).toLocaleTimeString("ar-EG", { hour:"numeric", minute:"2-digit" })}` : "الشيت لسه ماتقراش";
+  let h = `<div class="section-title"><h3>من شيت الليدز</h3><span class="tiny muted">${sync}${meta.partial ? " · قراية تجريبية لحد ما السكريبت يشتغل" : ""}</span><span class="spacer"></span><a class="btn xs" href="${esc(normUrl(c.leadSheet.url))}" target="_blank" rel="noopener">افتح الشيت ↗</a></div>`;
+  if (!ls) return h + `<div class="card empty">بيحمّل…</div>`;
+  if (ls.empty) return h + `<div class="card small muted">مفيش ليدز في الشيت في الشهر ده.</div>`;
+  const ym = ls.rows[0].d.slice(0,7), M0 = adRows(monthRows(c.id, ym)), A = agg(M0);
+  const n = ls.n, b = ls.b, rate = n ? b / n * 100 : 0;
+  h += `<div class="stats">
+    <div class="stat"><div class="l">ليدز في الشيت</div><div class="n">${fmt(n)}</div>${A.conv ? `<div class="d muted">المنصات قالت ${fmt(A.conv)} تحويل</div>` : ""}</div>
+    <div class="stat"><div class="l">حجوزات (من حالة الاتصال)</div><div class="n">${fmt(b)}</div><div class="d muted">${fmt(rate,1)}% من الليدز</div></div>
+    <div class="stat"><div class="l">تكلفة الليد الحقيقية</div><div class="n">${A.s && n ? `${fmt2(A.s / n)} <span class="small muted">${cu}</span>` : "—"}</div><div class="d muted">الصرف ÷ ليدز الشيت</div></div>
+    <div class="stat"><div class="l">تكلفة الحجز</div><div class="n">${A.s && b ? `${fmt2(A.s / b)} <span class="small muted">${cu}</span>` : "—"}</div><div class="d muted">الصرف ÷ الحجوزات</div></div></div>`;
+  const grp = (key, list) => { const m = new Map(); for (const r of ls.rows) { const k = r[key] || "—"; const x = m.get(k) || { k, n:0, b:0 }; x.n += r.leads; x.b += r.booked; m.set(k, x); } return [...m.values()].sort((a2, b2) => b2.n - a2.n); };
+  const spendOf = (key, k) => agg(M0.filter(r => (key === "p" ? r.p : r.dep) === k)).s;
+  const table = (key, title) => { const G = grp(key); if (G.length < 1) return "";
+    return `<div class="small muted" style="margin:14px 0 6px">${title}</div><div class="tscroll"><table class="t"><thead><tr><th>${key === "p" ? "المنصة" : "القسم"}</th><th>ليدز الشيت</th><th>حجوزات</th><th>نسبة الحجز</th><th>الصرف</th><th>تكلفة الليد</th><th>تكلفة الحجز</th></tr></thead><tbody>${G.map(x => { const sp = x.k === "—" ? 0 : spendOf(key, x.k);
+      return `<tr><td>${key === "p" && x.k !== "—" ? pname(x.k) : esc(x.k === "—" ? "مش معروف" : x.k)}</td><td>${fmt(x.n)}</td><td>${fmt(x.b)}</td><td>${x.n ? fmt(x.b / x.n * 100, 1) + "%" : "—"}</td><td>${sp ? fmt(sp) : "—"}</td><td>${sp && x.n ? fmt2(sp / x.n) : "—"}</td><td>${sp && x.b ? fmt2(sp / x.b) : "—"}</td></tr>`; }).join("")}</tbody></table></div>`; };
+  h += `<div class="card">${table("p", "حسب المنصة")}${table("dep", "حسب القسم")}<div class="tiny muted" style="margin-top:10px">الحجز = أي ليد مكتوب في حالة الاتصال بتاعته «حجز». الصرف من الأرقام المتسجلة في السيستم.</div></div>`;
+  return h;
+}
+
+
+/* ================= Lead sheet settings + sync status ================= */
+const BACKUP_SHEET = "https://docs.google.com/spreadsheets/d/14RWLxzTDLvRGDl-I94iph64yBl2OS39N74M8LVYzaf8/edit";
+function leadSheetEditor(c){
+  const ls = c.lead_sheet || {}, meta = c.lead_meta || {}, over = ls.tabs || {}, P = plats(c).map(p => p.name), D = c.depts || [];
+  const tabs = meta.tabs || [];
+  let h = `<div class="lsh"><div class="row" style="margin-bottom:6px"><h4 style="margin:0">شيت الليدز</h4><span class="tiny muted">السيستم بيقراه كل ساعة ويحسب الليدز والحجوزات لكل يوم</span></div>
+    <div class="row" style="gap:8px"><input class="inp" id="lsUrl_${c.id}" dir="ltr" style="flex:1;min-width:240px" value="${esc(ls.url || "")}" placeholder="https://docs.google.com/spreadsheets/d/..."><button class="btn sm primary" onclick="saveLeadUrl('${c.id}')">حفظ اللينك</button>${ls.url ? `<a class="btn sm" href="${esc(normUrl(ls.url))}" target="_blank" rel="noopener">افتح ↗</a>` : ""}</div>`;
+  if (!ls.url) return h + `</div>`;
+  if (!tabs.length) return h + `<div class="small muted" style="margin-top:8px">لسه ماتقراش. هيتقري أول ما السكريبت يشتغل (شوف Backup & Sheets).</div></div>`;
+  h += `<div class="small muted" style="margin:12px 0 6px">التابات اللي في الشيت: السيستم بيخمّن المنصة والقسم من اسم التاب واسم الكامبين. لو غلط عدّله هنا، وهيتطبق في القراية الجاية.</div>
+    <div class="tscroll"><table class="t lsh-t"><thead><tr><th>التاب</th><th>المنصة</th><th>القسم</th><th>ليدز</th><th>حجوزات</th><th>اتجاهله</th></tr></thead><tbody>${tabs.map(t => { const o = over[t.name] || {}, n = jsq(t.name);
+      return `<tr class="${o.skip ? "off" : ""}"><td><b>${esc(t.name)}</b></td>
+        <td><select class="inp sm" onchange="saveLeadTab('${c.id}','${n}','p',this.value)"><option value="">تلقائي${t.p && !o.p ? ` (${esc(t.p)})` : ""}</option>${P.map(p => `<option ${o.p === p ? "selected" : ""}>${esc(p)}</option>`).join("")}</select></td>
+        <td><select class="inp sm" onchange="saveLeadTab('${c.id}','${n}','dep',this.value)"><option value="">تلقائي (من الكامبين)</option>${D.map(d => `<option ${o.dep === d ? "selected" : ""}>${esc(d)}</option>`).join("")}</select></td>
+        <td class="num">${fmt(t.leads || 0)}</td><td class="num">${fmt(t.booked || 0)}</td>
+        <td><input type="checkbox" ${o.skip ? "checked" : ""} onchange="saveLeadTab('${c.id}','${n}','skip',this.checked)"></td></tr>`; }).join("")}</tbody></table></div></div>`;
+  return h;
+}
+async function saveLeadUrl(cid){
+  const c = clientById(cid), url = $("#lsUrl_" + cid).value.trim();
+  if (url && !/docs\.google\.com\/spreadsheets\/d\//.test(url)) return toast("ده مش لينك جوجل شيت");
+  const ls = Object.assign({}, c.lead_sheet || {}, { url, tabs: (c.lead_sheet && c.lead_sheet.tabs) || {} });
+  try { await q(sb.from("clients").update({ lead_sheet: url ? ls : null }).eq("id", cid), "lsurl"); c.lead_sheet = url ? ls : null; c.leadSheet = url ? ls : null; toast("اتحفظ ✓ — هيتقري في خلال ساعة"); render(); }
+  catch(e){ toast("ماتحفظش: " + (e.message || e)); }
+}
+async function saveLeadTab(cid, tab, field, val){
+  const c = clientById(cid), ls = JSON.parse(JSON.stringify(c.lead_sheet || {})); ls.tabs = ls.tabs || {};
+  const o = ls.tabs[tab] = ls.tabs[tab] || {}; if (val === "" || val === false) delete o[field]; else o[field] = val;
+  if (!Object.keys(o).length) delete ls.tabs[tab];
+  try { await q(sb.from("clients").update({ lead_sheet: ls }).eq("id", cid), "lstab"); c.lead_sheet = ls; c.leadSheet = ls; toast("اتحفظ ✓ — هيتطبق في القراية الجاية"); render(); }
+  catch(e){ toast("ماتحفظش: " + (e.message || e)); }
+}
+function settingsSync(){
+  const L = clients.filter(c => c.type === "leads");
+  return `<div class="card" style="margin-bottom:14px"><div class="row"><h2 style="font-size:17px">النسخة الاحتياطية</h2><span class="spacer"></span><a class="btn sm primary" href="${BACKUP_SHEET}" target="_blank" rel="noopener">افتح الشيت ↗</a></div>
+      <p class="small muted" style="margin:8px 0 0">كل الأرقام اللي بتتسجل في السيستم بتنزل كل ساعة في شيت «Zyad System — Backup» على الدرايف بتاعك: تاب «الأرقام» فيه كل رقم، وتاب «ملخص يومي» فيه توتال كل عميل في كل يوم، وتاب «حالة المزامنة» فيه آخر مرة اتحدّث.</p></div>
+    <div class="card"><h2 style="font-size:17px;margin-bottom:8px">شيتات الليدز</h2>
+      ${L.map(c => { const m = c.lead_meta || {}; return `<div class="trow"><span class="cdot leads"></span><div style="flex:1"><b>${esc(c.name)}</b><div class="tiny muted">${c.leadSheet ? (m.last_sync ? `آخر قراية: ${fmtDate(new Date(m.last_sync))} · ${(m.tabs||[]).length} تاب · ${fmt((m.tabs||[]).reduce((a,t) => a + (t.leads||0), 0))} ليد${m.partial ? " (تجريبي)" : ""}` : "لسه ماتقراش") : "مفيش شيت ليدز متحدد"}</div></div><button class="btn sm" onclick="ui.stab='clients';ui.sClient='${c.id}';render()">${c.leadSheet ? "التابات والإعدادات" : "حط لينك الشيت"}</button></div>`; }).join("") || `<div class="small muted">مفيش عملاء ليدز.</div>`}
+    </div>`;
+}
+
+
+/* ================= Calendar v2: every cell shows all key numbers ================= */
+function calendar(c, ym, rows){
+  const store = c.type === "store", slice = !!window.__slice;
+  const defs = metricDefs(c, adRows(rows), rows);
+  const mainK = store ? (slice ? "cpp" : "roas") : "cpl", D = defs[mainK] || defs[Object.keys(defs)[0]];
+  const days = daysOfMonth(ym), tk = todayK(), cu = cur(c);
+  const off = (fromKey(days[0]).getDay() + 1) % 7;
+  const mname = MONTHS[+ym.slice(5)-1];
+  const K = v => v >= 10000 ? fmt(v/1000, 1) + "K" : fmt(v);
+  const line = (l, v, main) => `<div class="cl${main ? " mn" : ""}"><span>${l}</span><b class="num">${v}</b></div>`;
+  let h = `<div class="section-title"><h3>الشهر يوم بيوم</h3><span class="tiny muted">دوس على أي يوم تشوف تفاصيله</span></div>
+  <div class="tiny muted" style="margin:-4px 0 10px">لون المربع على ${store ? (slice ? "الـ CPP" : "الـ ROAS") : "تكلفة التحويل"}: ${D.lg}</div>
+  <div class="cal calh">${["سبت","أحد","اثنين","تلات","أربع","خميس","جمعة"].map(x => `<div>${x}</div>`).join("")}</div>
+  <div class="cal cal2">${"<div></div>".repeat(off)}`;
+  for (const d of days) {
+    const dr = rows.filter(r => r.d === d), x = agg(store ? dr : adRows(dr)); if (!store) x.bk = agg(dr.filter(r => r.p === "_bk")).bk;
+    const dn = `${fromKey(d).getDate()} ${mname}`, sel = ui.selDay === d ? " sel" : "";
+    if (d > tk) { h += `<div class="cd fut"><span class="dn">${dn}</span></div>`; continue; }
+    if (!dr.length) { h += `<div class="cd e${sel}" onclick="openDay('${c.id}','${d}',${slice ? 1 : 0})"><span class="dn">${dn}</span><span class="ml">لسه ماتسجلش</span><span class="mv">+ سجّل</span></div>`; continue; }
+    let body;
+    if (store && slice) body = line("الصرف", fmt(x.s)) + line("أوردرات", fmt(x.po)) + line("CPP", x.po ? fmt2(x.s / x.po) : "—", true);
+    else if (store) body = line("الصرف", fmt(x.s)) + line("المبيعات", x.sl ? K(x.sl) : "—") + line("ROAS", x.sl && x.s ? fmt2(x.roas) : "—", true) + line("أوردرات", fmt(x.o)) + line("CPP", x.cpp != null ? fmt2(x.cpp) : "—");
+    else body = line("الصرف", fmt(x.s)) + line("تحويلات", fmt(x.conv)) + line("CPA", x.conv ? fmt2(x.cpl) : x.s ? "مفيش" : "—", true) + (x.bk ? line("حجوزات", fmt(x.bk)) : "");
+    h += `<div class="cd c2 ${D.cls(x)}${sel}" onclick="openDay('${c.id}','${d}',${slice ? 1 : 0})"><span class="dn">${dn}</span><div class="cls">${body}</div></div>`;
+  }
+  h += `</div><div class="tiny muted" style="margin-top:6px">الأرقام بالـ ${cu}.</div>`;
+  if (slice) window.__calSlicePl = (window.__slicePl || []).slice();
+  return h;
+}
+function openDay(cid, d, isSlice){
+  const c = clientById(cid); if (!c || !M[cid]) return;
+  ui.selDay = d;
+  let dr = M[cid].filter(r => r.d === d);
+  const pl = isSlice ? (window.__calSlicePl || []) : null;
+  if (pl) dr = adRows(dr).filter(r => pl.includes(r.p));
+  window.__slice = !!pl; window.__noOwner = !!pl;
+  let html; try { html = dayDetail(c, d, dr); } finally { window.__slice = false; window.__noOwner = false; }
+  openModal(`<div class="row" style="margin-bottom:-6px"><span class="spacer"></span><button class="btn ghost sm" onclick="closeModal()" aria-label="اقفل">✕</button></div>` + html.replace('<div class="det">', '<div class="det inmodal">'), true);
+  document.querySelectorAll(".cd.sel").forEach(e => e.classList.remove("sel"));
+}
+
+/* ================= Alerts for one person's platforms ================= */
+function sliceAlerts(c, sl){
+  const out = []; if (!M[c.id]) return out;
+  const t = todayK(), y = addDaysK(t,-1), f3 = addDaysK(t,-3), store = c.type === "store", tg = c.targets || {};
+  const all = sliceRows(M[c.id], sl), r3 = all.filter(r => r.d >= f3 && r.d <= y), ym = ymOf(y), mon = all.filter(r => r.d.startsWith(ym));
+  const res = x => store ? x.po : x.conv, unit = store ? "CPP" : "تكلفة التحويل", T = store ? tg.maxCpp : tg.cpl;
+  const missing = sl.platforms.filter(p => !all.some(r => r.d === y && r.p === p));
+  if (missing.length && all.length) out.push({ lv:"warn", t:`مسجلتش أرقام امبارح (${fmtShort(y)}) لـ ${missing.map(esc).join(" و ")}` });
+  for (const p of sl.platforms) {
+    const a = agg(r3.filter(r => r.p === p)), m = agg(mon.filter(r => r.p === p)), rn = res(a), rm = res(m);
+    if (a.s > 0 && !rn) out.push({ lv:"bad", t:`<b>${esc(p)}</b> صرفت ${money("", a.s, cur(c), 0)} آخر 3 أيام من غير ولا ${store ? "أوردر" : "تحويل"}` });
+    else if (rn && rm) { const c3 = a.s / rn, cm = m.s / rm;
+      if (T && c3 > T) out.push({ lv:"bad", t:`<b>${esc(p)}</b>: ${unit} آخر 3 أيام ${money("", c3, cur(c))} فوق التارجت (${fmt2(T)})` });
+      else if (c3 > cm * 1.3) out.push({ lv:"warn", t:`<b>${esc(p)}</b>: ${unit} آخر 3 أيام ${money("", c3, cur(c))}، أغلى من متوسط الشهر (${fmt2(cm)}) بـ ${fmt((c3/cm - 1) * 100)}%` });
+      else if (c3 < cm * 0.8) out.push({ lv:"good", t:`<b>${esc(p)}</b>: ${unit} آخر 3 أيام ${money("", c3, cur(c))}، أرخص من متوسط الشهر (${fmt2(cm)}) بـ ${fmt((1 - c3/cm) * 100)}% 👌` }); }
+  }
+  return out;
+}
+function alertsHtml(list){ return list.map(a => `<div class="alert lv-${a.lv}">${a.lv === "good" ? "✓" : "⚠️"} ${a.t}</div>`).join(""); }
+
+/* ================= Member account: logout only ================= */
+const _settingsAccount0 = settingsAccount;
+const photoRow = () => `<div class="row" style="gap:14px;margin-bottom:14px"><button class="photo-btn" onclick="pickMyPhoto()" title="غيّر الصورة">${avatar(me.id, 72)}<span>📷</span></button><div><b style="font-size:16px">${esc(me.name || "")}</b><div class="tiny muted">${esc(isAdmin() ? "Admin" : (me.job || ""))}</div><div class="row" style="gap:6px;margin-top:8px"><button class="btn xs" onclick="pickMyPhoto()">${me.avatar_url ? "غيّر الصورة" : "+ حط صورة"}</button>${me.avatar_url ? `<button class="btn xs ghost" onclick="removeMyPhoto()">شيلها</button>` : ""}</div></div></div>`;
+settingsAccount = function(){
+  if (isAdmin()) return _settingsAccount0().replace(/<div class="row" style="margin-bottom:6px">[\s\S]*?<\/div><\/div><\/div>/, "").replace('<div class="card" style="max-width:520px">', '<div class="card" style="max-width:520px">' + photoRow());
+  return `<div class="card" style="max-width:520px">${photoRow()}<div class="row"><span class="spacer"></span><button class="btn danger sm" onclick="signOut()">تسجيل خروج</button></div>
+    <p class="small muted" style="margin:12px 0 0">لو محتاج تغيّر الباسورد أو الاسم، كلّم زياد.</p></div>`;
+};
+
+
+/* ================= Photos & logos ================= */
+const _avatar0 = avatar;
+avatar = function(pid, size){
+  const p = profileById(pid);
+  if (p && p.avatar_url) { const z = size || 26; return `<img class="av avimg" src="${esc(p.avatar_url)}" alt="${esc(p.name || "")}" title="${esc(p.name || p.email || "")}" style="width:${z}px;height:${z}px" loading="lazy">`; }
+  return _avatar0(pid, size);
+};
+function clientLogo(c, size, editable){
+  const z = size || 32, ed = editable ? ` onclick="event.stopPropagation();pickClientLogo('${c.id}')" title="غيّر اللوجو" style="width:${z}px;height:${z}px;cursor:pointer"` : ` style="width:${z}px;height:${z}px"`;
+  if (c.logo_url) return `<span class="clogo"${ed}><img src="${esc(c.logo_url)}" alt="${esc(c.name)}" loading="lazy"></span>`;
+  const ch = String(c.name || "?").replace(/[^\p{L}\p{N}]/gu, "").slice(0, 1) || "?";
+  return `<span class="clogo ph ${c.type}"${ed}>${editable && z >= 36 ? `<span class="clogo-add">+ لوجو</span>` : esc(ch)}</span>`;
+}
+function pickImage(cb){ const i = document.createElement("input"); i.type = "file"; i.accept = "image/png,image/jpeg,image/webp"; i.onchange = () => { const f = i.files && i.files[0]; if (f) cb(f); }; i.click(); }
+function pickClientLogo(cid){ pickImage(f => openCropper(f, { kind:"logo", title:"لوجو العميل", onDone: (blob, small) => uploadImage(blob, `clients/${cid}`, "png", url => saveLogo(cid, url, small)) })); }
+function pickMyPhoto(){ pickImage(f => openCropper(f, { kind:"avatar", title:"صورتك", onDone: blob => uploadImage(blob, `users/${me.id}`, "jpg", url => saveMyPhoto(url)) })); }
+async function uploadImage(blob, folder, ext, done){
+  const path = `${folder}/${Date.now()}.${ext}`;
+  toast("بيرفع الصورة…");
+  const { error } = await sb.storage.from("avatars").upload(path, blob, { contentType: ext === "png" ? "image/png" : "image/jpeg", upsert: false, cacheControl: "31536000" });
+  if (error) return toast("ماترفعتش: " + error.message);
+  const { data } = sb.storage.from("avatars").getPublicUrl(path);
+  done(data.publicUrl);
+}
+async function saveLogo(cid, url, small){ try { await q(sb.from("clients").update({ logo_url: url, logo_data: small || null }).eq("id", cid), "logo"); const c = clientById(cid); if (c) c.logo_url = url; closeModal(); toast("اتحفظ اللوجو ✓"); render(); } catch(e){ toast("ماتحفظش: " + (e.message || e)); } }
+async function saveMyPhoto(url){ try { await q(sb.from("profiles").update({ avatar_url: url }).eq("id", me.id), "photo"); me.avatar_url = url; const p = profileById(me.id); if (p) p.avatar_url = url; closeModal(); toast("اتحفظت الصورة ✓"); render(); } catch(e){ toast("ماتحفظتش: " + (e.message || e)); } }
+async function removeLogo(cid){ try { await q(sb.from("clients").update({ logo_url: null, logo_data: null }).eq("id", cid), "logo"); const c = clientById(cid); if (c) c.logo_url = null; render(); toast("اتشال"); } catch(e){ toast("ماتشالش"); } }
+async function removeMyPhoto(){ try { await q(sb.from("profiles").update({ avatar_url: null }).eq("id", me.id), "photo"); me.avatar_url = null; const p = profileById(me.id); if (p) p.avatar_url = null; render(); toast("اتشالت"); } catch(e){ toast("ماتشالتش"); } }
+
+/* cropper: drag to move, slider/wheel to zoom; logos can show the whole image with a background */
+let CR = null;
+function openCropper(file, opt){
+  if (file.size > 15 * 1024 * 1024) return toast("الصورة كبيرة أوي");
+  const img = new Image(), url = URL.createObjectURL(file);
+  img.onload = () => {
+    const V = 280, logo = opt.kind === "logo";
+    const cover = Math.max(V / img.width, V / img.height), contain = Math.min(V / img.width, V / img.height);
+    CR = { img, opt, V, logo, min: logo ? contain * 0.6 : cover, max: cover * 4, s: logo ? contain * 0.9 : cover, x: 0, y: 0, bg: logo ? "#ffffff" : null };
+    openModal(`<h2>${esc(opt.title)}</h2><p class="small muted" style="margin:4px 0 12px">اسحب الصورة عشان تحرّكها، وكبّر أو صغّر من الشريط.${logo ? " اللوجو بيبان كامل جوه المربع." : ""}</p>
+      <div class="crop-wrap"><canvas id="crCv" width="${V * 2}" height="${V * 2}" class="crop-cv ${logo ? "sq" : "circ"}" style="width:${V}px;height:${V}px"></canvas></div>
+      <div class="row" style="margin-top:12px;gap:10px"><span class="tiny muted">صغّر</span><input type="range" id="crZoom" min="0" max="1000" value="${Math.round((CR.s - CR.min) / (CR.max - CR.min) * 1000)}" style="flex:1" oninput="crZoom(this.value)"><span class="tiny muted">كبّر</span></div>
+      ${logo ? `<div class="row" style="margin-top:10px;gap:6px"><span class="tiny muted">الخلفية:</span>${[["#ffffff","أبيض"],["#0e1418","غامق"],["transparent","شفافة"]].map(([v,l]) => `<button class="btn xs crbg" data-bg="${v}" onclick="crBg('${v}')">${l}</button>`).join("")}<span class="spacer"></span><button class="btn xs" onclick="crFit()">اللوجو كامل</button></div>` : ""}
+      <div class="actions"><span class="spacer"></span><button class="btn" onclick="closeModal()">إلغاء</button><button class="btn primary" onclick="crSave()">احفظ</button></div>`);
+    const cv = $("#crCv"); let drag = null;
+    cv.addEventListener("pointerdown", e => { drag = { x: e.clientX, y: e.clientY, ox: CR.x, oy: CR.y }; cv.setPointerCapture(e.pointerId); });
+    cv.addEventListener("pointermove", e => { if (!drag) return; CR.x = drag.ox + (e.clientX - drag.x); CR.y = drag.oy + (e.clientY - drag.y); crClamp(); crDraw(); });
+    cv.addEventListener("pointerup", () => drag = null);
+    cv.addEventListener("wheel", e => { e.preventDefault(); const r = $("#crZoom"); r.value = Math.max(0, Math.min(1000, +r.value - e.deltaY)); crZoom(r.value); }, { passive:false });
+    crDraw(); crMarkBg();
+  };
+  img.onerror = () => toast("مقدرش يفتح الصورة");
+  img.src = url;
+}
+function crZoom(v){ CR.s = CR.min + (CR.max - CR.min) * (+v / 1000); crClamp(); crDraw(); }
+function crBg(v){ CR.bg = v; crDraw(); crMarkBg(); }
+function crMarkBg(){ document.querySelectorAll(".crbg").forEach(b => b.classList.toggle("primary", b.dataset.bg === CR.bg)); }
+function crFit(){ CR.s = Math.min(CR.V / CR.img.width, CR.V / CR.img.height) * 0.9; CR.x = 0; CR.y = 0; const r = $("#crZoom"); if (r) r.value = Math.round((CR.s - CR.min) / (CR.max - CR.min) * 1000); crDraw(); }
+function crClamp(){
+  const w = CR.img.width * CR.s, h = CR.img.height * CR.s, V = CR.V;
+  if (!CR.logo) { const mx = Math.max(0, (w - V) / 2), my = Math.max(0, (h - V) / 2); CR.x = Math.max(-mx, Math.min(mx, CR.x)); CR.y = Math.max(-my, Math.min(my, CR.y)); }
+  else { const mx = Math.abs(w - V) / 2 + V * 0.3, my = Math.abs(h - V) / 2 + V * 0.3; CR.x = Math.max(-mx, Math.min(mx, CR.x)); CR.y = Math.max(-my, Math.min(my, CR.y)); }
+}
+function crPaint(ctx, size){
+  const k = size / CR.V; ctx.clearRect(0, 0, size, size);
+  if (CR.bg && CR.bg !== "transparent") { ctx.fillStyle = CR.bg; ctx.fillRect(0, 0, size, size); }
+  const w = CR.img.width * CR.s * k, h = CR.img.height * CR.s * k;
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(CR.img, (size - w) / 2 + CR.x * k, (size - h) / 2 + CR.y * k, w, h);
+}
+function crDraw(){ const cv = $("#crCv"); if (!cv) return; const ctx = cv.getContext("2d"); crPaint(ctx, cv.width);
+  if (CR.bg === "transparent") { cv.style.backgroundImage = "repeating-conic-gradient(#ddd 0 25%, #fff 0 50%)"; cv.style.backgroundSize = "16px 16px"; } else cv.style.backgroundImage = ""; }
+function crSave(){
+  const out = document.createElement("canvas"), size = CR.logo ? 512 : 400; out.width = out.height = size;
+  crPaint(out.getContext("2d"), size);
+  let small = null; if (CR.logo) { const sm = document.createElement("canvas"); sm.width = sm.height = 256; crPaint(sm.getContext("2d"), 256); small = sm.toDataURL("image/png"); }
+  out.toBlob(b => { if (!b) return toast("ماتحفظتش"); CR.opt.onDone(b, small); }, CR.logo ? "image/png" : "image/jpeg", 0.9);
+}
+
+
+/* ================= Finance (admin only) ================= */
+let FIN = null, FINload = null;
+const CUR_AR = { SAR:"ر.س", EGP:"ج.م", USD:"$" }, CUR_NAME = { SAR:"ريال", EGP:"جنيه", USD:"دولار" };
+const SCHED = { start:"مقدم أول الشهر", end:"آخر الشهر", half:"نص أول الشهر ونص آخره" };
+const PART = { full:"دفعة كاملة", first:"النص الأول", second:"النص التاني" };
+async function loadFinance(force){
+  if (!isAdmin()) return; if (FINload && !force) return FINload;
+  FINload = (async () => { try { const [b, p, st] = await Promise.all([q(sb.from("client_billing").select("*"), "billing"), q(sb.from("payments").select("*").order("ym"), "payments"), q(sb.from("app_settings").select("*").eq("k", "fx"), "fx").catch(() => [])]);
+    FIN = { billing: Object.fromEntries(b.map(x => [x.client_id, x])), pay: p, fx: (st[0] && st[0].v) || {} }; } catch(e){ FIN = { billing:{}, pay:[], err: e.message }; } render(); })();
+  return FINload;
+}
+const lastDayOf = ym => daysOfMonth(ym).length;
+const dueKey = (ym, day) => `${ym}-${String(Math.min(day || lastDayOf(ym), lastDayOf(ym))).padStart(2,"0")}`;
+function expectedParts(b, ym){
+  if (!b || !b.active || ym < b.active_from || !(+b.fee > 0)) return [];
+  const f = +b.fee, end = b.end_day || 0;
+  if (b.schedule === "half") return [{ part:"first", amount: Math.round(f / 2 * 100) / 100, due: dueKey(ym, b.start_day) }, { part:"second", amount: Math.round(f / 2 * 100) / 100, due: dueKey(ym, end) }];
+  return [{ part:"full", amount: f, due: b.schedule === "end" ? dueKey(ym, end) : dueKey(ym, b.start_day) }];
+}
+function monthParts(c, ym){
+  const b = FIN.billing[c.id], exp = expectedParts(b, ym), stored = FIN.pay.filter(p => p.client_id === c.id && p.ym === ym);
+  const out = exp.map(e => { const s2 = stored.find(p => p.part === e.part); return { cid:c.id, ym, part:e.part, amount: s2 ? +s2.amount : e.amount, currency: s2 ? s2.currency : b.currency, due: (s2 && s2.due_date) || e.due, paid: !!(s2 && s2.paid), paid_date: s2 && s2.paid_date, skipped: !!(s2 && s2.skipped), note: s2 && s2.note }; });
+  for (const s2 of stored) if (!out.some(o => o.part === s2.part)) out.push({ cid:c.id, ym, part:s2.part, amount:+s2.amount, currency:s2.currency, due:s2.due_date, paid:s2.paid, paid_date:s2.paid_date, skipped:s2.skipped, note:s2.note });
+  return out.sort((a, b2) => ["full","first","second"].indexOf(a.part) - ["full","first","second"].indexOf(b2.part));
+}
+function partStatus(p){
+  const tk = todayK();
+  if (p.skipped) return { k:"skip", t:"مش هيتحصل", cls:"grey" };
+  if (p.paid) { const late = p.paid_date && p.due && p.paid_date > p.due ? daysBetween(p.due, p.paid_date) : 0;
+    return { k:"paid", t: late ? `اتحصل متأخر ${daysAr(late)}` : "اتحصل في ميعاده", cls: late ? "amb" : "ok", late }; }
+  if (p.due && p.due < tk) return { k:"late", t:`متأخر ${daysAr(daysBetween(p.due, tk))}`, cls:"bad" };
+  if (p.due && p.due === tk) return { k:"due", t:"مستحق النهارده", cls:"amb" };
+  return { k:"soon", t: p.due ? `مستحق ${fmtShort(p.due)}` : "مستحق", cls:"grey" };
+}
+const curAmt = (v, c3) => money("", v, CUR_AR[c3] || c3, (+v % 1) ? undefined : 0);
+function sumByCur(list){ const o = {}; for (const p of list) o[p.currency] = (o[p.currency] || 0) + (+p.amount || 0); return o; }
+const curList = o => Object.keys(o).length ? Object.entries(o).map(([k, v]) => curAmt(v, k)).join(" · ") : "—";
+
+function viewFinance(){
+  if (!FIN) { loadFinance(); return pageHead("Finance", "التحصيل من العملاء") + `<div class="card empty">بيحمّل…</div>`; }
+  const ym = ui.finM || ymOf(todayK());
+  const live = clients.filter(c => !c.is_test), withB = live.filter(c => FIN.billing[c.id] && FIN.billing[c.id].active), noB = live.filter(c => !FIN.billing[c.id]);
+  const all = withB.flatMap(c => monthParts(c, ym)), real = all.filter(p => !p.skipped);
+  const exp = sumByCur(real), got = sumByCur(real.filter(p => p.paid)), left = sumByCur(real.filter(p => !p.paid)), late = real.filter(p => partStatus(p).k === "late");
+  let h = pageHead("Finance", "مين دفع، ومين لسه، وليك كام", `<button class="btn sm" onclick="copyFinanceSummary('${ym}')">📋 انسخ ملخص الشهر</button>`);
+  h += `<div class="row" style="margin-bottom:14px"><div class="monthnav"><button class="btn sm" onclick="ui.finM=ymAdd('${ym}',1);saveUi();render()" aria-label="الشهر اللي بعده">›</button><div class="m">${monthLabel(ym)}</div><button class="btn sm" onclick="ui.finM=ymAdd('${ym}',-1);saveUi();render()" aria-label="الشهر اللي قبله">‹</button></div>${ym !== ymOf(todayK()) ? `<button class="btn xs ghost" onclick="ui.finM=null;saveUi();render()">الشهر ده</button>` : ""}</div>`;
+  h += finSummary(real, late);
+  h += `<div class="section-title"><h3>العملاء</h3><span class="tiny muted">الأخضر دفع، والأحمر متأخر، والرمادي لسه ميعاده ماجاش</span></div>`;
+  h += withB.length ? `<div class="fin-list">${withB.map(c => finClientRow(c, ym)).join("")}</div>` : `<div class="card small muted">لسه مفيش عميل متحدد له تحصيل. اختار عميل من تحت وحدد المبلغ ونظام الدفع.</div>`;
+  const paused = live.filter(c => FIN.billing[c.id] && !FIN.billing[c.id].active);
+  if (noB.length || paused.length) h += `<div class="section-title"><h3>عملاء مالهمش تحصيل شغال</h3></div><div class="card" style="padding:4px 16px">${[...noB, ...paused].map(c => `<div class="trow">${clientLogo(c, 26)}<b style="flex:1">${esc(c.name)}</b>${FIN.billing[c.id] ? `<span class="chip grey">متوقف</span>` : ""}<button class="btn xs primary" onclick="openBilling('${c.id}')">${FIN.billing[c.id] ? "عدّل" : "+ حدد التحصيل"}</button></div>`).join("")}</div>`;
+  h += finYear(ym.slice(0,4), withB);
+  return h;
+}
+function finPart(p){
+  const st = partStatus(p), args = `'${p.cid}','${p.ym}','${p.part}'`;
+  return `<div class="fin-p st-${st.k}">
+    <div class="fin-p-top"><span class="tiny muted">${PART[p.part]}</span><span class="chip ${st.cls}">${st.t}</span></div>
+    <div class="fin-amt">${curAmt(p.amount, p.currency)}</div>
+    <div class="tiny muted">${p.due ? `ميعاده ${fmtDate(fromKey(p.due))}` : ""}${p.paid && p.paid_date ? ` · اتحصل ${fmtShort(p.paid_date)}` : ""}${p.note ? ` · ${esc(p.note)}` : ""}</div>
+    <div class="row" style="gap:6px;margin-top:8px">${p.skipped ? `<button class="btn xs" onclick="setSkip(${args},false)">رجّعها</button>` : p.paid ? `<button class="btn xs ghost" onclick="unpay(${args})">↺ مااتحصلش</button>` : `<button class="btn xs primary" onclick="openPay(${args})">✓ اتحصل</button>`}<button class="btn xs ghost" onclick="openPartEdit(${args})">تعديل</button></div></div>`;
+}
+function finYear(y, withB){
+  const rows = [];
+  for (let m = 1; m <= 12; m++) { const ym = `${y}-${String(m).padStart(2,"0")}`; if (ym > ymOf(todayK())) break;
+    const real = withB.flatMap(c => monthParts(c, ym)).filter(p => !p.skipped); if (!real.length) continue;
+    rows.push(`<tr><td>${monthLabel(ym)}</td><td>${curList(sumByCur(real))}</td><td>${curList(sumByCur(real.filter(p => p.paid)))}</td><td>${real.some(p => !p.paid) ? curList(sumByCur(real.filter(p => !p.paid))) : "✓"}</td></tr>`); }
+  if (!rows.length) return "";
+  return `<div class="section-title"><h3>السنة دي (${y})</h3></div><div class="tscroll"><table class="t"><thead><tr><th>الشهر</th><th>المفروض</th><th>اتحصل</th><th>فاضل</th></tr></thead><tbody>${rows.reverse().join("")}</tbody></table></div>`;
+}
+async function upsertPay(cid, ym, part, patch){
+  const p = monthParts(clientById(cid), ym).find(x => x.part === part) || { amount:0, currency:"SAR", due:null };
+  const row = Object.assign({ client_id:cid, ym, part, amount:p.amount, currency:p.currency, due_date:p.due, paid:p.paid || false, paid_date:p.paid_date || null, skipped:p.skipped || false, note:p.note || null, updated_at:new Date().toISOString() }, patch);
+  try { await q(sb.from("payments").upsert(row, { onConflict:"client_id,ym,part" }), "pay"); const i = FIN.pay.findIndex(x => x.client_id === cid && x.ym === ym && x.part === part); if (i >= 0) FIN.pay[i] = Object.assign(FIN.pay[i], row); else FIN.pay.push(row); closeModal(); render(); return true; }
+  catch(e){ toast("ماتحفظش: " + (e.message || e)); return false; }
+}
+function openPay(cid, ym, part){
+  const c = clientById(cid), p = monthParts(c, ym).find(x => x.part === part);
+  openModal(`<h2>اتحصل من ${esc(c.name)}</h2><p class="small muted" style="margin:4px 0 0">${PART[part]} · ${monthLabel(ym)}</p>
+    <div class="two"><div><label class="f">المبلغ اللي وصل</label><input class="inp" id="pyAmt" type="number" step="0.01" value="${p.amount}"></div>
+      <div><label class="f">العملة</label><select class="inp" id="pyCur">${Object.keys(CUR_AR).map(k => `<option value="${k}" ${p.currency === k ? "selected" : ""}>${CUR_NAME[k]} (${CUR_AR[k]})</option>`).join("")}</select></div></div>
+    <label class="f">وصل يوم</label><input class="inp" id="pyDate" type="date" value="${todayK()}" max="${todayK()}">
+    <label class="f">ملاحظة (اختياري)</label><input class="inp" id="pyNote" placeholder="مثلاً: تحويل بنكي، فودافون كاش" value="${esc(p.note || "")}">
+    <div class="actions"><span class="spacer"></span><button class="btn" onclick="closeModal()">إلغاء</button><button class="btn primary" onclick="doPay('${cid}','${ym}','${part}')">✓ اتحصل</button></div>`);
+}
+async function doPay(cid, ym, part){ const amt = parseFloat($("#pyAmt").value); if (!(amt >= 0)) return toast("اكتب المبلغ");
+  if (await upsertPay(cid, ym, part, { paid:true, amount:amt, currency:$("#pyCur").value, paid_date:$("#pyDate").value || todayK(), note:$("#pyNote").value.trim() || null, skipped:false })) toast("اتسجل ✓"); }
+async function unpay(cid, ym, part){ if (await upsertPay(cid, ym, part, { paid:false, paid_date:null })) toast("اترجعت لمستني"); }
+async function setSkip(cid, ym, part, v){ if (await upsertPay(cid, ym, part, { skipped:v, paid:false, paid_date:null })) toast(v ? "اتعلمت إنها مش هتتحصل" : "رجعت"); }
+function openPartEdit(cid, ym, part){
+  const c = clientById(cid), p = monthParts(c, ym).find(x => x.part === part);
+  openModal(`<h2>${PART[part]} · ${esc(c.name)} · ${monthLabel(ym)}</h2><p class="small muted" style="margin:4px 0 0">التعديل هنا للشهر ده بس، زي خصم أو تأجيل ميعاد.</p>
+    <div class="two"><div><label class="f">المبلغ</label><input class="inp" id="peAmt" type="number" step="0.01" value="${p.amount}"></div>
+      <div><label class="f">العملة</label><select class="inp" id="peCur">${Object.keys(CUR_AR).map(k => `<option value="${k}" ${p.currency === k ? "selected" : ""}>${CUR_NAME[k]} (${CUR_AR[k]})</option>`).join("")}</select></div></div>
+    <label class="f">الميعاد</label><input class="inp" id="peDue" type="date" value="${p.due || ""}">
+    <label class="f">ملاحظة</label><input class="inp" id="peNote" value="${esc(p.note || "")}">
+    <label class="check"><input type="checkbox" id="peSkip" ${p.skipped ? "checked" : ""}> مش هيتحصل الشهر ده (إجازة، العميل وقف…)</label>
+    <div class="actions"><span class="spacer"></span><button class="btn" onclick="closeModal()">إلغاء</button><button class="btn primary" onclick="doPartEdit('${cid}','${ym}','${part}')">حفظ</button></div>`);
+}
+async function doPartEdit(cid, ym, part){ const sk = $("#peSkip").checked;
+  if (await upsertPay(cid, ym, part, { amount: parseFloat($("#peAmt").value) || 0, currency:$("#peCur").value, due_date:$("#peDue").value || null, note:$("#peNote").value.trim() || null, skipped:sk, ...(sk ? { paid:false, paid_date:null } : {}) })) toast("اتحفظ ✓"); }
+function openBilling(cid){
+  if (!FIN) { loadFinance().then(() => openBilling(cid)); return; }
+  const c = clientById(cid), b = FIN.billing[cid] || { fee:"", currency: c.currency === "EGP" ? "EGP" : "SAR", schedule:"start", start_day:1, end_day:0, active_from: ymOf(todayK()), active:true };
+  openModal(`<h2>تحصيل ${esc(c.name)}</h2>
+    <div class="two"><div><label class="f">المبلغ في الشهر</label><input class="inp" id="bFee" type="number" step="0.01" value="${b.fee}" placeholder="مثلاً 5000" autofocus></div>
+      <div><label class="f">العملة</label><select class="inp" id="bCur">${Object.keys(CUR_AR).map(k => `<option value="${k}" ${b.currency === k ? "selected" : ""}>${CUR_NAME[k]} (${CUR_AR[k]})</option>`).join("")}</select></div></div>
+    <label class="f">بيدفع إمتى؟</label>
+    <div class="sched">${Object.entries(SCHED).map(([k, l]) => `<label class="sched-o"><input type="radio" name="bSch" value="${k}" ${b.schedule === k ? "checked" : ""} onchange="schedFields()"><b>${l}</b><span class="tiny muted">${k === "start" ? "دفعة واحدة كاملة في أول الشهر" : k === "end" ? "دفعة واحدة كاملة في آخر الشهر" : "دفعتين: كل نص بيتعلّم لوحده اتحصل ولا لا"}</span></label>`).join("")}</div>
+    <div class="two" id="bDays"></div>
+    <div class="two"><div><label class="f">التحصيل بيبدأ من شهر</label><input class="inp" id="bFrom" type="month" value="${b.active_from}"></div><div><label class="f">ملاحظة</label><input class="inp" id="bNote" value="${esc(b.note || "")}" placeholder="مثلاً: بيحوّل على حساب البنك"></div></div>
+    <label class="check"><input type="checkbox" id="bActive" ${b.active ? "checked" : ""}> التحصيل شغال (شيل العلامة لو العميل وقف)</label>
+    <div class="actions"><span class="spacer"></span><button class="btn" onclick="closeModal()">إلغاء</button><button class="btn primary" onclick="saveBilling('${cid}')">حفظ</button></div>`);
+  openBilling._b = b; schedFields();
+}
+function schedFields(){ const b = openBilling._b, sch = (document.querySelector('input[name="bSch"]:checked') || {}).value || "start";
+  const sd = `<div><label class="f">${sch === "half" ? "ميعاد النص الأول (يوم كام)" : "يوم كام في الشهر"}</label><input class="inp" id="bStart" type="number" min="1" max="28" value="${b.start_day || 1}"></div>`;
+  const ed = `<div><label class="f">${sch === "half" ? "ميعاد النص التاني" : "يوم كام"}</label><select class="inp" id="bEnd"><option value="0">آخر يوم في الشهر</option>${Array.from({ length:28 }, (_, i) => i + 1).map(d => `<option value="${d}" ${+b.end_day === d ? "selected" : ""}>يوم ${d}</option>`).join("")}</select></div>`;
+  $("#bDays").innerHTML = sch === "start" ? sd : sch === "end" ? ed : sd + ed; }
+async function saveBilling(cid){
+  const fee = parseFloat($("#bFee").value); if (!(fee > 0)) return toast("اكتب المبلغ");
+  const sch = (document.querySelector('input[name="bSch"]:checked') || {}).value || "start";
+  const row = { client_id:cid, fee, currency:$("#bCur").value, schedule:sch, start_day: Math.max(1, Math.min(28, parseInt(($("#bStart") || {}).value) || 1)), end_day: parseInt(($("#bEnd") || {}).value) || 0, active_from: $("#bFrom").value || ymOf(todayK()), active:$("#bActive").checked, note:$("#bNote").value.trim() || null, updated_at:new Date().toISOString() };
+  try { await q(sb.from("client_billing").upsert(row), "billing"); FIN.billing[cid] = row; closeModal(); render(); toast("اتحفظ ✓"); } catch(e){ toast("ماتحفظش: " + (e.message || e)); }
+}
+function billingLine(c){
+  if (!FIN) { loadFinance(); return ""; }
+  const b = FIN.billing[c.id];
+  return `<div class="row lsh" style="gap:10px"><b>التحصيل</b><span class="small muted" style="flex:1">${b ? `${curAmt(b.fee, b.currency)} في الشهر · ${SCHED[b.schedule]}${b.active ? "" : " · متوقف"}` : "مش متحدد"}</span><button class="btn xs" onclick="openBilling('${c.id}')">${b ? "عدّل" : "+ حدد التحصيل"}</button></div>`;
+}
+function copyFinanceSummary(ym){
+  const live = clients.filter(c => !c.is_test && FIN.billing[c.id] && FIN.billing[c.id].active);
+  const all = live.flatMap(c => monthParts(c, ym)).filter(p => !p.skipped);
+  const plain = o => Object.keys(o).length ? Object.entries(o).map(([k, v]) => `${fmt(v)} ${CUR_AR[k]}`).join(" + ") : "0";
+  const fx = FIN.fx || {}, rt = k => k === "EGP" ? 1 : +fx[k] || 0, okFx = all.every(p => rt(p.currency));
+  const eg = list => fmt(list.reduce((a, p) => a + (+p.amount || 0) * rt(p.currency), 0));
+  const lines = [`💰 تحصيل ${monthLabel(ym)}`, ``, `المفروض: ${plain(sumByCur(all))}`, `✅ اتحصل: ${plain(sumByCur(all.filter(p => p.paid)))}`, `⏳ فاضل: ${plain(sumByCur(all.filter(p => !p.paid)))}`];
+  if (okFx && all.length) lines.push(``, `بالمصري: اتحصل ${eg(all.filter(p => p.paid))} ج.م من ${eg(all)} ج.م · فاضل ${eg(all.filter(p => !p.paid))} ج.م`);
+  lines.push(``);
+  const paidL = all.filter(p => p.paid), lateL = all.filter(p => partStatus(p).k === "late"), soonL = all.filter(p => !p.paid && partStatus(p).k !== "late");
+  const nm = p => `${clientById(p.cid).name}${p.part !== "full" ? ` (${PART[p.part]})` : ""}: ${fmt(p.amount)} ${CUR_AR[p.currency]}`;
+  if (lateL.length) lines.push(`🔴 متأخر:`, ...lateL.map(p => `- ${nm(p)} · ${partStatus(p).t}`), ``);
+  if (soonL.length) lines.push(`🕐 لسه مستحق:`, ...soonL.map(p => `- ${nm(p)} · ميعاده ${fmtShort(p.due)}`), ``);
+  if (paidL.length) lines.push(`✅ اتحصل:`, ...paidL.map(p => `- ${nm(p)}${p.paid_date ? ` · ${fmtShort(p.paid_date)}` : ""}`));
+  const txt = lines.join("\n").trim();
+  openModal(`<h2>ملخص تحصيل ${monthLabel(ym)}</h2><p class="small muted" style="margin:4px 0 8px">اتنسخ. تقدر تلصقه في الواتساب أو أي مكان.</p><textarea class="inp" id="crTxt" style="min-height:260px;font-size:14px" readonly>${esc(txt)}</textarea><div class="actions"><span class="spacer"></span><button class="btn" onclick="copyText(document.getElementById('crTxt').value)">📋 انسخ تاني</button><button class="btn primary" onclick="closeModal()">تمام</button></div>`);
+  copyText(txt);
+}
+
+const payAr = n => n === 0 ? "ولا دفعة" : n === 1 ? "دفعة واحدة" : n === 2 ? "دفعتين" : n <= 10 ? `${n} دفعات` : `${n} دفعة`;
+
+
+/* finance summary: one row per currency + total in EGP */
+function finSummary(real, late){
+  const curs = ["SAR","USD","EGP"].filter(k => real.some(p => p.currency === k));
+  const sumK = (list, k) => list.filter(p => p.currency === k).reduce((a, p) => a + (+p.amount || 0), 0);
+  const got = real.filter(p => p.paid), left = real.filter(p => !p.paid);
+  let h = `<div class="fin-sum"><div class="fs-row fs-head"><span>العملة</span><span>المفروض</span><span>اتحصل</span><span>فاضل</span><span>متأخر</span></div>`;
+  h += curs.map(k => { const e = sumK(real, k), g = sumK(got, k), l = sumK(left, k), lt = sumK(late, k);
+    return `<div class="fs-row"><span class="fs-cur"><span class="fs-sym">${CUR_AR[k]}</span>${CUR_NAME[k]}</span><span>${curAmt(e, k)}</span><span class="ok">${g ? curAmt(g, k) : "—"}</span><span>${l ? curAmt(l, k) : "✓"}</span><span class="${lt ? "bad" : "muted"}">${lt ? curAmt(lt, k) : "مفيش"}</span></div>`; }).join("") || `<div class="fs-row"><span class="muted">مفيش دفعات في الشهر ده</span></div>`;
+  const fx = FIN.fx || {}, rate = k => k === "EGP" ? 1 : +fx[k] || 0, missing = curs.filter(k => !rate(k));
+  const egp = list => list.reduce((a, p) => a + (+p.amount || 0) * rate(p.currency), 0);
+  h += `<div class="fs-row fs-total"><span class="fs-cur"><span class="fs-sym">ج.م</span>التوتال بالمصري</span>${missing.length ? `<span style="grid-column:2 / -1" class="small">حط سعر ${missing.map(k => CUR_NAME[k]).join(" و ")} بالجنيه تحت عشان يحسب التوتال</span>` : `<span>${curAmt(egp(real), "EGP")}</span><span class="ok">${curAmt(egp(got), "EGP")}</span><span>${curAmt(egp(left), "EGP")}</span><span class="${late.length ? "bad" : "muted"}">${late.length ? curAmt(egp(late), "EGP") : "مفيش"}</span>`}</div>`;
+  h += `<div class="fs-fx"><span class="tiny muted">سعر التحويل:</span>${["SAR","USD"].map(k => `<label class="fx-in">1 ${CUR_NAME[k]} = <input class="inp" type="number" step="0.01" min="0" value="${fx[k] || ""}" placeholder="؟" onchange="saveFx('${k}', this.value)"> جنيه</label>`).join("")}${fx.updated ? `<span class="tiny muted">اتحدّث ${fmtShort(fx.updated)}</span>` : ""}</div></div>`;
+  return h;
+}
+async function saveFx(k, v){
+  const fx = Object.assign({}, FIN.fx || {}); const n = parseFloat(v); if (n > 0) fx[k] = n; else delete fx[k]; fx.updated = todayK();
+  try { await q(sb.from("app_settings").upsert({ k:"fx", v:fx, updated_at:new Date().toISOString() }), "fx"); FIN.fx = fx; render(); toast("اتحفظ السعر ✓"); }
+  catch(e){ toast("ماتحفظش: " + (e.message || e)); }
+}
+
+
+/* one line per client: fee + status of each installment */
+function clientPayState(c, ym){
+  if (!FIN || !FIN.billing[c.id] || !FIN.billing[c.id].active) return null;
+  const parts = monthParts(c, ym).filter(p => !p.skipped); if (!parts.length) return { k:"none", parts };
+  const st = parts.map(partStatus);
+  const k = st.every(x => x.k === "paid") ? "paid" : st.some(x => x.k === "late") ? "late" : st.some(x => x.k === "paid") ? "part" : st.some(x => x.k === "due") ? "due" : "soon";
+  return { k, parts, st };
+}
+const PAY_LABEL = { paid:"دفع ✓", late:"متأخر", part:"دفع جزء", due:"مستحق النهارده", soon:"لسه ميعاده ماجاش", none:"مفيش الشهر ده" };
+function finClientRow(c, ym){
+  const b = FIN.billing[c.id], ps = clientPayState(c, ym) || { k:"none", parts:[] };
+  const pills = ps.parts.map(p => { const st = partStatus(p), args = `'${c.id}','${ym}','${p.part}'`;
+    return `<div class="fl-pill st-${st.k}">
+      <div class="fl-pill-t">${p.part === "full" ? "" : `<span class="tiny">${PART[p.part]}</span>`}<b class="num">${curAmt(p.amount, p.currency)}</b></div>
+      <div class="tiny">${st.k === "paid" ? `اتحصل ${fmtShort(p.paid_date || p.due)}${st.late ? ` · متأخر ${daysAr(st.late)}` : ""}` : st.t}</div>
+      <div class="fl-act">${st.k === "skip" ? `<button class="btn xs" onclick="setSkip(${args},false)">رجّعها</button>` : p.paid ? `<button class="btn xs ghost" title="رجّعها مااتحصلتش" onclick="unpay(${args})">↺</button>` : `<button class="btn xs primary" onclick="openPay(${args})">✓ اتحصل</button>`}<button class="btn xs ghost" title="تعديل الشهر ده" onclick="openPartEdit(${args})">✎</button></div></div>`; }).join("");
+  return `<div class="fl-row pay-${ps.k}">
+    <div class="fl-client">${clientLogo(c, 34)}<div style="min-width:0"><b>${esc(c.name)}</b><div class="tiny muted">${SCHED[b.schedule]}</div></div></div>
+    <div class="fl-fee"><span class="tiny muted">في الشهر</span><b class="num">${curAmt(b.fee, b.currency)}</b></div>
+    <div class="fl-state"><span class="pay-badge pb-${ps.k}">${PAY_LABEL[ps.k]}</span></div>
+    <div class="fl-pills">${pills || `<span class="tiny muted">${ym < b.active_from ? `التحصيل بيبدأ ${monthLabel(b.active_from)}` : "مفيش تحصيل الشهر ده"}</span>`}</div>
+    <button class="btn xs ghost" title="إعداد التحصيل" onclick="openBilling('${c.id}')">⚙︎</button></div>`;
+}
+
+function clientPayBadge(c){
+  if (!FIN) { loadFinance(); return ""; }
+  const b = FIN.billing[c.id]; if (!b || !b.active) return "";
+  const ps = clientPayState(c, ymOf(todayK())) || { k:"none" };
+  return `<span class="pay-badge pb-${ps.k}" title="تحصيل الشهر ده" onclick="event.stopPropagation();go('finance')">${curAmt(b.fee, b.currency)} · ${PAY_LABEL[ps.k]}</span>`;
+}
+
+
+/* ================= Per-platform currencies ================= */
+const CURS = ["SAR","USD","EGP","AED","KWD","QAR","EUR"];
+const CUR_LABEL = { SAR:"ريال سعودي", USD:"دولار", EGP:"جنيه مصري", AED:"درهم إماراتي", KWD:"دينار كويتي", QAR:"ريال قطري", EUR:"يورو" };
+function ratesBlock(){
+  const need = [...new Set(F.platforms.filter(p => p.name.trim()).map(p => p.cur || F.currency))].filter(x => x !== F.currency);
+  if (need.includes("USD") && !(+F.rates.USD > 0) && F.currency === "SAR") F.rates.USD = 3.75;
+  if (!need.length) return `<div class="tiny muted" style="margin-top:6px">كل المنصات بتصرف بالـ ${F.currency}، فمش محتاج سعر تحويل.</div>`;
+  return `<div class="rates-box"><div class="small" style="margin-bottom:6px"><b>أسعار التحويل</b> <span class="tiny muted">الصرف بيتكتب بعملة المنصة، والسيستم بيحوّله لـ ${F.currency} بالسعر ده</span></div>
+    ${need.map(x => `<label class="fx-in">1 ${CUR_LABEL[x] || x} (${x}) = <input class="inp" type="number" step="0.0001" min="0" value="${F.rates[x] || ""}" placeholder="؟" oninput="F.rates['${x}']=parseFloat(this.value)||0"> ${F.currency}</label>`).join("")}</div>`;
+}
+function rateFor(c, cur){
+  if (!cur || cur === c.currency) return 1;
+  const r = (c.cur_rates || {})[cur]; if (+r > 0) return +r;
+  if (cur === "USD" && +c.usd_rate > 0) return +c.usd_rate;
+  return null;
+}
+
+
+/* ================= Media plan ================= */
+const canPlan = cid => isAdmin() || ["view","edit"].includes((myMembership(cid) || {}).plan_access);
+const canEditPlan = cid => isAdmin() || (myMembership(cid) || {}).plan_access === "edit";
+let PLAN = {}, PLANload = {};
+const planKey = (cid, ym) => cid + "|" + ym;
+async function loadPlan(cid, ym, force){
+  const k = planKey(cid, ym); if (PLANload[k] && !force) return PLANload[k];
+  PLANload[k] = (async () => { try {
+    const [items, meta] = await Promise.all([q(sb.from("plan_items").select("*").eq("client_id", cid).eq("ym", ym).order("sort").order("updated_at"), "plan"), q(sb.from("plan_meta").select("*").eq("client_id", cid).eq("ym", ym), "planm")]);
+    PLAN[k] = { items, meta: meta[0] || { client_id:cid, ym, budgets:{}, notes:"", ideas:"" } };
+  } catch(e){ PLAN[k] = { items:[], meta:{ client_id:cid, ym, budgets:{} }, err: e.message }; } render(); })();
+  return PLANload[k];
+}
+const PSTATUS = { planned:["مخططة","amb"], live:["شغالة","ok"], paused:["متوقفة","grey"], done:["خلصت","grey"] };
+const FUNNEL = ["Top of funnel","Middle of funnel","Bottom of funnel"];
+const FUNNEL_AR = { "Top of funnel":"Top · وعي", "Middle of funnel":"Middle · اهتمام", "Bottom of funnel":"Bottom · ريتارجت" };
+const OBJECTIVES = { Meta:["Sales","Website conversions","Leads","Traffic","Engagement","Awareness"], TikTok:["Website conversions","Spark ads","Smart+","Leads","Traffic","Video views"], Snapchat:["Website conversions","Leads","Traffic","Awareness"], Google:["Search","Performance Max","Shopping","Demand Gen","YouTube","Display"], X:["Website conversions","Traffic","Engagement"] };
+function mediaPlanView(c){
+  const ym = ui.planM || ymOf(todayK()), k = planKey(c.id, ym), edit = canEditPlan(c.id), cu = cur(c);
+  const nav = `<div class="row" style="margin:0 0 14px"><div class="monthnav"><button class="btn sm" onclick="ui.planM=ymAdd('${ym}',1);saveUi();render()" aria-label="الشهر اللي بعده">›</button><div class="m">${monthLabel(ym)}</div><button class="btn sm" onclick="ui.planM=ymAdd('${ym}',-1);saveUi();render()" aria-label="الشهر اللي قبله">‹</button></div>${ym !== ymOf(todayK()) ? `<button class="btn xs ghost" onclick="ui.planM=null;saveUi();render()">الشهر ده</button>` : ""}<span class="spacer"></span><button class="btn sm" onclick="exportPlanPdf('${c.id}','${ym}')" title="PDF بهويتك فيه خريطة الحملات">⬇ PDF</button>${edit ? `<button class="btn sm primary" onclick="openPlanItem('${c.id}','${ym}')">+ حملة</button>` : ""}</div>`;
+  let h = `<div class="cv-head"><div><h2>Media plan</h2><div class="ph-sub">الميزانية والحملات لكل منصة${edit ? "" : " · للعرض بس"}</div></div></div>` + nav;
+  if (!(k in PLAN)) { loadPlan(c.id, ym); if (!M[c.id]) loadMetrics(c.id); return h + `<div class="card empty">بيحمّل…</div>`; }
+  const P0 = PLAN[k], items = P0.items, budgets = P0.meta.budgets || {};
+  const platsAll = [...new Set([...plats(c).map(p => p.name), ...items.map(i => i.platform).filter(Boolean)])];
+  const used = platsAll.filter(p => items.some(i => i.platform === p) || +budgets[p] > 0);
+  const spentOf = p => M[c.id] ? agg(monthRows(c.id, ym).filter(r => r.p === p)).s : 0;
+  const budOf = p => +budgets[p] > 0 ? +budgets[p] : 0, dayOf = p => items.filter(i => i.platform === p).reduce((a, i) => a + dailyOf(i), 0);
+  const days = daysOfMonth(ym).length, tk = todayK(), elapsed = ym < ymOf(tk) ? 1 : ym > ymOf(tk) ? 0 : (+tk.slice(8) - 1) / days;
+  if (!items.length && !Object.keys(budgets).length) {
+    const prev = ymAdd(ym, -1);
+    return h + `<div class="mp-empty"><h3>لسه مفيش خطة لـ ${monthLabel(ym)}</h3><p class="small muted">الخطة بتتعمل في خطوتين: تحط ميزانية كل منصة، وتحت كل منصة تضيف الحملات (الهدف، والفانل، والأوديانس، والستراكشر).</p>
+      ${edit ? `<div class="row" style="justify-content:center;gap:8px;margin-top:10px"><button class="btn primary" onclick="openPlanItem('${c.id}','${ym}')">+ أضف أول حملة</button><button class="btn" onclick="copyPlan('${c.id}','${prev}','${ym}')">انسخ خطة ${monthLabel(prev)}</button></div>` : ""}</div>`;
+  }
+  const totB = used.reduce((a, p) => a + budOf(p), 0), totS = used.reduce((a, p) => a + spentOf(p), 0);
+  h += `<div class="mp-sum"><div><span class="tiny muted">ميزانية الشهر</span><b class="num">${money("", totB, cu, 0)}</b></div><div><span class="tiny muted" title="مجموع الصرف اليومي للحملات">الصرف اليومي</span><b class="num">${money("", used.reduce((a, p) => a + dayOf(p), 0), cu, 0)}</b></div><div><span class="tiny muted">اتصرف لحد دلوقتي</span><b class="num">${money("", totS, cu, 0)}</b></div><div><span class="tiny muted">فاضل</span><b class="num">${money("", Math.max(0, totB - totS), cu, 0)}</b></div><div><span class="tiny muted">الشهر عدّى</span><b class="num">${fmt(elapsed * 100)}%</b></div></div>`;
+  for (const p of used) {
+    const b = budOf(p), sp = spentOf(p), pct = b ? sp / b : 0, list = items.filter(i => i.platform === p);
+    const lv = !b ? "grey" : pct > 1 ? "bad" : pct > elapsed + 0.15 ? "amb" : "ok";
+    const msg = !b ? "اكتب ميزانية الشهر علشان تشوف الصرف ماشي إزاي" : pct > 1 ? `عدّى الميزانية بـ ${money("", sp - b, cu, 0)}` : pct > elapsed + 0.15 ? `بيصرف أسرع من الخطة (${fmt(pct * 100)}% والشهر ${fmt(elapsed * 100)}%)` : `ماشي مع الخطة (${fmt(pct * 100)}%)`;
+    h += `<div class="mp-plat"><div class="mp-ph">${badge(p)}<b>${esc(p)}</b><span class="tiny muted">${list.length ? `${list.length} ${list.length === 1 ? "حملة" : list.length === 2 ? "حملتين" : "حملات"}` : "مفيش حملات"}</span><span class="spacer"></span>
+        <span class="mp-bud"><span class="tiny muted">اليوم</span> <b class="num">${dayOf(p) ? money("", dayOf(p), cu, 0) : "—"}</b> <span class="tiny muted" style="margin-inline:8px 4px">·</span>${edit ? `<button class="btn xs ghost" onclick="editPlatBudget('${c.id}','${ym}','${jsq(p)}')" title="اكتب ميزانية ${esc(p)} للشهر">` : "<span>"}<span class="tiny muted">الشهر</span> <b class="num">${b ? money("", b, cu, 0) : "—"}</b>${edit ? " ✎</button>" : "</span>"}</span></div>
+      <div class="mp-bar"><i class="lv-${lv}" style="width:${Math.min(100, pct * 100)}%"></i><s style="inset-inline-start:${elapsed * 100}%" title="النهارده"></s></div>
+      <div class="tiny mp-msg lv-${lv}">اتصرف ${money("", sp, cu, 0)} · ${msg}</div>
+      <div class="mp-items">${list.map(i => planCard(c, i, edit)).join("")}${edit ? `<button class="mp-add" onclick="openPlanItem('${c.id}','${ym}',null,'${jsq(p)}')">+ حملة على ${esc(p)}</button>` : ""}</div></div>`;
+  }
+  h += `<div class="mp-notes"><div><label class="f" style="margin-top:0">ملاحظات الخطة</label><textarea class="inp" ${edit ? "" : "readonly"} placeholder="مثلاً: سناب خطة بديلة لو تيك توك ماجابش نتيجة" onchange="savePlanMeta('${c.id}','${ym}','notes',this.value)">${esc(P0.meta.notes || "")}</textarea></div>
+    <div><label class="f" style="margin-top:0">أفكار</label><textarea class="inp" ${edit ? "" : "readonly"} placeholder="مثلاً: عروض الجمعة البيضاء، كارتات لعملاء الواتساب" onchange="savePlanMeta('${c.id}','${ym}','ideas',this.value)">${esc(P0.meta.ideas || "")}</textarea></div></div>`;
+  return h;
+}
+function planCard(c, i, edit){
+  const [sl, sc] = PSTATUS[i.status] || PSTATUS.planned, open = (ui.mpOpen || {})[i.id];
+  const title = i.name || [i.objective, i.funnel && FUNNEL_AR[i.funnel] ? FUNNEL_AR[i.funnel].split(" · ")[0] : i.funnel].filter(Boolean).join(" · ") || "حملة";
+  const chips = [i.objective, i.funnel ? (FUNNEL_AR[i.funnel] || i.funnel) : "", i.ad_format, budTxt(i, i.ym, cur(c))].filter(Boolean);
+  const field = (l, v, ltr) => v ? `<div class="mp-f"><span>${l}</span><div dir="auto" style="text-align:right">${ltr && /^https?:/.test(v) ? `<a href="${esc(normUrl(v))}" target="_blank" rel="noopener">${esc(v)}</a>` : esc(v)}</div></div>` : "";
+  return `<div class="mp-card${open ? " open" : ""}">
+    <div class="mp-ch" onclick="ui.mpOpen=ui.mpOpen||{};ui.mpOpen['${i.id}']=!ui.mpOpen['${i.id}'];render()">
+      <div style="flex:1;min-width:0"><b dir="auto" style="display:block;text-align:right">${esc(title)}</b><div class="mp-chips">${chips.map(x => `<span dir="auto">${x}</span>`).join("")}</div></div>
+      ${edit ? `<select class="mp-st st-${sc}" onclick="event.stopPropagation()" onchange="setPlanStatus('${i.id}','${c.id}','${i.ym}',this.value)">${Object.entries(PSTATUS).map(([k, [l]]) => `<option value="${k}" ${i.status === k ? "selected" : ""}>${l}</option>`).join("")}</select>` : `<span class="chip ${sc}">${sl}</span>`}
+      <span class="tiny muted">${open ? "▲" : "▼"}</span></div>
+    ${open ? `<div class="mp-body">${field("الهدف", i.goal)}${field("الأوديانس", i.audience)}${field("الستراكشر", i.structure)}${planLinks(i).filter(l => l.url).map((l, n, a) => field(l.label || (a.length > 1 ? `لاندنج بيدج ${n + 1}` : "اللاندنج بيدج"), l.url, true)).join("")}${field("ملاحظات", i.notes)}${(i.extra || []).map(x => field(x.label || "خانة", x.value)).join("")}
+      ${!(i.goal || i.audience || i.structure || planLinks(i).some(l => l.url) || i.notes || (i.extra || []).length) ? `<div class="small muted">مفيش تفاصيل لسه.</div>` : ""}
+      ${edit ? `<div class="row" style="gap:6px;margin-top:10px"><button class="btn xs" onclick="openPlanItem('${c.id}','${i.ym}','${i.id}')">✏️ تعديل</button><button class="btn xs ghost" onclick="dupPlanItem('${c.id}','${i.ym}','${i.id}')">⧉ نسخة</button><span class="spacer"></span><button class="btn xs ghost" onclick="delPlanItem('${c.id}','${i.ym}','${i.id}')">🗑 مسح</button></div>` : ""}</div>` : ""}
+  </div>`;
+}
+function openPlanItem(cid, ym, id, plat){
+  const c = clientById(cid), P0 = PLAN[planKey(cid, ym)] || { items:[] }, i = id ? P0.items.find(x => x.id === id) : { platform: plat || (plats(c)[0] || {}).name || "", status:"planned" };
+  const pl = [...new Set([...plats(c).map(p => p.name), i.platform].filter(Boolean))];
+  const dl = (id2, list) => `<datalist id="${id2}">${list.map(x => `<option value="${esc(x)}">`).join("")}</datalist>`;
+  openModal(`<h2>${id ? "تعديل حملة" : "حملة جديدة"} · ${monthLabel(ym)}</h2>
+    <div class="mp-form">
+      <div class="two"><div><label class="f">المنصة</label><select class="inp" id="piP" onchange="document.getElementById('piObj').setAttribute('list','obj_'+this.value)">${pl.map(p => `<option ${i.platform === p ? "selected" : ""}>${esc(p)}</option>`).join("")}</select></div>
+        <div><label class="f">اسم الحملة <span class="tiny muted">(اختياري)</span></label><input class="inp" id="piName" dir="auto" value="${esc(i.name || "")}" placeholder="مثلاً: Retarget عروض الجمعة"></div></div>
+      <div class="two"><div><label class="f">الهدف</label><input class="inp" id="piGoal" dir="auto" value="${esc(i.goal || "")}" placeholder="مثلاً: Sales" list="goals">${dl("goals", ["Sales","Leads","Awareness","Traffic","App installs"])}</div>
+        <div><label class="f">Objective / نوع الحملة</label><input class="inp" id="piObj" dir="auto" value="${esc(i.objective || "")}" placeholder="اختار أو اكتب" list="obj_${esc(i.platform)}">${Object.entries(OBJECTIVES).map(([k, v]) => dl("obj_" + k, v)).join("")}</div></div>
+      <label class="f">مكانها في الفانل</label>
+      <div class="seg-pick">${FUNNEL.map(f => `<label><input type="radio" name="piF" value="${f}" ${i.funnel === f ? "checked" : ""}><span>${FUNNEL_AR[f]}</span></label>`).join("")}<label><input type="radio" name="piF" value="" ${!i.funnel ? "checked" : ""}><span>مش محدد</span></label></div>
+      <div class="two"><div><label class="f">نوع الإعلان / الكرييتف</label><input class="inp" id="piFmt" dir="auto" value="${esc(i.ad_format || "")}" placeholder="مثلاً: Single ad · Video" list="fmts">${dl("fmts", ["Single ad · Video","Single ad · Image","Carousel","Collection","UGC video","Spark ads","Story"])}</div>
+        <div><label class="f">الصرف اليومي <span class="tiny muted">(${esc(cur(c))}، اختياري)</span></label><input class="inp" id="piBud" type="number" min="0" step="1" value="${i.budget ?? ""}" placeholder="مثلاً 300"></div></div>
+      <label class="f">الأوديانس</label><textarea class="inp" id="piAud" dir="auto" rows="4" placeholder="Ad group 1: Broad · All genders · 24-47&#10;Location: جدة، مكة، الرياض&#10;Ad group 2: Retarget">${esc(i.audience || "")}</textarea>
+      <label class="f">الستراكشر</label><textarea class="inp" id="piStr" dir="auto" rows="3" placeholder="1 campaign&#10;2 ad sets: interest + broad&#10;1 ad لكل واحد">${esc(i.structure || "")}</textarea>
+      <label class="f">اللاندنج بيدج</label><div id="piLinks" class="dyn">${planLinks(i).map(linkRow).join("")}</div>
+      <button type="button" class="dyn-add" onclick="dynAdd('piLinks', linkRow({}))">+ لاندنج بيدج تانية</button>
+      <label class="f">ملاحظات</label><textarea class="inp" id="piNotes" dir="auto" rows="2" placeholder="أي حاجة تانية">${esc(i.notes || "")}</textarea>
+      <div id="piExtra" class="dyn">${(i.extra || []).map(extraRow).join("")}</div>
+      <button type="button" class="dyn-add" onclick="dynAdd('piExtra', extraRow({}), true)">+ خانة جديدة <span class="tiny muted">(تسمّيها زي ما تحب)</span></button>
+      <label class="f">الحالة</label><div class="seg-pick">${Object.entries(PSTATUS).map(([k, [l]]) => `<label><input type="radio" name="piS" value="${k}" ${(i.status || "planned") === k ? "checked" : ""}><span>${l}</span></label>`).join("")}</div>
+    </div>
+    <div class="actions"><span class="spacer"></span><button class="btn" onclick="closeModal()">إلغاء</button><button class="btn primary" onclick="savePlanItem('${cid}','${ym}','${id || ""}')">حفظ</button></div>`, true);
+}
+async function savePlanItem(cid, ym, id){
+  const v = sel => ($(sel) ? $(sel).value.trim() : "") || null, rv = n => (document.querySelector(`input[name="${n}"]:checked`) || {}).value || null;
+  const row = { client_id:cid, ym, platform: $("#piP").value, name: v("#piName"), goal: v("#piGoal"), objective: v("#piObj"), funnel: rv("piF"), ad_format: v("#piFmt"), budget: $("#piBud").value === "" ? null : +$("#piBud").value, budget_type: "daily", audience: v("#piAud"), structure: v("#piStr"), links: dynRead("piLinks", ["label","url"]).filter(x => x.url), landing_url: (dynRead("piLinks", ["label","url"]).find(x => x.url) || {}).url || null, extra: dynRead("piExtra", ["label","value"]).filter(x => x.value || x.label), notes: v("#piNotes"), status: rv("piS") || "planned", updated_at: new Date().toISOString() };
+  try {
+    if (id) await q(sb.from("plan_items").update(row).eq("id", id), "planupd");
+    else { row.sort = ((PLAN[planKey(cid, ym)] || { items:[] }).items.length); await q(sb.from("plan_items").insert(row), "planins"); }
+    closeModal(); toast("اتحفظت ✓"); await loadPlan(cid, ym, true);
+  } catch(e){ toast("ماتحفظتش: " + (e.message || e)); }
+}
+async function setPlanStatus(id, cid, ym, st){ try { await q(sb.from("plan_items").update({ status: st, updated_at: new Date().toISOString() }).eq("id", id), "planst"); const it = PLAN[planKey(cid, ym)].items.find(x => x.id === id); if (it) it.status = st; render(); toast("اتحفظ ✓"); } catch(e){ toast("ماتحفظش"); } }
+async function dupPlanItem(cid, ym, id){ const it = PLAN[planKey(cid, ym)].items.find(x => x.id === id); if (!it) return; const { id:_, created_by, updated_at, ...rest } = it;
+  try { await q(sb.from("plan_items").insert({ ...rest, name: (it.name || "حملة") + " (نسخة)", status:"planned" }), "plandup"); toast("اتعملت نسخة ✓"); await loadPlan(cid, ym, true); } catch(e){ toast("ماتعملتش"); } }
+function delPlanItem(cid, ym, id){ openModal(`<h2>تمسح الحملة دي من الخطة؟</h2><div class="actions"><span class="spacer"></span><button class="btn" onclick="closeModal()">لا</button><button class="btn danger" onclick="doDelPlanItem('${cid}','${ym}','${id}')">امسح</button></div>`); }
+async function doDelPlanItem(cid, ym, id){ try { await q(sb.from("plan_items").delete().eq("id", id), "plandel"); closeModal(); toast("اتمسحت"); await loadPlan(cid, ym, true); } catch(e){ toast("ماتمسحتش"); } }
+async function savePlanMeta(cid, ym, field, val){
+  const P0 = PLAN[planKey(cid, ym)]; const meta = Object.assign({}, P0.meta, { [field]: val, updated_at: new Date().toISOString() });
+  try { await q(sb.from("plan_meta").upsert({ client_id:cid, ym, budgets: meta.budgets || {}, notes: meta.notes || null, ideas: meta.ideas || null, updated_at: meta.updated_at }), "planmeta"); P0.meta = meta; toast("اتحفظ ✓"); } catch(e){ toast("ماتحفظش: " + (e.message || e)); }
+}
+function editPlatBudget(cid, ym, p){
+  const P0 = PLAN[planKey(cid, ym)], cur0 = (P0.meta.budgets || {})[p] || "", c = clientById(cid);
+  openModal(`<h2>ميزانية ${esc(p)} · ${monthLabel(ym)}</h2><p class="small muted" style="margin:4px 0 0">ده توتال المنصة للشهر، مش مربوط بالصرف اليومي بتاع الحملات.</p>
+    <label class="f">ميزانية الشهر (${esc(cur(c))})</label><input class="inp" id="bdM" type="number" min="0" step="1" value="${cur0}" autofocus placeholder="التوتال اللي هيتصرف على ${esc(p)} الشهر ده">
+    <div class="actions"><span class="spacer"></span><button class="btn" onclick="closeModal()">إلغاء</button><button class="btn primary" onclick="savePlatBudget('${cid}','${ym}','${jsq(p)}')">حفظ</button></div>`);
+}
+async function savePlatBudget(cid, ym, p){ const P0 = PLAN[planKey(cid, ym)], v = $("#bdM").value, b = Object.assign({}, P0.meta.budgets || {}); if (v === "" || !(+v > 0)) delete b[p]; else b[p] = +v;
+  P0.meta.budgets = b; closeModal(); await savePlanMeta(cid, ym, "budgets", b); render(); }
+async function copyPlan(cid, from, to){
+  try { const items = await q(sb.from("plan_items").select("*").eq("client_id", cid).eq("ym", from), "plancp"); const meta = await q(sb.from("plan_meta").select("*").eq("client_id", cid).eq("ym", from), "plancpm");
+    if (!items.length && !meta.length) return toast(`مفيش خطة في ${monthLabel(from)}`);
+    if (items.length) await q(sb.from("plan_items").insert(items.map(({ id, created_by, updated_at, ...r }) => ({ ...r, ym: to, status: r.status === "done" ? "planned" : r.status }))), "plancpi");
+    if (meta[0]) await q(sb.from("plan_meta").upsert({ client_id:cid, ym:to, budgets: meta[0].budgets || {}, notes: meta[0].notes, ideas: meta[0].ideas }), "plancpmm");
+    toast(`اتنسخت خطة ${monthLabel(from)} ✓`); await loadPlan(cid, to, true);
+  } catch(e){ toast("ماتنسختش: " + (e.message || e)); }
+}
+
+/* dynamic rows: add as many fields as you want, rename freely */
+const planLinks = i => (i.links && i.links.length) ? i.links : [{ label:"", url: i.landing_url || "" }];
+const linkRow = l => `<div class="dyn-row"><input class="inp dyn-k" data-k="label" dir="auto" value="${esc(l.label || "")}" placeholder="الاسم (مثلاً: صفحة العروض)"><input class="inp" data-k="url" dir="ltr" value="${esc(l.url || "")}" placeholder="https://"><button type="button" class="btn xs ghost" title="امسح" onclick="this.parentNode.remove()">✕</button></div>`;
+const extraRow = x => `<div class="dyn-row ex"><input class="inp dyn-k" data-k="label" dir="auto" value="${esc(x.label || "")}" placeholder="اسم الخانة (مثلاً: الكوبون)"><textarea class="inp" data-k="value" dir="auto" rows="2" placeholder="اكتب هنا">${esc(x.value || "")}</textarea><button type="button" class="btn xs ghost" title="امسح الخانة" onclick="this.parentNode.remove()">✕</button></div>`;
+function dynAdd(id, html, focus){ const w = document.getElementById(id); w.insertAdjacentHTML("beforeend", html); const r = w.lastElementChild; const f = r.querySelector(focus ? "[data-k=label]" : "[data-k=url]") || r.querySelector("input"); f && f.focus(); }
+function dynRead(id, keys){ const w = document.getElementById(id); if (!w) return []; return [...w.children].map(r => Object.fromEntries(keys.map(k => [k, ((r.querySelector(`[data-k="${k}"]`) || {}).value || "").trim()]))); }
+
+/* ================= Campaigns (Search + PMax) ================= */
+let CPN = {}, CPload = {}, CPedit = null, CPtimer = null;
+const gp = (o, p) => p.split(".").reduce((a, k) => a == null ? a : a[k], o);
+function sp(o, p, v){ const ks = p.split("."); let a = o; for (let i = 0; i < ks.length - 1; i++) { const k = ks[i]; if (a[k] == null) a[k] = /^\d+$/.test(ks[i + 1]) ? [] : {}; a = a[k]; } a[ks[ks.length - 1]] = v; }
+const TRACK_DEFAULT = ["Google tag / GA4 متركّب على الموقع","Conversion actions متعرّفة (Purchase / Lead)","Primary conversion goal متظبط صح","Enhanced conversions","Auto-tagging شغال","Final URL suffix / UTM","GA4 مربوط بـ Google Ads","Call tracking (لو فيه مكالمات)"];
+const BIDDING = ["Maximize conversions","Maximize conversion value","Target CPA","Target ROAS","Maximize clicks","Manual CPC"];
+const SNIP_H = ["Amenities","Brands","Courses","Degree programs","Destinations","Featured hotels","Insurance coverage","Models","Neighborhoods","Service catalog","Shows","Styles","Types"];
+const newGroup = n => ({ name: "Ad group " + n, kw:"", neg:"", url:"", path1:"", path2:"", h: Array.from({ length:15 }, () => ({ t:"", pin:"" })), d: Array.from({ length:4 }, () => ({ t:"", pin:"" })), extra:[] });
+const newSearch = () => ({ settings:{ budget:"", bidding:"Maximize conversions", target:"", locations:"", loc_opt:"Presence", languages:"Arabic, English", partners:false, display:false, schedule:"", start:"", end:"", url:"", extra:[] }, groups:[newGroup(1)], neg:"", sitelinks:[], callouts:[], snippets:[], phone:"", ext_extra:[], track: TRACK_DEFAULT.map(t => ({ t, done:false })), launch:"", tests:[], optim:"", extra:[] });
+const CTAS = ["Automated","Shop now","Buy now","Order now","Learn more","Get quote","Sign up","Contact us","Book now","Apply now","Subscribe","Download","See more"];
+const newAG = n => ({ name: "Asset group " + n, url:"", biz:"", cta:"Automated", h: Array.from({ length:15 }, () => ({ t:"" })), lh: Array.from({ length:5 }, () => ({ t:"" })), d: Array.from({ length:5 }, () => ({ t:"" })), images:"", videos:"", themes:"", signals:"", extra:[] });
+const newPmax = () => ({ settings:{ budget:"", bidding:"Maximize conversion value", target:"", goal:"Purchases", locations:"", loc_opt:"Presence", languages:"Arabic, English", start:"", end:"", url:"", url_exp:false, merchant:false, extra:[] }, groups:[newAG(1)], sitelinks:[], callouts:[], snippets:[], phone:"", ext_extra:[], track: TRACK_DEFAULT.map(t => ({ t, done:false })), launch:"", tests:[], optim:"", extra:[] });
+const lines = t => String(t || "").split("\n").map(x => x.trim()).filter(Boolean);
+
+async function loadCamps(cid, force){
+  if (CPload[cid] && !force) return CPload[cid];
+  CPload[cid] = (async () => { try { CPN[cid] = await q(sb.from("plan_campaigns").select("*").eq("client_id", cid).order("sort").order("updated_at"), "camps"); } catch(e){ CPN[cid] = []; toast("مقدرتش أجيب الحملات: " + (e.message || e)); } render(); })();
+  return CPload[cid];
+}
+function parseKw(txt){ return String(txt || "").split(/\n/).map(x => x.trim().replace(/^-\s*/, "")).filter(Boolean).map(x => /^\[.*\]$/.test(x) ? { t: x.slice(1, -1).trim(), m:"Exact" } : /^".*"$/.test(x) ? { t: x.slice(1, -1).trim(), m:"Phrase" } : { t: x, m:"Broad" }).filter(k => k.t); }
+const filled = a => (a || []).filter(x => (x.t || "").trim());
+function cpQA(c){
+  const d = c.data || {}, out = [], st = d.settings || {}, bad = t => out.push({ lv:"bad", t }), warn = t => out.push({ lv:"warn", t });
+  if (!+st.budget) warn("مفيش ميزانية يومية متحددة");
+  if (c.kind === "pmax") pmaxQA(d, bad, warn); else
+  (d.groups || []).forEach((g, i) => {
+    const n = `«${g.name || "Ad group " + (i + 1)}»`, H = filled(g.h), D = filled(g.d), kw = parseKw(g.kw);
+    if (!kw.length) bad(`${n} مفيهوش كلمات بحث`);
+    if (H.length < 3) bad(`${n} محتاج 3 عناوين على الأقل (فيه ${H.length})`); else if (H.length < 10) warn(`${n} فيه ${H.length} عناوين بس. Google بيفضّل 10 أو أكتر عشان الـ Ad strength`);
+    if (D.length < 2) bad(`${n} محتاج وصفين على الأقل (فيه ${D.length})`);
+    const longH = H.filter(x => x.t.length > 30).length, longD = D.filter(x => x.t.length > 90).length;
+    if (longH) bad(`${n}: ${longH} عنوان أطول من 30 حرف`);
+    if (longD) bad(`${n}: ${longD} وصف أطول من 90 حرف`);
+    if ((g.path1 || "").length > 15 || (g.path2 || "").length > 15) bad(`${n}: الـ Path أطول من 15 حرف`);
+    const seen = {}, dup = H.filter(x => { const k = x.t.trim().toLowerCase(); if (seen[k]) return true; seen[k] = 1; }); if (dup.length) warn(`${n}: فيه عناوين متكررة`);
+    if (!(g.url || st.url)) bad(`${n} مفيهوش Final URL`);
+  });
+  const sl = d.sitelinks || [];
+  if (sl.some(x => (x.t || "").length > 25 || (x.d1 || "").length > 35 || (x.d2 || "").length > 35)) bad("فيه Sitelink أطول من المسموح (25 للنص، 35 للوصف)");
+  if (sl.length < 4) warn(`الـ Sitelinks ${sl.length} بس. يفضّل 4 على الأقل`);
+  const co = (d.callouts || []).filter(x => (x || "").trim());
+  if (co.some(x => x.length > 25)) bad("فيه Callout أطول من 25 حرف");
+  if (co.length < 4) warn(`الـ Callouts ${co.length} بس. يفضّل 4 على الأقل`);
+  if ((d.snippets || []).some(s => String(s.v || "").split("\n").some(x => x.trim().length > 25))) bad("فيه قيمة في الـ Snippets أطول من 25 حرف");
+  return out;
+}
+function pmaxQA(d, bad, warn){
+  const st = d.settings || {};
+  (d.groups || []).forEach((g, i) => {
+    const n = `«${g.name || "Asset group " + (i + 1)}»`, H = filled(g.h), L = filled(g.lh), D = filled(g.d);
+    if (H.length < 3) bad(`${n} محتاج 3 عناوين على الأقل (فيه ${H.length})`); else if (H.length < 11) warn(`${n} فيه ${H.length} عناوين. يفضّل 11 أو أكتر`);
+    if (!H.some(x => x.t.length <= 15)) warn(`${n}: يفضّل عنوان واحد على الأقل 15 حرف أو أقل`);
+    if (L.length < 1) bad(`${n} محتاج عنوان طويل واحد على الأقل`);
+    if (D.length < 2) bad(`${n} محتاج وصفين على الأقل (فيه ${D.length})`);
+    if (D.length && !D.some(x => x.t.length <= 60)) bad(`${n}: لازم وصف واحد على الأقل 60 حرف أو أقل`);
+    const lH = H.filter(x => x.t.length > 30).length, lL = L.filter(x => x.t.length > 90).length, lD = D.filter(x => x.t.length > 90).length;
+    if (lH) bad(`${n}: ${lH} عنوان أطول من 30 حرف`); if (lL) bad(`${n}: ${lL} عنوان طويل أطول من 90 حرف`); if (lD) bad(`${n}: ${lD} وصف أطول من 90 حرف`);
+    if ((g.biz || "").length > 25) bad(`${n}: اسم البيزنس أطول من 25 حرف`);
+    if (!(g.url || st.url)) bad(`${n} مفيهوش Final URL`);
+    if (!lines(g.images).length) warn(`${n}: مفيش صور متسجلة`);
+    if (!lines(g.themes).length) warn(`${n}: مفيش Search themes`);
+    if (lines(g.themes).length > 50) bad(`${n}: الـ Search themes أكتر من 50`);
+  });
+}
+function campaignsView(c){
+  const edit = canEditPlan(c.id);
+  if (!(c.id in CPN)) { loadCamps(c.id); return `<div class="cv-head"><div><h2>Campaigns</h2></div></div><div class="card empty">بيحمّل…</div>`; }
+  const open = ui.cpOpen && CPN[c.id].find(x => x.id === ui.cpOpen);
+  if (open) return campaignEditor(c, open, edit);
+  CPedit = null;
+  const list = CPN[c.id];
+  let h = `<div class="cv-head"><div><h2>Campaigns</h2><div class="ph-sub">ستراكشر الحملات بالتفصيل${edit ? "" : " · للعرض بس"}</div></div>${edit ? `<div class="row" style="gap:6px"><button class="btn sm primary" onclick="newCamp('${c.id}','search')">+ حملة Search</button><button class="btn sm primary" onclick="newCamp('${c.id}','pmax')">+ Performance Max</button></div>` : ""}</div>`;
+  if (!list.length) return h + `<div class="mp-empty"><h3>لسه مفيش حملات</h3><p class="small muted">كل حملة Search فيها: الإعدادات، والـ Ad groups بالكلمات والإعلانات، والـ Extensions، والتراكينج. السيستم بيعد الحروف وبيقولك لو فيه حاجة ناقصة، وفي الآخر تنزّلها ملف لـ Google Ads Editor.</p>${edit ? `<button class="btn primary" onclick="newCamp('${c.id}','search')">+ أول حملة Search</button> <button class="btn" onclick="newCamp('${c.id}','pmax')">+ أول Performance Max</button>` : ""}</div>`;
+  h += `<div class="cp-list">` + list.map(x => {
+    const d = x.data || {}, G = d.groups || [], kw = x.kind === "pmax" ? 0 : G.reduce((a, g) => a + parseKw(g.kw).length, 0), qa = cpQA(x), nb = qa.filter(z => z.lv === "bad").length, nw = qa.length - nb, [sl, sc] = PSTATUS[x.status] || PSTATUS.planned;
+    return `<button class="cp-row" onclick="ui.cpOpen='${x.id}';ui.cpTab=ui.cpTab||'groups';render();window.scrollTo(0,0)">
+      <span class="cp-kind">${x.kind === "pmax" ? "PMax" : "Search"}</span>
+      <span class="cp-nm"><b dir="auto">${esc(x.name || "حملة")}</b><span class="tiny muted">${x.kind === "pmax" ? `${G.length} asset group${G.length === 1 ? "" : "s"} · ${G.reduce((a, g) => a + lines(g.themes).length, 0)} search themes` : `${G.length} ad group${G.length === 1 ? "" : "s"} · ${kw} keyword${kw === 1 ? "" : "s"}`}${+((d.settings || {}).budget) ? " · " + money("", d.settings.budget, cur(c), 0) + " يومي" : ""}</span></span>
+      <span class="chip ${nb ? "warn" : nw ? "amb" : "ok"}">${nb ? `${nb} لازم تتصلّح` : nw ? `${nw} ملاحظات` : "جاهزة ✓"}</span>
+      <span class="chip ${sc}">${sl}</span></button>`;
+  }).join("") + `</div>`;
+  return h;
+}
+async function newCamp(cid, kind){
+  const c = clientById(cid), n = (CPN[cid] || []).filter(x => x.kind === kind).length + 1;
+  try { const r = await q(sb.from("plan_campaigns").insert({ client_id:cid, kind, name: `${c.name} · ${kind === "pmax" ? "PMax" : "Search"} ${n}`, data: kind === "pmax" ? newPmax() : newSearch(), sort: (CPN[cid] || []).length }).select(), "campins");
+    await loadCamps(cid, true); const row = (r && r[0]) || CPN[cid][CPN[cid].length - 1]; ui.cpOpen = row.id; ui.cpTab = "settings"; render(); toast("اتعملت ✓ ابدأ من الإعدادات");
+  } catch(e){ toast("ماتعملتش: " + (e.message || e)); }
+}
+/* input builders: everything bound by data-p path, saves automatically */
+function cpIn(p, o){ o = o || {}; const v = String(gp(CPedit.data, p) ?? ""), lim = o.lim;
+  return `<div class="cpi${lim ? " lim" : ""}"><input class="inp" ${o.type ? `type="${o.type}"` : ""} dir="${o.dir || "auto"}" data-p="${p}" ${lim ? `data-lim="${lim}"` : ""} value="${esc(v)}" placeholder="${esc(o.ph || "")}" ${o.list ? `list="${o.list}"` : ""} oninput="cpSet(this)">${lim ? `<span class="cc${v.length > lim ? " over" : ""}">${v.length}/${lim}</span>` : ""}</div>`; }
+function cpTa(p, o){ o = o || {}; const v = String(gp(CPedit.data, p) ?? "");
+  return `<textarea class="inp" dir="${o.dir || "auto"}" rows="${o.rows || 3}" data-p="${p}" placeholder="${esc(o.ph || "")}" oninput="cpSet(this)">${esc(v)}</textarea>`; }
+const cpF = (label, inner, hint) => `<div class="cpf"><label class="f">${label}</label>${inner}${hint ? `<div class="tiny muted" style="margin-top:3px">${hint}</div>` : ""}</div>`;
+function cpExtra(p){ const arr = gp(CPedit.data, p) || [];
+  return `${arr.map((x, i) => `<div class="dyn-row ex"><input class="inp dyn-k" dir="auto" data-p="${p}.${i}.label" value="${esc(x.label || "")}" placeholder="اسم الخانة" oninput="cpSet(this)"><textarea class="inp" dir="auto" rows="2" data-p="${p}.${i}.value" placeholder="اكتب هنا" oninput="cpSet(this)">${esc(x.value || "")}</textarea><button type="button" class="btn xs ghost" title="امسح الخانة" onclick="cpDel('${p}',${i})">✕</button></div>`).join("")}
+    <button type="button" class="dyn-add" onclick="cpAdd('${p}',{label:'',value:''})">+ خانة جديدة <span class="tiny muted">(تسمّيها زي ما تحب)</span></button>`; }
+function cpSet(el){
+  const c = CPedit; if (!c) return; const p = el.dataset.p, v = el.type === "checkbox" ? el.checked : el.value;
+  if (p === "@name") c.name = v; else if (p === "@status") c.status = v; else sp(c.data, p, v);
+  const lim = +el.dataset.lim, cc = el.parentNode.querySelector(".cc"); if (lim && cc) { cc.textContent = `${v.length}/${lim}`; cc.classList.toggle("over", v.length > lim); }
+  cpLive(); cpQueue();
+}
+function cpAdd(p, tpl){ const a = gp(CPedit.data, p) || []; a.push(JSON.parse(JSON.stringify(tpl))); sp(CPedit.data, p, a); cpQueue(); render(); }
+function cpDel(p, i){ const a = gp(CPedit.data, p) || []; a.splice(i, 1); cpQueue(); render(); }
+function cpQueue(){ const ind = $("#cpSaved"); if (ind) { ind.textContent = "بيتحفظ…"; ind.className = "tiny muted"; } clearTimeout(CPtimer); CPtimer = setTimeout(cpFlush, 700); }
+async function cpFlush(){
+  clearTimeout(CPtimer); CPtimer = null; const c = CPedit; if (!c) return;
+  try { c.updated_at = new Date().toISOString(); await q(sb.from("plan_campaigns").update({ name: c.name, status: c.status, data: c.data, updated_at: c.updated_at }).eq("id", c.id), "campsave"); const ind = $("#cpSaved"); if (ind) { ind.textContent = "اتحفظ ✓"; ind.className = "tiny lv-ok"; } }
+  catch(e){ const ind = $("#cpSaved"); if (ind) { ind.textContent = "ماتحفظش! جرّب تاني"; ind.className = "tiny lv-bad"; } toast("ماتحفظش: " + (e.message || e)); }
+}
+async function cpClose(){ if (CPtimer) await cpFlush(); ui.cpOpen = null; CPedit = null; render(); window.scrollTo(0,0); }
+function cpLive(){ document.querySelectorAll("[data-live]").forEach(n => { n.innerHTML = cpFrag(n.dataset.live); isolateLatin && isolateLatin(n); }); }
+function cpFrag(k){
+  const c = CPedit; if (!c) return ""; const d = c.data;
+  if (k === "qa") { const qa = cpQA(c); return qa.length ? `<details ${qa.some(x => x.lv === "bad") ? "open" : ""}><summary><b>${qa.filter(x => x.lv === "bad").length ? `${qa.filter(x => x.lv === "bad").length} حاجة لازم تتصلّح` : "مفيش أخطاء"}</b>${qa.filter(x => x.lv === "warn").length ? ` · ${qa.filter(x => x.lv === "warn").length} ملاحظات` : ""} <span class="tiny muted">(اضغط للتفاصيل)</span></summary><ul>${qa.map(x => `<li class="lv-${x.lv}">${esc(x.t)}</li>`).join("")}</ul></details>` : `<b class="lv-ok">✓ الحملة جاهزة، مفيش أخطاء</b>`; }
+  if (k.startsWith("kw:")) { const kw = parseKw(d.groups[+k.slice(3)].kw), n = m => kw.filter(x => x.m === m).length; return `${kw.length} كلمة · Exact ${n("Exact")} · Phrase ${n("Phrase")} · Broad ${n("Broad")}`; }
+  if (k.startsWith("prev:")) {
+    const g = d.groups[+k.slice(5)], url = g.url || d.settings.url || "", dom = (url.replace(/^https?:\/\//, "").split("/")[0] || "example.com");
+    const H = filled(g.h), D = filled(g.d), pick = (arr, n) => { const out = [], used = new Set(); for (let pos = 1; pos <= n; pos++) { const p = arr.find(x => +x.pin === pos && !used.has(x)); if (p) { out.push(p); used.add(p); } else { const f = arr.find(x => !x.pin && !used.has(x)); if (f) { out.push(f); used.add(f); } } } return out.map(x => x.t); };
+    const hs = pick(H, 3), ds = pick(D, 2);
+    return `<div class="gad-s">Sponsored</div><div class="gad-u" dir="ltr">${esc(dom)}${g.path1 ? " › " + esc(g.path1) : ""}${g.path2 ? " › " + esc(g.path2) : ""}</div><div class="gad-h" dir="auto">${hs.length ? hs.map(esc).join(" | ") : "العنوان 1 | العنوان 2 | العنوان 3"}</div><div class="gad-d" dir="auto">${ds.length ? ds.map(esc).join(" ") : "الوصف هيظهر هنا"}</div>`;
+  }
+  return "";
+}
+function campaignEditor(c, x, edit){
+  const PM = x.kind === "pmax", base = PM ? newPmax : newSearch;
+  CPedit = x; const d = x.data = Object.assign(base(), x.data || {}); d.settings = Object.assign(base().settings, d.settings || {});
+  if (PM) d.groups = d.groups.map((g, i) => Object.assign(newAG(i + 1), g));
+  const tab = ui.cpTab || "groups", TABS = [["settings","الإعدادات"],["groups", PM ? "Asset groups" : "Ad groups"],["ext","Extensions"],["track","Tracking & launch"],["test","Testing & optimization"]];
+  let h = `<div class="cp-ed">
+    <div class="row" style="gap:8px;margin-bottom:10px"><button class="btn sm ghost" onclick="cpClose()">→ كل الحملات</button><span class="spacer"></span><span id="cpSaved" class="tiny muted">${edit ? "كل حاجة بتتحفظ لوحدها" : "للعرض بس"}</span>
+      <button class="btn sm" onclick="cpExport('${c.id}')" title="ملف تفتحه في Google Ads Editor">⬇ Google Ads Editor</button>
+      ${edit ? `<button class="btn sm ghost" onclick="cpDup('${c.id}')">⧉ نسخة</button><button class="btn sm ghost" onclick="cpAskDel('${c.id}')">🗑</button>` : ""}</div>
+    <fieldset class="cp-fs" ${edit ? "" : "disabled"}>
+    <div class="cp-top"><span class="cp-kind">${PM ? "PMax" : "Search"}</span><input class="inp cp-name" dir="auto" data-p="@name" value="${esc(x.name || "")}" placeholder="اسم الحملة" oninput="cpSet(this)">
+      <select class="mp-st st-${(PSTATUS[x.status] || PSTATUS.planned)[1]}" data-p="@status" onchange="cpSet(this);this.className='mp-st st-'+({planned:'amb',live:'ok'}[this.value]||'grey')">${Object.entries(PSTATUS).map(([k, [l]]) => `<option value="${k}" ${x.status === k ? "selected" : ""}>${l}</option>`).join("")}</select></div>
+    </fieldset>
+    <div class="cp-qa" data-live="qa">${cpFrag("qa")}</div>
+    <div class="cp-tabs">${TABS.map(([k, l]) => `<button class="${tab === k ? "on" : ""}" onclick="ui.cpTab='${k}';render()">${l}</button>`).join("")}</div>
+    <fieldset class="cp-fs" ${edit ? "" : "disabled"}>`;
+  if (PM && (tab === "settings" || tab === "groups")) h += pmaxTab(c, d, tab);
+  else if (tab === "settings") {
+    h += `<datalist id="dlBid">${BIDDING.map(b => `<option value="${b}">`).join("")}</datalist><div class="cp-card"><div class="cp-grid">
+      ${cpF(`الميزانية اليومية (${esc(cur(c))})`, cpIn("settings.budget", { type:"number", dir:"ltr", ph:"مثلاً 300" }))}
+      ${cpF("Bidding strategy", cpIn("settings.bidding", { list:"dlBid", dir:"ltr", ph:"اختار أو اكتب" }))}
+      ${cpF("Target CPA / ROAS", cpIn("settings.target", { dir:"ltr", ph:"لو فيه، مثلاً 45 أو 400%" }))}
+      ${cpF("Final URL الأساسي", cpIn("settings.url", { dir:"ltr", ph:"https://" }), "أي Ad group من غير لينك بياخد ده")}
+      ${cpF("الأماكن", cpIn("settings.locations", { ph:"مثلاً: الرياض، جدة، مكة" }))}
+      ${cpF("Location option", `<select class="inp" data-p="settings.loc_opt" onchange="cpSet(this)">${[["Presence","Presence · الناس اللي موجودة في المكان (المفضّل)"],["Presence or interest","Presence or interest · موجودة أو مهتمة"]].map(([k, l]) => `<option value="${k}" ${d.settings.loc_opt === k ? "selected" : ""}>${l}</option>`).join("")}</select>`)}
+      ${cpF("اللغات", cpIn("settings.languages", { ph:"Arabic, English" }))}
+      ${cpF("مواعيد الإعلانات", cpIn("settings.schedule", { ph:"مثلاً: كل يوم 10ص – 2ص" }))}
+      ${cpF("تاريخ البداية", cpIn("settings.start", { type:"date", dir:"ltr" }))}
+      ${cpF("تاريخ النهاية", cpIn("settings.end", { type:"date", dir:"ltr" }), "سيبه فاضي لو مفتوحة")}
+      </div>
+      <label class="f">Networks</label><div class="row" style="gap:14px"><label class="perm-c"><input type="checkbox" checked disabled> Google Search</label><label class="perm-c"><input type="checkbox" data-p="settings.partners" ${d.settings.partners ? "checked" : ""} onchange="cpSet(this)"> Search partners</label><label class="perm-c"><input type="checkbox" data-p="settings.display" ${d.settings.display ? "checked" : ""} onchange="cpSet(this)"> Display Network</label></div>
+      ${cpF("Negative keywords على مستوى الحملة", cpTa("neg", { dir:"ltr", rows:4, ph:"كلمة في كل سطر\n[مجاني]\n\"وظائف\"\nمستعمل" }), "سطر لكل كلمة · [ ] = Exact · \" \" = Phrase · من غيرهم = Broad")}
+      ${cpExtra("settings.extra")}</div>`;
+  }
+  else if (tab === "groups") {
+    const og = ui.cpG == null ? 0 : ui.cpG;
+    d.groups.forEach((g, gi) => {
+      const open = og === gi, H = filled(g.h), D = filled(g.d);
+      h += `<div class="cp-card cp-g${open ? " open" : ""}"><div class="cp-gh" onclick="ui.cpG=${open ? -1 : gi};render()"><b dir="auto">${esc(g.name || "Ad group " + (gi + 1))}</b><span class="tiny muted">${parseKw(g.kw).length} كلمة · ${H.length}/15 عنوان · ${D.length}/4 وصف</span><span class="spacer"></span><span class="tiny muted">${open ? "▲" : "▼"}</span></div>`;
+      if (!open) { h += `</div>`; return; }
+      const pinSel = (p, max) => `<select class="pin" data-p="${p}" onchange="cpSet(this);cpLive()" title="تثبيت المكان">${["", ...Array.from({ length:max }, (_, i) => String(i + 1))].map(v => `<option value="${v}" ${String(gp(d, p) || "") === v ? "selected" : ""}>${v ? "📌 " + v : "—"}</option>`).join("")}</select>`;
+      h += `<div class="cp-gb"><div class="cp-grid">${cpF("اسم الـ Ad group", cpIn(`groups.${gi}.name`, { ph:"مثلاً: عيون · ليزك" }))}${cpF("Final URL", cpIn(`groups.${gi}.url`, { dir:"ltr", ph: d.settings.url || "https://" }), d.settings.url ? "لو فاضي بياخد لينك الحملة" : "")}
+        ${cpF("Path 1", cpIn(`groups.${gi}.path1`, { lim:15, dir:"auto", ph:"مثلاً: عروض" }))}${cpF("Path 2", cpIn(`groups.${gi}.path2`, { lim:15, dir:"auto", ph:"مثلاً: ليزك" }))}</div>
+        <div class="cp-two"><div>${cpF("الكلمات (Keywords)", cpTa(`groups.${gi}.kw`, { rows:9, ph:"كلمة في كل سطر\n[عملية ليزك]\n\"سعر الليزك\"\nليزك جدة" }), `<span data-live="kw:${gi}">${cpFrag("kw:" + gi)}</span><br>[ ] = Exact · " " = Phrase · من غيرهم = Broad`)}
+          ${cpF("Negative keywords للـ Ad group ده", cpTa(`groups.${gi}.neg`, { rows:3, ph:"اختياري" }))}</div>
+          <div><label class="f">شكل الإعلان على Google <span class="tiny muted">(تقريبي)</span></label><div class="gad" data-live="prev:${gi}">${cpFrag("prev:" + gi)}</div></div></div>
+        <label class="f">العناوين (Headlines) · لحد 15 · كل واحد 30 حرف</label><div class="cp-hl">${g.h.map((x, i) => `<div class="cp-li"><span class="n">${i + 1}</span>${cpIn(`groups.${gi}.h.${i}.t`, { lim:30, ph: i < 3 ? "مطلوب" : "" })}${pinSel(`groups.${gi}.h.${i}.pin`, 3)}</div>`).join("")}</div>
+        <label class="f">الوصف (Descriptions) · لحد 4 · كل واحد 90 حرف</label><div class="cp-hl one">${g.d.map((x, i) => `<div class="cp-li"><span class="n">${i + 1}</span>${cpIn(`groups.${gi}.d.${i}.t`, { lim:90, ph: i < 2 ? "مطلوب" : "" })}${pinSel(`groups.${gi}.d.${i}.pin`, 2)}</div>`).join("")}</div>
+        <div class="tiny muted" style="margin-top:4px">📌 التثبيت بيخلّي العنوان يظهر دايماً في مكان معيّن. استخدمه بس لو لازم، لأنه بيقلل الـ Ad strength.</div>
+        ${cpExtra(`groups.${gi}.extra`)}
+        <div class="row" style="gap:6px;margin-top:12px"><button class="btn xs ghost" onclick="cpDupGroup(${gi})">⧉ نسخة من الـ Ad group</button><span class="spacer"></span>${d.groups.length > 1 ? `<button class="btn xs ghost" onclick="cpDelGroup(${gi})">🗑 امسح الـ Ad group</button>` : ""}</div></div></div>`;
+    });
+    h += `<button class="mp-add" style="width:100%" onclick="CPedit.data.groups.push(newGroup(CPedit.data.groups.length+1));ui.cpG=CPedit.data.groups.length-1;cpQueue();render()">+ Ad group جديد</button>`;
+  }
+  if (tab === "ext") {
+    h += `<div class="cp-card"><h3 class="cp-h">Sitelinks <span class="tiny muted">· النص 25 حرف · كل وصف 35 · يفضّل 4 أو أكتر</span></h3>
+      ${d.sitelinks.map((x, i) => `<div class="cp-sl"><div class="cp-grid">${cpF("النص", cpIn(`sitelinks.${i}.t`, { lim:25 }))}${cpF("اللينك", cpIn(`sitelinks.${i}.url`, { dir:"ltr", ph:"https://" }))}${cpF("وصف 1", cpIn(`sitelinks.${i}.d1`, { lim:35 }))}${cpF("وصف 2", cpIn(`sitelinks.${i}.d2`, { lim:35 }))}</div><button class="btn xs ghost cp-x" title="امسح" onclick="cpDel('sitelinks',${i})">✕</button></div>`).join("")}
+      <button class="dyn-add" onclick="cpAdd('sitelinks',{t:'',url:'',d1:'',d2:''})">+ Sitelink</button></div>
+    <div class="cp-card"><h3 class="cp-h">Callouts <span class="tiny muted">· 25 حرف · يفضّل 4 أو أكتر</span></h3><div class="cp-hl">
+      ${d.callouts.map((x, i) => `<div class="cp-li">${cpIn(`callouts.${i}`, { lim:25, ph:"مثلاً: توصيل مجاني" })}<button class="btn xs ghost" onclick="cpDel('callouts',${i})">✕</button></div>`).join("")}</div>
+      <button class="dyn-add" onclick="cpAdd('callouts','')">+ Callout</button></div>
+    <div class="cp-card"><h3 class="cp-h">Structured snippets <span class="tiny muted">· كل قيمة 25 حرف</span></h3>
+      ${d.snippets.map((x, i) => `<div class="cp-sl"><div class="cp-grid">${cpF("النوع (Header)", `<select class="inp" data-p="snippets.${i}.h" onchange="cpSet(this)">${SNIP_H.map(o => `<option ${x.h === o ? "selected" : ""}>${o}</option>`).join("")}</select>`)}${cpF("القيم", cpTa(`snippets.${i}.v`, { rows:3, ph:"قيمة في كل سطر (3 على الأقل)" }))}</div><button class="btn xs ghost cp-x" onclick="cpDel('snippets',${i})">✕</button></div>`).join("")}
+      <button class="dyn-add" onclick="cpAdd('snippets',{h:'Service catalog',v:''})">+ Snippet</button></div>
+    <div class="cp-card">${cpF("رقم التليفون (Call)", cpIn("phone", { dir:"ltr", ph:"+966…" }))}${cpExtra("ext_extra")}</div>`;
+  }
+  if (tab === "track") {
+    const done = d.track.filter(t => t.done).length;
+    h += `<div class="cp-card"><h3 class="cp-h">Tracking checklist <span class="tiny muted">· ${done}/${d.track.length} اتعمل</span></h3>
+      ${d.track.map((t, i) => `<div class="cp-chk"><input type="checkbox" data-p="track.${i}.done" ${t.done ? "checked" : ""} onchange="cpSet(this);render()"><input class="inp ghost-in${t.done ? " done" : ""}" dir="auto" data-p="track.${i}.t" value="${esc(t.t)}" oninput="cpSet(this)"><button class="btn xs ghost" onclick="cpDel('track',${i})">✕</button></div>`).join("")}
+      <button class="dyn-add" onclick="cpAdd('track',{t:'',done:false})">+ بند جديد</button></div>
+    <div class="cp-card">${cpF("خطة الإطلاق", cpTa("launch", { rows:6, ph:"مثلاً:\nأول أسبوع Maximize clicks لحد ما نجمع داتا\nبعد 30 conversion نحوّل Maximize conversions\nبعدها Target CPA على متوسط آخر أسبوعين" }))}${cpExtra("extra")}</div>`;
+  }
+  if (tab === "test") {
+    h += `<div class="cp-card"><h3 class="cp-h">خطة الاختبار</h3>
+      ${d.tests.map((t, i) => `<div class="cp-sl"><div class="cp-grid three">${cpF("هنختبر إيه", cpIn(`tests.${i}.what`, { ph:"مثلاً: عنوان بالسعر vs عنوان بالعرض" }))}${cpF("متوقعين إيه", cpIn(`tests.${i}.exp`, { ph:"CTR أعلى" }))}${cpF("النتيجة", cpIn(`tests.${i}.res`, { ph:"تتكتب بعد الاختبار" }))}</div><button class="btn xs ghost cp-x" onclick="cpDel('tests',${i})">✕</button></div>`).join("")}
+      <button class="dyn-add" onclick="cpAdd('tests',{what:'',exp:'',res:''})">+ اختبار</button></div>
+    <div class="cp-card">${cpF("خطة الأوبتيمايز", cpTa("optim", { rows:7, ph:"مثلاً:\nكل يوم: Search terms ونضيف negatives\nكل أسبوع: نوقف الكلمات اللي صرفت من غير تحويل\nكل أسبوعين: نغيّر أضعف العناوين" }))}</div>`;
+  }
+  return h + `</fieldset></div>`;
+}
+function pmaxTab(c, d, tab){
+  let h = "";
+  if (tab === "settings") {
+    h += `<datalist id="dlBid">${BIDDING.map(b => `<option value="${b}">`).join("")}</datalist><div class="cp-card"><div class="cp-grid">
+      ${cpF(`الميزانية اليومية (${esc(cur(c))})`, cpIn("settings.budget", { type:"number", dir:"ltr", ph:"مثلاً 300" }))}
+      ${cpF("Conversion goal", cpIn("settings.goal", { ph:"مثلاً: Purchases" }))}
+      ${cpF("Bidding strategy", cpIn("settings.bidding", { list:"dlBid", dir:"ltr", ph:"اختار أو اكتب" }))}
+      ${cpF("Target CPA / ROAS", cpIn("settings.target", { dir:"ltr", ph:"لو فيه، مثلاً 400%" }))}
+      ${cpF("Final URL الأساسي", cpIn("settings.url", { dir:"ltr", ph:"https://" }), "أي Asset group من غير لينك بياخد ده")}
+      ${cpF("الأماكن", cpIn("settings.locations", { ph:"مثلاً: السعودية" }))}
+      ${cpF("Location option", `<select class="inp" data-p="settings.loc_opt" onchange="cpSet(this)">${[["Presence","Presence · الناس اللي موجودة في المكان (المفضّل)"],["Presence or interest","Presence or interest · موجودة أو مهتمة"]].map(([k, l]) => `<option value="${k}" ${d.settings.loc_opt === k ? "selected" : ""}>${l}</option>`).join("")}</select>`)}
+      ${cpF("اللغات", cpIn("settings.languages", { ph:"Arabic, English" }))}
+      ${cpF("تاريخ البداية", cpIn("settings.start", { type:"date", dir:"ltr" }))}
+      ${cpF("تاريخ النهاية", cpIn("settings.end", { type:"date", dir:"ltr" }), "سيبه فاضي لو مفتوحة")}
+      </div>
+      <div class="row" style="gap:14px;margin-top:6px"><label class="perm-c"><input type="checkbox" data-p="settings.url_exp" ${d.settings.url_exp ? "checked" : ""} onchange="cpSet(this)"> Final URL expansion</label><label class="perm-c"><input type="checkbox" data-p="settings.merchant" ${d.settings.merchant ? "checked" : ""} onchange="cpSet(this)"> منتجات Merchant Center</label></div>
+      ${cpExtra("settings.extra")}</div>`;
+  }
+  if (tab === "groups") {
+    const og = ui.cpG == null ? 0 : ui.cpG;
+    d.groups.forEach((g, gi) => {
+      const open = og === gi, H = filled(g.h), L = filled(g.lh), D = filled(g.d);
+      h += `<div class="cp-card cp-g${open ? " open" : ""}"><div class="cp-gh" onclick="ui.cpG=${open ? -1 : gi};render()"><b dir="auto">${esc(g.name || "Asset group " + (gi + 1))}</b><span class="tiny muted">${H.length}/15 عنوان · ${L.length}/5 طويل · ${D.length}/5 وصف · ${lines(g.images).length} صورة · ${lines(g.themes).length} theme</span><span class="spacer"></span><span class="tiny muted">${open ? "▲" : "▼"}</span></div>`;
+      if (!open) { h += `</div>`; return; }
+      h += `<div class="cp-gb"><div class="cp-grid">${cpF("اسم الـ Asset group", cpIn(`groups.${gi}.name`, { ph:"مثلاً: أكواد يلا لودو" }))}${cpF("Final URL", cpIn(`groups.${gi}.url`, { dir:"ltr", ph: d.settings.url || "https://" }), d.settings.url ? "لو فاضي بياخد لينك الحملة" : "")}
+        ${cpF("اسم البيزنس", cpIn(`groups.${gi}.biz`, { lim:25 }))}${cpF("Call to action", `<select class="inp" data-p="groups.${gi}.cta" onchange="cpSet(this)">${CTAS.map(o => `<option ${g.cta === o ? "selected" : ""}>${o}</option>`).join("")}</select>`)}</div>
+        <label class="f">العناوين (Headlines) · لحد 15 · كل واحد 30 حرف · واحد على الأقل 15 أو أقل</label><div class="cp-hl">${g.h.map((x, i) => `<div class="cp-li"><span class="n">${i + 1}</span>${cpIn(`groups.${gi}.h.${i}.t`, { lim:30, ph: i < 3 ? "مطلوب" : "" })}</div>`).join("")}</div>
+        <label class="f">العناوين الطويلة (Long headlines) · لحد 5 · كل واحد 90 حرف</label><div class="cp-hl one">${g.lh.map((x, i) => `<div class="cp-li"><span class="n">${i + 1}</span>${cpIn(`groups.${gi}.lh.${i}.t`, { lim:90, ph: i < 1 ? "مطلوب" : "" })}</div>`).join("")}</div>
+        <label class="f">الوصف (Descriptions) · لحد 5 · كل واحد 90 حرف · واحد على الأقل 60 أو أقل</label><div class="cp-hl one">${g.d.map((x, i) => `<div class="cp-li"><span class="n">${i + 1}</span>${cpIn(`groups.${gi}.d.${i}.t`, { lim: i === 0 ? 60 : 90, ph: i < 2 ? "مطلوب" : "" })}</div>`).join("")}</div>
+        <div class="cp-two"><div>${cpF("الصور", cpTa(`groups.${gi}.images`, { rows:6, ph:"صورة في كل سطر: الاسم أو اللينك والمقاس\nمثلاً: Artboard 6 · Square + Landscape" }), `${lines(g.images).length} صورة`)}</div>
+          <div>${cpF("الفيديوهات", cpTa(`groups.${gi}.videos`, { rows:6, dir:"auto", ph:"لينك يوتيوب في كل سطر" }))}</div></div>
+        <div class="cp-two"><div>${cpF("Search themes", cpTa(`groups.${gi}.themes`, { rows:8, ph:"كلمة في كل سطر · لحد 50" }), `${lines(g.themes).length}/50`)}</div>
+          <div>${cpF("Audience signals", cpTa(`groups.${gi}.signals`, { rows:8, ph:"سيجنال في كل سطر\nمثلاً: All converters · Website visitors" }))}</div></div>
+        ${cpExtra(`groups.${gi}.extra`)}
+        <div class="row" style="gap:6px;margin-top:12px"><button class="btn xs ghost" onclick="cpDupGroup(${gi})">⧉ نسخة من الـ Asset group</button><span class="spacer"></span>${d.groups.length > 1 ? `<button class="btn xs ghost" onclick="cpDelGroup(${gi})">🗑 امسح الـ Asset group</button>` : ""}</div></div></div>`;
+    });
+    h += `<button class="mp-add" style="width:100%" onclick="CPedit.data.groups.push(newAG(CPedit.data.groups.length+1));ui.cpG=CPedit.data.groups.length-1;cpQueue();render()">+ Asset group جديد</button>`;
+  }
+  return h;
+}
+function cpDupGroup(gi){ const g = JSON.parse(JSON.stringify(CPedit.data.groups[gi])); g.name = (g.name || "Ad group") + " (نسخة)"; CPedit.data.groups.splice(gi + 1, 0, g); ui.cpG = gi + 1; cpQueue(); render(); }
+function cpDelGroup(gi){ openModal(`<h2>تمسح «${esc(CPedit.data.groups[gi].name || "")}»؟</h2><p class="small muted">هتتمسح الكلمات والإعلانات اللي فيه.</p><div class="actions"><span class="spacer"></span><button class="btn" onclick="closeModal()">لا</button><button class="btn danger" onclick="CPedit.data.groups.splice(${gi},1);ui.cpG=0;closeModal();cpQueue();render()">امسح</button></div>`); }
+async function cpDup(cid){ if (CPtimer) await cpFlush(); const x = CPedit;
+  try { await q(sb.from("plan_campaigns").insert({ client_id:cid, kind:x.kind, name:(x.name || "") + " (نسخة)", status:"planned", data:x.data, sort:(CPN[cid] || []).length }), "campdup"); ui.cpOpen = null; CPedit = null; await loadCamps(cid, true); toast("اتعملت نسخة ✓"); } catch(e){ toast("ماتعملتش"); } }
+function cpAskDel(cid){ openModal(`<h2>تمسح الحملة «${esc(CPedit.name || "")}»؟</h2><p class="small muted">كل الـ Ad groups والإعلانات والإكستنشنز اللي فيها هتتمسح، ومش هينفع ترجعها.</p><div class="actions"><span class="spacer"></span><button class="btn" onclick="closeModal()">لا</button><button class="btn danger" onclick="cpDoDel('${cid}')">امسح</button></div>`); }
+async function cpDoDel(cid){ clearTimeout(CPtimer); CPtimer = null; try { await q(sb.from("plan_campaigns").delete().eq("id", CPedit.id), "campdel"); closeModal(); ui.cpOpen = null; CPedit = null; await loadCamps(cid, true); toast("اتمسحت"); } catch(e){ toast("ماتمسحتش"); } }
+function cpExport(cid){
+  if (CPedit && CPedit.kind === "pmax") return pmaxExport();
+  const x = CPedit, d = x.data, st = d.settings, C = x.name || "Campaign", rows = [];
+  rows.push({ "Campaign":C, "Campaign Type":"Search", "Campaign Status":"Paused", "Budget": st.budget || "", "Budget type":"Daily", "Bid Strategy Type": st.bidding || "", "Networks": ["Google search", st.partners ? "Search Partners" : "", st.display ? "Display Network" : ""].filter(Boolean).join(";"), "Languages": String(st.languages || "").split(/[,،;]/).map(x => x.trim()).filter(Boolean).join(";"), "Start Date": st.start || "", "End Date": st.end || "" });
+  parseKw(d.neg).forEach(k => rows.push({ "Campaign":C, "Keyword":k.t, "Criterion Type":"Negative " + k.m }));
+  d.groups.forEach(g => { const A = g.name || "Ad group";
+    rows.push({ "Campaign":C, "Ad Group":A, "Ad Group Status":"Enabled" });
+    parseKw(g.kw).forEach(k => rows.push({ "Campaign":C, "Ad Group":A, "Keyword":k.t, "Criterion Type":k.m }));
+    parseKw(g.neg).forEach(k => rows.push({ "Campaign":C, "Ad Group":A, "Keyword":k.t, "Criterion Type":"Negative " + k.m }));
+    const H = filled(g.h), D = filled(g.d); if (!H.length && !D.length) return;
+    const ad = { "Campaign":C, "Ad Group":A, "Ad type":"Responsive search ad", "Final URL": g.url || st.url || "", "Path 1": g.path1 || "", "Path 2": g.path2 || "" };
+    H.forEach((h, i) => { ad[`Headline ${i + 1}`] = h.t; if (h.pin) ad[`Headline ${i + 1} position`] = h.pin; });
+    D.forEach((h, i) => { ad[`Description ${i + 1}`] = h.t; if (h.pin) ad[`Description ${i + 1} position`] = h.pin; });
+    rows.push(ad);
+  });
+  const cols = ["Campaign","Campaign Type","Campaign Status","Budget","Budget type","Bid Strategy Type","Networks","Languages","Start Date","End Date","Ad Group","Ad Group Status","Keyword","Criterion Type","Ad type","Final URL","Path 1","Path 2"];
+  for (let i = 1; i <= 15; i++) cols.push(`Headline ${i}`, `Headline ${i} position`); for (let i = 1; i <= 4; i++) cols.push(`Description ${i}`, `Description ${i} position`);
+  const cell = v => { v = String(v ?? ""); return /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v; };
+  const csv = "﻿" + [cols.join(","), ...rows.map(r => cols.map(k => cell(r[k])).join(","))].join("\r\n");
+  const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([csv], { type:"text/csv;charset=utf-8" })); a.download = C.replace(/[\\/:*?"<>|]/g, "-") + ".csv"; document.body.appendChild(a); a.click(); a.remove();
+  toast("نزل الملف ✓ افتحه من Google Ads Editor ← Import");
+}
+function pmaxExport(){
+  const x = CPedit, d = x.data, st = d.settings, C = x.name || "Campaign", rows = [];
+  rows.push({ "Campaign":C, "Campaign Type":"Performance Max", "Campaign Status":"Paused", "Budget": st.budget || "", "Budget type":"Daily", "Bid Strategy Type": st.bidding || "", "Languages": String(st.languages || "").split(/[,،;]/).map(x => x.trim()).filter(Boolean).join(";"), "Start Date": st.start || "", "End Date": st.end || "" });
+  d.groups.forEach(g => { const r = { "Campaign":C, "Asset Group": g.name || "Asset group", "Asset Group Status":"Enabled", "Final URL": g.url || st.url || "", "Business name": g.biz || "", "Call to action": g.cta && g.cta !== "Automated" ? g.cta : "" };
+    filled(g.h).forEach((h, i) => r[`Headline ${i + 1}`] = h.t); filled(g.lh).forEach((h, i) => r[`Long headline ${i + 1}`] = h.t); filled(g.d).forEach((h, i) => r[`Description ${i + 1}`] = h.t);
+    rows.push(r); lines(g.themes).forEach(t => rows.push({ "Campaign":C, "Asset Group": g.name || "Asset group", "Search theme": t })); });
+  const cols = ["Campaign","Campaign Type","Campaign Status","Budget","Budget type","Bid Strategy Type","Languages","Start Date","End Date","Asset Group","Asset Group Status","Final URL","Business name","Call to action","Search theme"];
+  for (let i = 1; i <= 15; i++) cols.push(`Headline ${i}`); for (let i = 1; i <= 5; i++) cols.push(`Long headline ${i}`); for (let i = 1; i <= 5; i++) cols.push(`Description ${i}`);
+  const cell = v => { v = String(v ?? ""); return /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v; };
+  const csv = "\ufeff" + [cols.join(","), ...rows.map(r => cols.map(k => cell(r[k])).join(","))].join("\r\n");
+  const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([csv], { type:"text/csv;charset=utf-8" })); a.download = C.replace(/[\\/:*?"<>|]/g, "-") + ".csv"; document.body.appendChild(a); a.click(); a.remove();
+  toast("نزل الملف ✓ افتحه من Google Ads Editor ← Import");
+}
+/* keep focus + cursor when the page re-renders while typing */
+(function(){ const _r = render; render = function(){ const a = document.activeElement, p = a && a.dataset && a.dataset.p, s = p && a.selectionStart, e = p && a.selectionEnd, y = window.scrollY;
+  _r.apply(this, arguments);
+  if (p) { const n = document.querySelector(`[data-p="${p}"]`); if (n && n !== a) { n.focus({ preventScroll:true }); try { n.setSelectionRange(s, e); } catch(_){} window.scrollTo(0, y); } } }; })();
+
+function verLabel(){ const v = String(window.__APP_VERSION || ""); if (!/^\d{14}$/.test(v)) return ""; const d = new Date(Date.UTC(+v.slice(0,4), +v.slice(4,6) - 1, +v.slice(6,8), +v.slice(8,10), +v.slice(10,12)));
+  return `<span class="tiny muted" style="opacity:.6;font-size:10.5px">نسخة ${d.getDate()}/${d.getMonth() + 1} · ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}</span>`; }
+
+
+/* ================= Side notes (timestamped client log for reports) ================= */
+const NKINDS = { client_delay:["تأخير من العميل","amb","مثلاً: مش بيرد من الصبح · اتأخر في شحن الفيزا · الكرييتف لسه مجاش"], account:["مشكلة أكونت","bad","مثلاً: أكونت سناب اتحظر · الإعلانات اترفضت"], payment:["دفع / فيزا","bad","مثلاً: الفيزا اترفضت والحملات وقفت"], site:["الموقع / التراكينج","blue","مثلاً: الموقع واقع · البيكسل مش بيسجل"], action:["أكشن اتعمل","ok","مثلاً: زوّدت ميزانية جوجل 20% · نزّلت كرييتف جديد"], note:["ملاحظة","grey","اكتب أي حاجة"] };
+const NISSUE = k => ["client_delay","account","payment","site"].includes(k);
+let NOTES = null, NOTESload = null;
+async function loadNotes(force){
+  if (NOTESload && !force) return NOTESload;
+  NOTESload = (async () => { try { const since = new Date(Date.now() - 400 * 864e5).toISOString(); NOTES = await q(sb.from("client_notes").select("*").gte("at", since).order("at", { ascending:false }).limit(2000), "notes"); } catch(e){ NOTES = []; toast("مقدرتش أجيب النوتس: " + (e.message || e)); } render(); })();
+  return NOTESload;
+}
+const nDayK = iso => { const d = new Date(iso); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
+const nTime = iso => { const d = new Date(iso); let h = d.getHours(), m = String(d.getMinutes()).padStart(2,"0"); const ap = h < 12 ? "ص" : "م"; h = h % 12 || 12; return `${h}:${m} ${ap}`; };
+const nDayLabel = k => { const tk = todayK(); return k === tk ? "النهارده" : k === addDaysK(tk, -1) ? "امبارح" : fmtDate(fromKey(k)) + (k.slice(0,4) !== tk.slice(0,4) ? " " + k.slice(0,4) : ""); };
+function nDur(a, b){ const ms = new Date(b) - new Date(a), hrs = Math.round(ms / 36e5); if (hrs < 1) return "أقل من ساعة"; if (hrs < 24) return hrs === 1 ? "ساعة" : hrs === 2 ? "ساعتين" : `${hrs} ساعات`; return daysAr(Math.round(hrs / 24)); }
+function noteForm(fixedCid){
+  const cl = clients.filter(c => c.status !== "archived"), sel = fixedCid || ui.noteCid || (cl[0] || {}).id, k = ui.noteKind || "client_delay";
+  if (!cl.length) return "";
+  return `<div class="nform">
+    ${fixedCid ? "" : `<select class="inp sm" id="nfC" onchange="ui.noteCid=this.value">${cl.map(c => `<option value="${c.id}" ${c.id === sel ? "selected" : ""}>${esc(c.name)}</option>`).join("")}</select>`}
+    <div class="nkinds">${Object.entries(NKINDS).map(([kk, [l, col]]) => `<button type="button" class="nk ${col}${kk === k ? " on" : ""}" onclick="ui.noteKind='${kk}';document.querySelectorAll('.nk').forEach(b=>b.classList.remove('on'));this.classList.add('on');document.getElementById('nfB').placeholder=NKINDS['${kk}'][2]">${l}</button>`).join("")}</div>
+    <textarea class="inp" id="nfB" dir="auto" rows="2" placeholder="${esc(NKINDS[k][2])}" oninput="ui.noteDraft=this.value" onkeydown="if(event.key==='Enter'&&(event.metaKey||event.ctrlKey)){addNote('${fixedCid || ""}')}">${esc(ui.noteDraft || "")}</textarea>
+    <div class="row" style="gap:6px"><span class="tiny muted" id="nfT">${ui.noteAt ? "" : "هتتسجل بالوقت دلوقتي"}</span>${ui.noteAt ? `<input class="inp sm" type="datetime-local" id="nfAt" value="${ui.noteAt}" onchange="ui.noteAt=this.value" style="width:auto">` : `<a href="#" class="tiny" onclick="ui.noteAt=new Date(Date.now()-new Date().getTimezoneOffset()*6e4).toISOString().slice(0,16);render();return false">وقت تاني؟</a>`}<span class="spacer"></span><button class="btn sm primary" onclick="addNote('${fixedCid || ""}')">سجّل</button></div></div>`;
+}
+async function addNote(fixedCid){
+  const body = ($("#nfB").value || "").trim(); if (!body) { $("#nfB").focus(); return toast("اكتب الملاحظة الأول"); }
+  const cid = fixedCid || ($("#nfC") || {}).value; if (!cid) return toast("اختار العميل");
+  const at = ui.noteAt ? new Date(ui.noteAt).toISOString() : new Date().toISOString();
+  try { await q(sb.from("client_notes").insert({ client_id: cid, kind: ui.noteKind || "client_delay", body, at }), "noteins"); ui.noteAt = null; ui.noteDraft = ""; $("#nfB").value = ""; toast("اتسجلت ✓"); await loadNotes(true); }
+  catch(e){ toast("ماتسجلتش: " + (e.message || e)); }
+}
+function noteItem(n, showClient){
+  const [l, col] = NKINDS[n.kind] || NKINDS.note, c = clientById(n.client_id), mine = isAdmin() || n.created_by === me.id;
+  const res = NISSUE(n.kind) ? (n.resolved_at ? `<span class="tiny lv-ok">✓ اتحلّت بعد ${nDur(n.at, n.resolved_at)}</span>` : (mine ? `<button class="btn xs ghost" onclick="resolveNote('${n.id}')">اتحلّت؟</button>` : `<span class="tiny lv-amb">لسه مفتوحة</span>`)) : "";
+  return `<div class="nitem k-${col}"><div class="nmeta"><span class="num tiny">${nTime(n.at)}</span>${showClient && c ? `<a href="#" class="ncl" onclick="go('client','${c.id}');ui.cv=ui.cv||{};ui.cv['${c.id}']='notes';render();return false">${clientLogo(c, 16)} ${esc(c.name)}</a>` : ""}<span class="nkc ${col}">${l}</span>${isAdmin() && n.created_by && n.created_by !== me.id ? `<span class="tiny muted">· ${esc(personName(n.created_by))}</span>` : ""}<span class="spacer"></span>${mine ? `<button class="nx" title="تعديل" onclick="editNote('${n.id}')">✎</button>` : ""}</div>
+    <div class="nbody" dir="auto">${esc(n.body)}</div>${res ? `<div style="margin-top:4px">${res}</div>` : ""}</div>`;
+}
+function noteFeed(list, showClient, emptyTxt){
+  if (!list.length) return `<div class="small muted" style="padding:14px 4px">${emptyTxt || "مفيش نوتس لسه."}</div>`;
+  const by = new Map(); list.slice().sort((a, b) => new Date(b.at) - new Date(a.at)).forEach(n => { const k = nDayK(n.at); if (!by.has(k)) by.set(k, []); by.get(k).push(n); });
+  return [...by.entries()].map(([k, ns]) => `<div class="nday"><div class="ndh">${nDayLabel(k)} <span class="muted num">· ${k.slice(8)}/${k.slice(5,7)}</span></div>${ns.map(n => noteItem(n, showClient)).join("")}</div>`).join("");
+}
+function notesSide(){
+  if (NOTES === null) { loadNotes(); return `<div class="nside"><h3>Side notes</h3><div class="small muted">بيحمّل…</div></div>`; }
+  const open = NOTES.filter(n => NISSUE(n.kind) && !n.resolved_at).sort((a, b) => new Date(b.at) - new Date(a.at)), recent = NOTES.filter(n => new Date(n.at) > Date.now() - 14 * 864e5);
+  return `<div class="nside"><div class="row"><h3 style="margin:0">Side notes</h3><span class="spacer"></span>${open.length ? `<span class="chip warn">${open.length} مفتوحة</span>` : ""}</div>
+    <div class="tiny muted" style="margin:2px 0 10px">اللي بيحصل مع كل عميل بالوقت والتاريخ، علشان يبان في الريبورت.</div>
+    ${noteForm()}
+    ${open.length ? `<div class="nopen"><div class="ndh">لسه مفتوحة</div>${open.map(n => noteItem(n, true)).join("")}</div>` : ""}
+    <div class="nfeed">${noteFeed(recent.filter(n => !open.includes(n)), true, "مفيش نوتس في آخر أسبوعين.")}</div></div>`;
+}
+function clientNotesView(c){
+  const ym = ui.noteM || ymOf(todayK());
+  let h = `<div class="cv-head"><div><h2>Notes</h2><div class="ph-sub">التأخيرات والمشاكل واللي اتعمل، بالتاريخ والوقت</div></div></div>`;
+  if (NOTES === null) { loadNotes(); return h + `<div class="card empty">بيحمّل…</div>`; }
+  const all = NOTES.filter(n => n.client_id === c.id), list = all.filter(n => nDayK(n.at).slice(0,7) === ym), f = ui.noteF || "";
+  const shown = f ? list.filter(n => n.kind === f) : list;
+  const cnt = k => list.filter(n => n.kind === k).length;
+  const issues = list.filter(n => NISSUE(n.kind)), openN = all.filter(n => NISSUE(n.kind) && !n.resolved_at);
+  h += `<div class="row" style="margin:0 0 12px"><div class="monthnav"><button class="btn sm" onclick="ui.noteM=ymAdd('${ym}',1);render()" aria-label="الشهر اللي بعده">›</button><div class="m">${monthLabel(ym)}</div><button class="btn sm" onclick="ui.noteM=ymAdd('${ym}',-1);render()" aria-label="الشهر اللي قبله">‹</button></div>${ym !== ymOf(todayK()) ? `<button class="btn xs ghost" onclick="ui.noteM=null;render()">الشهر ده</button>` : ""}<span class="spacer"></span><button class="btn sm" onclick="copyNotes('${c.id}','${ym}')">⧉ انسخ ملخص الشهر</button></div>`;
+  if (list.length) h += `<div class="nsum">${Object.entries(NKINDS).filter(([k]) => cnt(k)).map(([k, [l, col]]) => `<button class="nfilt ${col}${f === k ? " on" : ""}" onclick="ui.noteF=ui.noteF==='${k}'?'':'${k}';render()"><b class="num">${cnt(k)}</b> ${l}</button>`).join("")}${f ? `<button class="btn xs ghost" onclick="ui.noteF='';render()">اعرض الكل</button>` : ""}</div>`;
+  if (issues.length) { const dur = issues.filter(n => n.resolved_at).reduce((a, n) => a + (new Date(n.resolved_at) - new Date(n.at)), 0); h += `<div class="tiny muted" style="margin:-4px 0 10px">${issues.length} مشكلة/تأخير الشهر ده${dur ? ` · اللي اتحلّ منهم أخد ${nDur(0, dur)} في المجموع` : ""}${openN.length ? ` · <b class="lv-amb">${openN.length} لسه مفتوحة</b>` : ""}</div>`; }
+  h += `<div class="cv-notes"><div class="cp-card">${noteForm(c.id)}</div><div>${noteFeed(shown, false, `مفيش نوتس في ${monthLabel(ym)}.`)}</div></div>`;
+  return h;
+}
+async function resolveNote(id){ try { await q(sb.from("client_notes").update({ resolved_at: new Date().toISOString() }).eq("id", id), "noteres"); toast("تمام ✓ اتسجّل إنها اتحلّت"); await loadNotes(true); } catch(e){ toast("ماتسجلش"); } }
+function editNote(id){
+  const n = NOTES.find(x => x.id === id); if (!n) return; const loc = iso => iso ? new Date(new Date(iso) - new Date(iso).getTimezoneOffset() * 6e4).toISOString().slice(0,16) : "";
+  openModal(`<h2>تعديل النوت</h2>
+    <label class="f">النوع</label><select class="inp" id="neK">${Object.entries(NKINDS).map(([k, [l]]) => `<option value="${k}" ${n.kind === k ? "selected" : ""}>${l}</option>`).join("")}</select>
+    <label class="f">الملاحظة</label><textarea class="inp" id="neB" dir="auto" rows="3">${esc(n.body)}</textarea>
+    <div class="two"><div><label class="f">حصلت إمتى</label><input class="inp" type="datetime-local" id="neAt" value="${loc(n.at)}"></div><div><label class="f">اتحلّت إمتى <span class="tiny muted">(فاضية = لسه)</span></label><input class="inp" type="datetime-local" id="neR" value="${loc(n.resolved_at)}"></div></div>
+    <div class="actions"><button class="btn ghost danger" onclick="delNote('${id}')">🗑 امسح</button><span class="spacer"></span><button class="btn" onclick="closeModal()">إلغاء</button><button class="btn primary" onclick="saveNoteEdit('${id}')">حفظ</button></div>`);
+}
+async function saveNoteEdit(id){ const b = $("#neB").value.trim(); if (!b) return toast("الملاحظة فاضية");
+  try { await q(sb.from("client_notes").update({ kind: $("#neK").value, body: b, at: $("#neAt").value ? new Date($("#neAt").value).toISOString() : undefined, resolved_at: $("#neR").value ? new Date($("#neR").value).toISOString() : null }).eq("id", id), "noteupd"); closeModal(); toast("اتحفظ ✓"); await loadNotes(true); } catch(e){ toast("ماتحفظش: " + (e.message || e)); } }
+async function delNote(id){ if (!confirm2("تمسح النوت دي؟")) return; try { await q(sb.from("client_notes").delete().eq("id", id), "notedel"); closeModal(); toast("اتمسحت"); await loadNotes(true); } catch(e){ toast("ماتمسحتش"); } }
+function confirm2(t){ return window.confirm(t); }
+function copyNotes(cid, ym){
+  const c = clientById(cid), list = (NOTES || []).filter(n => n.client_id === cid && nDayK(n.at).slice(0,7) === ym).slice().reverse();
+  if (!list.length) return toast("مفيش نوتس في الشهر ده");
+  const lines = list.map(n => { const k = nDayK(n.at); return `• ${+k.slice(8)}/${+k.slice(5,7)} ${nTime(n.at)} — [${NKINDS[n.kind][0]}] ${n.body}${NISSUE(n.kind) ? (n.resolved_at ? ` (اتحلّت بعد ${nDur(n.at, n.resolved_at)})` : " (لسه مفتوحة)") : ""}`; });
+  const txt = `ملاحظات ${c.name} — ${monthLabel(ym)}\n` + lines.join("\n");
+  navigator.clipboard.writeText(txt).then(() => toast("اتنسخ ✓"), () => toast("مقدرتش أنسخ"));
+}
+/* Today page: notes on the side */
+(function(){ const _vt = viewToday; viewToday = function(){ const h = _vt.apply(this, arguments); return `<div class="today-wrap"><div class="tw-main">${h}</div><aside class="tw-side">${notesSide()}</aside></div>`; }; })();
+
+async function setClientStatus(cid, st){ const c = clientById(cid); try { await q(sb.from("clients").update({ status: st }).eq("id", cid), "cstatus"); c.status = st; toast(st === "paused" ? `${c.name} بقى متوقف` : `${c.name} رجع شغال ✓`); render(); } catch(e){ toast("ماتغيّرتش: " + (e.message || e)); render(); } }
+
+/* ===== Media plan → branded PDF (print) with a campaign tree per platform ===== */
+const ZMARK = (sz, dark) => `<svg width="${sz}" height="${sz}" viewBox="0 0 48 48"><rect fill="${dark ? "#eef1ec" : "#111a1f"}" x="0" y="28" width="12" height="20" rx="2"/><rect fill="${dark ? "#3fc1a9" : "#0b5d57"}" x="18" y="16" width="12" height="32" rx="2"/><rect fill="#c8f04a" x="36" y="0" width="12" height="12" rx="2"/><rect fill="${dark ? "#3fc1a9" : "#0b5d57"}" x="36" y="15" width="12" height="33" rx="2"/></svg>`;
+const ZLOCK = dark => `<div class="lock">${ZMARK(30, dark)}<div><b>زياد إبراهيم</b><span>Performance Media Buyer</span></div></div>`;
+const FUN_ORDER = { "Top of funnel":0, "Middle of funnel":1, "Bottom of funnel":2 };
+async function exportPlanPdf(cid, ym){
+  const c = clientById(cid), k = planKey(cid, ym); if (!(k in PLAN)) await loadPlan(cid, ym);
+  const P0 = PLAN[k], items = P0.items.slice(), budgets = P0.meta.budgets || {}, cu = cur(c);
+  if (!items.length && !Object.keys(budgets).length) return toast("الخطة فاضية، ضيف حملات الأول");
+  const win = window.open("", "_blank"); if (!win) return toast("المتصفح منع الصفحة، اسمح بالـ Pop-ups للسيستم");
+  const E = x => esc(x == null ? "" : String(x)), N = v => (+v || 0).toLocaleString("en-US", { maximumFractionDigits:0 });
+  const M = v => `<span class="num">${N(v)}</span> <span class="cu">${E(cu === "SAR" ? "ر.س" : cu === "EGP" ? "ج.م" : cu)}</span>`;
+  const platsL = [...new Set([...plats(c).map(p => p.name), ...items.map(i => i.platform)])].filter(p => items.some(i => i.platform === p) || +budgets[p] > 0);
+  const budOf = p => +budgets[p] > 0 ? +budgets[p] : 0, dayOf = p => items.filter(i => i.platform === p).reduce((a, i) => a + dailyOf(i), 0);
+  const MB = i => +i.budget ? `${M(i.budget)} <span class="bt">يومي</span>` : "", totD = platsL.reduce((a, p) => a + dayOf(p), 0);
+  const tot = platsL.reduce((a, p) => a + budOf(p), 0), pct = p => tot ? Math.round(budOf(p) / tot * 100) : 0;
+  const byP = p => items.filter(i => i.platform === p).sort((a, b) => (FUN_ORDER[a.funnel] ?? 3) - (FUN_ORDER[b.funnel] ?? 3) || (a.sort || 0) - (b.sort || 0));
+  const logo = c.logo_url ? `<img class="clogo" src="${E(c.logo_url)}">` : `<div class="clogo ph">${E((c.name || "?").slice(0,1))}</div>`;
+  const pcol = p => { const v = PCOLOR(p); return v.startsWith("var") ? "#111a1f" : v; };
+  const pb = p => `<span class="pb" style="background:${pcol(p)}">${E((BADGE[String(p).toLowerCase().replace(/\s+/g,"")] || [0, String(p).charAt(0)])[1])}</span>`;
+  const title = i => i.name || [i.objective, i.funnel ? (FUNNEL_AR[i.funnel] || i.funnel).split(" · ")[0] : ""].filter(Boolean).join(" · ") || "حملة";
+  const fun = f => f ? `<span class="fun f${FUN_ORDER[f] ?? 3}">${E(FUNNEL_AR[f] || f)}</span>` : "";
+  const per = monthLabel(ym); let pg = 0; const foot = () => `<div class="foot">${ZLOCK(false)}<span>${E(c.name)} · ${E(per)} · <span class="num">${++pg}</span></span></div>`;
+  const head = (n, sec, t) => `<div class="hd"><div><div class="eb">${String(n).padStart(2,"0")} / ${sec}</div><h1>${t}</h1></div>${logo}</div>`;
+  // cover
+  let html = `<section class="pg dark"><div class="cv">${logo}<div class="eb">MEDIA PLAN</div><h1 class="big">خطة الميديا</h1><div class="sub">${E(c.name)} · ${E(per)}</div><div class="sub2">${E(c.type === "store" ? "متجر إلكتروني" : "ليدز وحجوزات")} · ${platsL.map(E).join(" · ")}</div></div><div class="cvf">${ZLOCK(true)}<span>إعداد: زياد إبراهيم — Performance Media Buyer</span></div></section>`;
+  // summary
+  html += `<section class="pg">${head(1, "Summary", "ملخص الخطة")}<div class="tiles"><div class="tile hl"><span>ميزانية الشهر</span><b>${M(tot)}</b></div><div class="tile"><span>الصرف اليومي (مجموع الحملات)</span><b>${M(totD)}</b></div><div class="tile"><span>المنصات · الحملات</span><b class="num">${platsL.length} · ${items.length}</b></div><div class="tile"><span>شغالة / مخططة</span><b class="num">${items.filter(i => i.status === "live").length} / ${items.filter(i => i.status === "planned").length}</b></div></div>
+    <div class="card"><div class="ct">توزيع الميزانية على المنصات</div><div class="split">${platsL.map(p => `<i style="width:${pct(p)}%;background:${pcol(p)}"></i>`).join("")}</div>
+      <table class="tb"><tr><th>المنصة</th><th>الشهر</th><th>اليوم</th><th>النسبة</th><th>الحملات</th><th>الفانل</th></tr>${platsL.map(p => `<tr><td>${pb(p)} ${E(p)}</td><td>${budOf(p) ? M(budOf(p)) : "—"}</td><td>${dayOf(p) ? M(dayOf(p)) : "—"}</td><td class="num">${pct(p)}%</td><td class="num">${byP(p).length}</td><td>${[...new Set(byP(p).map(i => i.funnel).filter(Boolean))].map(fun).join(" ")}</td></tr>`).join("")}</table></div>${foot()}</section>`;
+  // tree
+  html += `<section class="pg">${head(2, "Structure", "خريطة الحملات")}<div class="tree"><div class="root">${logo}<div><b>${E(c.name)}</b><span><bdi>${M(tot)} شهري</bdi> · <bdi>${M(totD)} يومي</bdi></span></div></div><div class="br" style="--n:${platsL.length}">${platsL.map(p => `<div class="col"><div class="pn" style="border-color:${pcol(p)}">${pb(p)}<div><b>${E(p)}</b><span><bdi>${budOf(p) ? M(budOf(p)) : "—"} شهري</bdi>${tot ? ` · <bdi class="num">${pct(p)}%</bdi>` : ""}</span><span><bdi>${dayOf(p) ? M(dayOf(p)) : "—"} يومي</bdi></span></div></div><div class="kids">${byP(p).map(i => `<div class="cn"><b dir="auto">${E(title(i))}</b><div class="meta">${fun(i.funnel)}${i.objective ? `<span dir="auto">${E(i.objective)}</span>` : ""}</div>${i.ad_format ? `<div class="sm" dir="auto">${E(i.ad_format)}</div>` : ""}${+i.budget ? `<div class="sm">${MB(i)}</div>` : ""}</div>`).join("") || `<div class="cn empty">مفيش حملات</div>`}</div></div>`).join("")}</div></div>${foot()}</section>`;
+  // detail per platform
+  let n = 3;
+  for (const p of platsL) {
+    const list = byP(p); if (!list.length) continue;
+    html += `<section class="pg">${head(n++, E(p), `${pb(p)} ${E(p)} <span class="hb"><bdi>${budOf(p) ? M(budOf(p)) : "—"} شهري</bdi> · <bdi>${dayOf(p) ? M(dayOf(p)) : "—"} يومي</bdi></span>`)}<div class="grid">${list.map(i => {
+      const row = (l, v, ltr) => v ? `<div class="fr"><span>${l}</span><div ${ltr ? 'dir="ltr" class="ltr"' : 'dir="auto"'}>${E(v)}</div></div>` : "";
+      return `<div class="card camp"><div class="ch"><b dir="auto">${E(title(i))}</b>${+i.budget ? `<span class="cb">${MB(i)}</span>` : ""}</div><div class="meta">${fun(i.funnel)}${i.goal ? `<span>الهدف: ${E(i.goal)}</span>` : ""}${i.objective ? `<span>${E(i.objective)}</span>` : ""}${i.ad_format ? `<span>${E(i.ad_format)}</span>` : ""}</div>
+        ${row("الأوديانس", i.audience)}${row("الستراكشر", i.structure)}${planLinks(i).filter(l => l.url).map((l, x, a) => row(l.label || (a.length > 1 ? `لاندنج ${x + 1}` : "اللاندنج"), l.url, true)).join("")}${(i.extra || []).map(x => row(E(x.label || "—"), x.value)).join("")}${row("ملاحظات", i.notes)}</div>`;
+    }).join("")}</div>${foot()}</section>`;
+  }
+  if (P0.meta.notes || P0.meta.ideas) html += `<section class="pg">${head(n++, "Notes", "ملاحظات وأفكار")}<div class="two">${P0.meta.notes ? `<div class="card"><div class="ct">ملاحظات الخطة</div><div class="pre" dir="auto">${E(P0.meta.notes)}</div></div>` : ""}${P0.meta.ideas ? `<div class="card"><div class="ct">أفكار</div><div class="pre" dir="auto">${E(P0.meta.ideas)}</div></div>` : ""}</div>${foot()}</section>`;
+  const css = `@page{size:A4 landscape;margin:0}*{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+body{margin:0;background:#888;font-family:Tajawal,sans-serif;color:#111a1f}.num,.eb,.cu{font-family:'IBM Plex Mono',monospace}
+.pg{width:297mm;height:210mm;background:#f5f4ef;margin:0 auto 10px;padding:14mm 16mm 22mm;position:relative;overflow:hidden;page-break-after:always;display:flex;flex-direction:column}
+.pg.dark{background:#0e1418;color:#eef1ec;justify-content:space-between}
+@media print{body{background:none}.pg{margin:0}}
+.lock{display:flex;align-items:center;gap:8px}.lock b{display:block;font-size:14px}.lock span{font-size:10px;color:#535e67;letter-spacing:.04em}.dark .lock span{color:#9aa6a0}
+.cv{margin-top:18mm}.cv .clogo{width:30mm;height:30mm;margin-bottom:10mm}.cv .eb{color:#3fc1a9;font-size:14px;letter-spacing:.2em}.big{font-size:64px;margin:4px 0 8px;line-height:1.1}.sub{font-size:26px;font-weight:700}.sub2{font-size:16px;color:#9aa6a0;margin-top:6px}
+.cvf{display:flex;flex-direction:row-reverse;justify-content:space-between;align-items:center;font-size:13px;color:#9aa6a0}
+.hd{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8mm}.hd .eb{color:#0b5d57;font-size:12px;letter-spacing:.12em}.hd h1{font-size:32px;margin:2px 0 0;display:flex;align-items:center;gap:10px}.hb{font-size:18px;color:#535e67;font-weight:500;margin-inline-start:8px}
+.clogo{width:18mm;height:18mm;border-radius:10px;object-fit:contain;background:#fff;border:1px solid #d6d4cb;padding:4px}.clogo.ph{display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:800;color:#0b5d57}
+.foot{position:absolute;bottom:8mm;left:16mm;right:16mm;display:flex;justify-content:space-between;align-items:center;font-size:12px;color:#535e67;flex-direction:row-reverse}
+.bt{font-size:.85em;font-weight:500}.tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:10px}.tile{background:#fff;border:1px solid #d6d4cb;border-radius:12px;padding:14px 16px}.tile span{font-size:13px;color:#535e67;display:block}.tile b{font-size:30px;display:block;margin-top:4px}.tile.hl b{background:#c8f04a;display:inline-block;padding:0 8px;border-radius:6px;white-space:nowrap}
+.card{background:#fff;border:1px solid #d6d4cb;border-radius:12px;padding:14px 16px}.ct{font-weight:700;margin-bottom:10px}
+.split{display:flex;height:14px;border-radius:99px;overflow:hidden;margin-bottom:12px;background:#eee}
+.tb{width:100%;border-collapse:collapse;font-size:14px}.tb th{text-align:right;color:#535e67;font-weight:500;font-size:12px;border-bottom:1px solid #d6d4cb;padding:6px}.tb td{padding:8px 6px;border-bottom:1px solid #eeede7}
+.pb{display:inline-flex;width:22px;height:22px;border-radius:6px;align-items:center;justify-content:center;color:#fff;font-size:12px;font-weight:800;font-family:'IBM Plex Mono',monospace;vertical-align:middle}
+.fun{font-size:11px;padding:2px 8px;border-radius:99px;white-space:nowrap}.fun.f0{background:#dcebe7;color:#0b5d57}.fun.f1{background:#fff1cc;color:#8a6100}.fun.f2{background:#fbe0dd;color:#a5281b}.fun.f3{background:#eee;color:#535e67}
+.tree{flex:1;display:flex;flex-direction:column;align-items:center}
+.root{display:flex;align-items:center;gap:10px;background:#0e1418;color:#eef1ec;border-radius:12px;padding:10px 18px}.root .clogo{width:12mm;height:12mm}.root b{display:block;font-size:18px}.root span{font-size:13px;color:#9aa6a0}
+.br{display:grid;grid-template-columns:repeat(var(--n),1fr);gap:10px;width:100%;margin-top:22px;position:relative}
+.br::before{content:"";position:absolute;top:-12px;left:calc(50% / var(--n));right:calc(50% / var(--n));border-top:2px solid #0b5d57}
+.root{position:relative}.root::after{content:"";position:absolute;bottom:-12px;left:50%;height:12px;border-left:2px solid #0b5d57}
+.col{display:flex;flex-direction:column;align-items:stretch;position:relative}.col::before{content:"";position:absolute;top:-12px;left:50%;height:12px;border-left:2px solid #0b5d57}
+.pn{display:flex;align-items:center;gap:8px;background:#fff;border:2px solid;border-radius:10px;padding:8px 10px}.pn b{display:block;font-size:15px}.pn>div>span{display:block;font-size:11.5px;color:#535e67}
+.kids{position:relative;margin-top:10px;padding-inline-start:14px;display:flex;flex-direction:column;gap:7px}.kids::before{content:"";position:absolute;top:-10px;bottom:16px;inset-inline-start:4px;border-inline-start:2px solid #b9c8c4}
+.cn{position:relative;background:#fff;border:1px solid #d6d4cb;border-radius:9px;padding:7px 9px;font-size:12.5px}.cn::before{content:"";position:absolute;top:14px;inset-inline-start:-10px;width:10px;border-top:2px solid #b9c8c4}.cn b{display:block;font-size:13px;margin-bottom:3px}.cn .meta{display:flex;flex-wrap:wrap;gap:4px;align-items:center;color:#535e67;font-size:11px}.cn .sm{color:#535e67;font-size:11px;margin-top:2px}.cn.empty{color:#999}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-content:start}.camp{page-break-inside:avoid}
+.ch{display:flex;justify-content:space-between;align-items:center;gap:8px}.ch b{font-size:16px}.cb{background:#c8f04a;border-radius:6px;padding:1px 8px;font-size:13px;font-weight:700}
+.camp .meta{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 4px;font-size:11.5px;color:#535e67}.camp .meta span:not(.fun){background:#f5f4ef;border-radius:99px;padding:2px 8px}
+.fr{display:grid;grid-template-columns:22mm 1fr;gap:8px;padding:5px 0;border-top:1px dashed #e3e1d8;font-size:12.5px}.fr>span{color:#535e67;font-size:11.5px}.fr>div{white-space:pre-wrap;word-break:break-word;text-align:right}.fr .ltr{font-family:'IBM Plex Mono',monospace;font-size:11px;color:#0b5d57;text-align:left}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:10px}.pre{white-space:pre-wrap;font-size:14px;line-height:1.7}
+.bar{position:fixed;top:10px;left:10px;z-index:9;display:flex;gap:6px}.bar button{font:inherit;padding:8px 14px;border-radius:8px;border:0;background:#0b5d57;color:#fff;cursor:pointer}@media print{.bar{display:none}}`;
+  win.document.write(`<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>Media plan — ${E(c.name)} — ${E(per)}</title><link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet"><style>${css}</style></head><body><div class="bar"><button onclick="print()">⬇ حفظ PDF</button></div>${html}<script>(document.fonts?document.fonts.ready:Promise.resolve()).then(()=>setTimeout(()=>print(),400))<\/script></body></html>`);
+  win.document.close();
+}
+
+/* budgets: every campaign budget is monthly or daily; platform budgets are stored monthly */
+const dim = ym => new Date(+ym.slice(0,4), +ym.slice(5,7), 0).getDate();
+const dailyOf = i => +i.budget || 0;
+function budTxt(i, ym, cu){ return +i.budget ? `${money("", i.budget, cu, 0)} يومي` : ""; }
+function _bdSync(src, ym){ const d = dim(ym), m = $("#bdM"), dd = $("#bdD"); if (src === "m") dd.value = m.value === "" ? "" : Math.round(+m.value / d); else m.value = dd.value === "" ? "" : Math.round(+dd.value * d); }
+function piBudHint(ym){ const v = +$("#piBud").value, t = (document.querySelector('input[name="piBT"]:checked') || {}).value, d = dim(ym), h = $("#piBudH"); if (!h) return;
+  h.textContent = !v ? "" : t === "daily" ? `يعني حوالي ${fmt(v * d)} في الشهر (${d} يوم)` : `يعني حوالي ${fmt(v / d)} في اليوم (${d} يوم)`; }
+
+
+/* ================= Visa vault (admin only, encrypted in the browser with Zyad's passphrase) ================= */
+let VAULT, VKEY = null, VLOCKT = null, CARDS = {}, VSHOW = {};
+const b64 = u8 => btoa(String.fromCharCode(...new Uint8Array(u8))), ub64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+async function vDerive(pass, salt){ const base = await crypto.subtle.importKey("raw", new TextEncoder().encode(pass), "PBKDF2", false, ["deriveKey"]);
+  return crypto.subtle.deriveKey({ name:"PBKDF2", salt: ub64(salt), iterations: 250000, hash:"SHA-256" }, base, { name:"AES-GCM", length:256 }, false, ["encrypt","decrypt"]); }
+async function vEnc(key, obj){ const iv = crypto.getRandomValues(new Uint8Array(12)); const ct = await crypto.subtle.encrypt({ name:"AES-GCM", iv }, key, new TextEncoder().encode(JSON.stringify(obj))); return { iv: b64(iv), ct: b64(ct) }; }
+async function vDec(key, e){ const pt = await crypto.subtle.decrypt({ name:"AES-GCM", iv: ub64(e.iv) }, key, ub64(e.ct)); return JSON.parse(new TextDecoder().decode(pt)); }
+async function loadVault(){ try { const r = await q(sb.from("app_settings").select("*").eq("k", "card_vault"), "vault"); VAULT = r[0] ? r[0].v : null; } catch(e){ VAULT = null; toast("مقدرتش أفتح الخزنة: " + (e.message || e)); } render(); }
+async function loadCards(cid, force){ if (CARDS[cid] && !force) return; try { const rows = await q(sb.from("client_cards").select("*").eq("client_id", cid).order("created_at"), "cards"); CARDS[cid] = rows.map(r => ({ ...r, dec: null })); if (VKEY) await decCards(cid); } catch(e){ CARDS[cid] = []; toast("مقدرتش أجيب الكروت: " + (e.message || e)); } render(); }
+async function decCards(cid){ for (const r of CARDS[cid] || []) { try { r.dec = await vDec(VKEY, r.enc); } catch(e){ r.dec = { err:true }; } } }
+function vTouch(){ clearTimeout(VLOCKT); VLOCKT = setTimeout(() => vLock(true), 15 * 60 * 1000); }
+function vLock(auto){ VKEY = null; VSHOW = {}; Object.values(CARDS).forEach(l => l.forEach(r => r.dec = null)); clearTimeout(VLOCKT); render(); if (auto) toast("الفيزا اتقفلت لوحدها بعد 15 دقيقة 🔒"); }
+function visaView(c){
+  let h = `<div class="cv-head"><div><h2>Visa</h2><div class="ph-sub">كروت العميل · ليك انت بس، الفريق مش بيشوفها</div></div>${VKEY ? `<div class="row" style="gap:6px"><button class="btn sm ghost" onclick="vLock()">🔒 اقفل</button><button class="btn sm primary" onclick="openCard('${c.id}')">+ فيزا</button></div>` : ""}</div>`;
+  if (VAULT === undefined) { loadVault(); return h + `<div class="card empty">بيحمّل…</div>`; }
+  if (!VAULT) return h + `<div class="vbox"><h3>اعمل كلمة سر للفيزا</h3><p class="small muted">بيانات الكروت بتتشفّر بكلمة السر دي قبل ما تتحفظ، فحتى لو حد وصل للسيرفر مش هيقدر يقراها. خليها غير باسورد السيستم واحفظها عندك، <b>لو نسيتها الكروت المتسجلة مش هترجع</b> وهتحتاج تدخلها تاني.</p>
+    <label class="f">كلمة السر (8 حروف على الأقل)</label><input class="inp" type="password" id="vp1" autocomplete="new-password">
+    <label class="f">اكتبها تاني</label><input class="inp" type="password" id="vp2" autocomplete="new-password" onkeydown="if(event.key==='Enter')vSetup()">
+    <button class="btn primary" style="margin-top:12px" onclick="vSetup()">احفظ كلمة السر</button></div>`;
+  if (!VKEY) return h + `<div class="vbox"><h3>🔒 الفيزا مقفولة</h3><p class="small muted">اكتب كلمة سر الفيزا علشان تشوف الكروت. بتتقفل لوحدها بعد 15 دقيقة أو لما تقفل الصفحة.</p>
+    <input class="inp" type="password" id="vpU" autocomplete="current-password" placeholder="كلمة سر الفيزا" onkeydown="if(event.key==='Enter')vUnlock('${c.id}')"><div class="row" style="margin-top:10px;gap:8px"><button class="btn primary" onclick="vUnlock('${c.id}')">افتح</button><span class="spacer"></span><a href="#" class="tiny muted" onclick="vForgot();return false">نسيت كلمة السر؟</a></div>
+    ${CARDS[c.id] && CARDS[c.id].length ? `<div class="tiny muted" style="margin-top:12px">${CARDS[c.id].length} ${CARDS[c.id].length === 1 ? "كارت" : "كروت"} متسجلة: ${CARDS[c.id].map(r => `${esc(r.label || "فيزا")} •••• ${esc(r.last4 || "")}`).join(" · ")}</div>` : ""}</div>`;
+  if (!CARDS[c.id]) { loadCards(c.id); return h + `<div class="card empty">بيحمّل…</div>`; }
+  vTouch();
+  const list = CARDS[c.id];
+  if (!list.length) return h + `<div class="mp-empty"><h3>مفيش كروت لسه</h3><p class="small muted">ضيف فيزا العميل: الاسم على الكارت، والرقم، وتاريخ الانتهاء، والـ CVV.</p><button class="btn primary" onclick="openCard('${c.id}')">+ أضف فيزا</button></div>`;
+  return h + `<div class="vgrid">${list.map(r => visaCard(c, r)).join("")}</div><div class="tiny muted" style="margin-top:10px">🔒 كل البيانات متشفّرة بكلمة سر الفيزا. <a href="#" onclick="vChangePass('${c.id}');return false">غيّر كلمة السر</a></div>`;
+}
+function visaCard(c, r){
+  const d = r.dec || {}, sh = VSHOW[r.id], num = String(d.number || "").replace(/\D/g, "");
+  if (d.err) return `<div class="vcard"><b>${esc(r.label || "فيزا")}</b><div class="small">مقدرتش أفك الكارت ده بكلمة السر دي.</div></div>`;
+  const grp = n => n.replace(/(.{4})/g, "$1 ").trim(), masked = "•••• •••• •••• " + (r.last4 || num.slice(-4));
+  const cp = (v, l) => `<button class="vcp" title="انسخ ${l}" onclick="event.stopPropagation();vCopy('${btoa(unescape(encodeURIComponent(v || "")))}','${l}')">⧉</button>`;
+  return `<div class="vwrap"><div class="vcard">
+      <div class="vrow"><span class="vlab" dir="auto">${esc(r.label || "فيزا")}</span><span class="vbrand">${/^4/.test(num) ? "VISA" : /^(5[1-5]|2[2-7])/.test(num) ? "Mastercard" : /^3[47]/.test(num) ? "AMEX" : "CARD"}</span></div>
+      <div class="vnum" dir="ltr">${sh ? grp(num) : masked} ${cp(num, "الرقم")}</div>
+      <div class="vrow2" dir="ltr"><div><span>CARD HOLDER</span><b>${esc(d.name || "—")} ${d.name ? cp(d.name, "الاسم") : ""}</b></div><div><span>EXPIRES</span><b>${esc(d.exp || "—")} ${d.exp ? cp(d.exp, "التاريخ") : ""}</b></div><div><span>CVV</span><b>${sh ? esc(d.cvv || "—") : "•••"} ${d.cvv ? cp(d.cvv, "الـ CVV") : ""}</b></div></div>
+    </div>
+    ${d.note ? `<div class="small muted" dir="auto" style="margin:6px 2px 0">${esc(d.note)}</div>` : ""}
+    <div class="row" style="gap:6px;margin-top:8px"><button class="btn xs" onclick="VSHOW['${r.id}']=!VSHOW['${r.id}'];render()">${sh ? "🙈 اخفي" : "👁 اظهر"}</button><button class="btn xs ghost" onclick="openCard('${c.id}','${r.id}')">✏️ تعديل</button><span class="spacer"></span><button class="btn xs ghost" onclick="delCard('${c.id}','${r.id}')">🗑</button></div></div>`;
+}
+function vCopy(b, l){ const v = decodeURIComponent(escape(atob(b))); navigator.clipboard.writeText(v).then(() => { toast(`اتنسخ ${l} ✓`); }, () => toast("مقدرتش أنسخ")); vTouch(); }
+async function vSetup(){
+  const a = $("#vp1").value, b = $("#vp2").value; if (a.length < 8) return toast("كلمة السر لازم 8 حروف على الأقل"); if (a !== b) return toast("الكلمتين مش زي بعض");
+  const salt = b64(crypto.getRandomValues(new Uint8Array(16))), key = await vDerive(a, salt), check = await vEnc(key, { ok:"zyad-vault" });
+  try { await q(sb.from("app_settings").upsert({ k:"card_vault", v:{ salt, check }, updated_at: new Date().toISOString() }), "vset"); VAULT = { salt, check }; VKEY = key; toast("اتعملت ✓ الفيزا مفتوحة دلوقتي"); render(); } catch(e){ toast("ماتحفظتش: " + (e.message || e)); }
+}
+async function vUnlock(cid){
+  const p = $("#vpU").value; if (!p) return; try { const key = await vDerive(p, VAULT.salt); await vDec(key, VAULT.check); VKEY = key; for (const k in CARDS) await decCards(k); vTouch(); render(); }
+  catch(e){ toast("كلمة السر غلط"); $("#vpU").value = ""; $("#vpU").focus(); }
+}
+function vForgot(){ openModal(`<h2>نسيت كلمة سر الفيزا؟</h2><p class="small">مفيش طريقة ترجّعها، لأن الكروت متشفّرة بيها ومحدش غيرك يعرفها. تقدر تعمل كلمة سر جديدة، بس <b>كل الكروت المتسجلة عند كل العملاء هتتمسح</b> وهتحتاج تدخلها تاني.</p><div class="actions"><span class="spacer"></span><button class="btn" onclick="closeModal()">لا، هفتكرها</button><button class="btn danger" onclick="vReset()">امسح الكروت واعمل كلمة جديدة</button></div>`); }
+async function vReset(){ try { await q(sb.from("client_cards").delete().not("id", "is", null), "vrc"); await q(sb.from("app_settings").delete().eq("k", "card_vault"), "vrv"); VAULT = null; VKEY = null; CARDS = {}; closeModal(); toast("اتمسحت، اعمل كلمة سر جديدة"); render(); } catch(e){ toast("ماتمسحتش: " + (e.message || e)); } }
+function vChangePass(cid){ openModal(`<h2>غيّر كلمة سر الفيزا</h2><label class="f">كلمة السر الجديدة</label><input class="inp" type="password" id="vn1" autocomplete="new-password"><label class="f">اكتبها تاني</label><input class="inp" type="password" id="vn2" autocomplete="new-password"><div class="actions"><span class="spacer"></span><button class="btn" onclick="closeModal()">إلغاء</button><button class="btn primary" onclick="vDoChange()">غيّر</button></div>`); }
+async function vDoChange(){
+  const a = $("#vn1").value, b = $("#vn2").value; if (a.length < 8) return toast("8 حروف على الأقل"); if (a !== b) return toast("الكلمتين مش زي بعض");
+  try { const all = await q(sb.from("client_cards").select("*"), "vall"); const plain = []; for (const r of all) plain.push([r, await vDec(VKEY, r.enc)]);
+    const salt = b64(crypto.getRandomValues(new Uint8Array(16))), key = await vDerive(a, salt);
+    for (const [r, d] of plain) await q(sb.from("client_cards").update({ enc: await vEnc(key, d), updated_at: new Date().toISOString() }).eq("id", r.id), "vre");
+    await q(sb.from("app_settings").upsert({ k:"card_vault", v:{ salt, check: await vEnc(key, { ok:"zyad-vault" }) }, updated_at: new Date().toISOString() }), "vset2");
+    VAULT = { salt }; VKEY = key; await loadVault(); CARDS = {}; closeModal(); toast("اتغيّرت ✓"); render();
+  } catch(e){ toast("ماتغيّرتش: " + (e.message || e)); }
+}
+function openCard(cid, id){
+  const r = id ? CARDS[cid].find(x => x.id === id) : null, d = (r && r.dec) || {};
+  openModal(`<h2>${id ? "تعديل الفيزا" : "فيزا جديدة"} · ${esc(clientById(cid).name)}</h2>
+    <label class="f">اسمها عندك <span class="tiny muted">(اختياري)</span></label><input class="inp" id="vcL" dir="auto" value="${esc((r && r.label) || "")}" placeholder="مثلاً: فيزا سناب · الراجحي">
+    <label class="f">الاسم على الكارت</label><input class="inp" id="vcN" dir="ltr" value="${esc(d.name || "")}" placeholder="MOHAMMED A ALI" autocomplete="off" style="text-transform:uppercase">
+    <label class="f">رقم الكارت</label><input class="inp" id="vcR" dir="ltr" inputmode="numeric" value="${esc(String(d.number || "").replace(/(\d{4})(?=\d)/g, "$1 "))}" placeholder="0000 0000 0000 0000" autocomplete="off" oninput="this.value=this.value.replace(/\\D/g,'').slice(0,19).replace(/(\\d{4})(?=\\d)/g,'$1 ')">
+    <div class="two"><div><label class="f">تاريخ الانتهاء</label><input class="inp" id="vcE" dir="ltr" inputmode="numeric" value="${esc(d.exp || "")}" placeholder="MM/YY" autocomplete="off" oninput="let v=this.value.replace(/\\D/g,'').slice(0,4);this.value=v.length>2?v.slice(0,2)+'/'+v.slice(2):v"></div>
+      <div><label class="f">CVV</label><input class="inp" id="vcC" dir="ltr" inputmode="numeric" type="password" value="${esc(d.cvv || "")}" placeholder="•••" autocomplete="off" oninput="this.value=this.value.replace(/\\D/g,'').slice(0,4)"></div></div>
+    <label class="f">ملاحظة <span class="tiny muted">(اختياري)</span></label><input class="inp" id="vcT" dir="auto" value="${esc(d.note || "")}" placeholder="مثلاً: عليها أكونت سناب وتيك توك">
+    <p class="tiny muted" style="margin:8px 0 0">🔒 بيتشفّر بكلمة سر الفيزا قبل ما يتحفظ.</p>
+    <div class="actions"><span class="spacer"></span><button class="btn" onclick="closeModal()">إلغاء</button><button class="btn primary" onclick="saveCard('${cid}','${id || ""}')">حفظ</button></div>`);
+}
+async function saveCard(cid, id){
+  if (!VKEY) { closeModal(); return toast("الفيزا اتقفلت، افتحها تاني"); }
+  const num = $("#vcR").value.replace(/\D/g, ""), exp = $("#vcE").value.trim(), cvv = $("#vcC").value.trim();
+  if (num.length < 12) return toast("رقم الكارت ناقص");
+  if (exp && !/^(0[1-9]|1[0-2])\/\d{2}$/.test(exp)) return toast("التاريخ لازم يبقى MM/YY");
+  const d = { name: $("#vcN").value.trim().toUpperCase(), number: num, exp, cvv, note: $("#vcT").value.trim() };
+  const row = { client_id: cid, label: $("#vcL").value.trim() || null, last4: num.slice(-4), enc: await vEnc(VKEY, d), updated_at: new Date().toISOString() };
+  try { if (id) await q(sb.from("client_cards").update(row).eq("id", id), "cupd"); else await q(sb.from("client_cards").insert(row), "cins"); closeModal(); toast("اتحفظت ✓"); await loadCards(cid, true); } catch(e){ toast("ماتحفظتش: " + (e.message || e)); }
+}
+function delCard(cid, id){ openModal(`<h2>تمسح الفيزا دي؟</h2><div class="actions"><span class="spacer"></span><button class="btn" onclick="closeModal()">لا</button><button class="btn danger" onclick="doDelCard('${cid}','${id}')">امسح</button></div>`); }
+async function doDelCard(cid, id){ try { await q(sb.from("client_cards").delete().eq("id", id), "cdel"); closeModal(); toast("اتمسحت"); await loadCards(cid, true); } catch(e){ toast("ماتمسحتش"); } }
+
+/* overview strip for team members who can see the whole client (e.g. CMO following with Zyad) */
+function clientOverview(c, ym, rows, prev){
+  const a = agg(rows), p = agg(prev || []), cu = cur(c), store = c.type === "store";
+  const box = (l, v, d) => `<div><span class="tiny muted">${l}</span><b class="num">${v}</b>${d || ""}</div>`;
+  const cells = store
+    ? [box("المبيعات", a.sl ? money("", a.sl, cu, 0) : "—", deltaHtml(a.sl, p.sl, false)), box("الصرف", money("", a.s, cu, 0), deltaHtml(a.s, p.s, true)), box("ROAS", a.sl && a.s ? `<span class="hl">${fmt2(a.roas)}</span>` : "—", deltaHtml(a.roas, p.roas, false)), box("الأوردرات", fmt(a.o || a.po || 0))]
+    : (() => { const ad = agg(adRows(rows)), pd = agg(adRows(prev || [])); return [box("الصرف", money("", ad.s, cu, 0), deltaHtml(ad.s, pd.s, true)), box("التحويلات", fmt(ad.conv), deltaHtml(ad.conv, pd.conv, false)), box("تكلفة التحويل", ad.cpl != null ? money("", ad.cpl, cu, 2) : "—", deltaHtml(ad.cpl, pd.cpl, true))]; })();
+  return `<div class="ovw"><div class="ovw-h"><b>العميل كله · ${monthLabel(ym)}</b><a href="#" class="tiny" onclick="ui.cv=ui.cv||{};ui.cv['${c.id}']='total';render();window.scrollTo(0,0);return false">التفاصيل في Total ←</a></div><div class="ovw-g" style="grid-template-columns:repeat(${cells.length},1fr)">${cells.join("")}</div></div>`;
+}
