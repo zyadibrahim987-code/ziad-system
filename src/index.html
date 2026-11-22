@@ -812,6 +812,24 @@ img.av.avimg{object-fit:cover;padding:0;background:var(--grey-chip)}
 /* Offers ideas */
 .of-st{border:0;cursor:pointer;font:inherit;font-size:12px;padding:2px 6px;appearance:auto;max-width:140px}
 .of-code{font-family:var(--font-mono);background:var(--signal);color:var(--on-signal);padding:0 6px;border-radius:var(--radius-sm);letter-spacing:.5px}
+
+/* library */
+.lib-add{display:grid;grid-template-columns:1.1fr 1.6fr auto;gap:8px}
+.lib-add.c{grid-template-columns:1.1fr 1fr .8fr auto}
+.lib-chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:14px}
+.lib-chips button{border:1px solid var(--line);background:var(--card);border-radius:999px;padding:4px 12px;cursor:pointer;font-size:13px;color:var(--ink)}
+.lib-chips button span{color:var(--muted);font-family:var(--font-mono);font-size:11.5px;margin-inline-start:3px}
+.lib-chips button.on{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.lib-chips button.on span{color:var(--on-accent);opacity:.8}
+.lib-list{padding:4px 16px}
+.lib-row{display:flex;align-items:center;gap:12px;padding:10px 0;border-top:1px solid var(--line)}
+.lib-row:first-child{border-top:0}
+.lib-main{flex:1;min-width:0}
+.lib-main b{font-weight:600}
+.lib-open{flex:none;text-decoration:none;font-size:13px;font-weight:600;border:1px solid var(--accent);color:var(--accent);border-radius:var(--radius);padding:4px 10px}
+.lib-open:hover{background:var(--accent);color:var(--on-accent)}
+.lib-src{font-family:var(--font-mono)}
+@media (max-width:700px){.lib-add,.lib-add.c{grid-template-columns:1fr}}
 </style>
 </head>
 <body>

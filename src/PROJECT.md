@@ -39,6 +39,7 @@ RLS helpers live in the `private` schema: is_admin, is_member_of, sees_numbers, 
 - Media plan: per month; platform monthly total typed manually; campaign budget = **daily** spend (they are not linked); pacing bar; branded PDF export with a campaign tree.
 - Campaigns: Search builder (settings, ad groups, keywords with match types, RSA 15/4 with counters and pins, extensions, tracking checklist, testing/optimization, QA, Google Ads Editor CSV export) and PMax (asset groups, themes, signals, QA, Editor export).
 - Side notes on Today + per-client Notes (timestamped; issues can be marked resolved; "copy month summary"); the report skill reads `client_notes`.
+- Library (sidebar, 23 Nov 2026): table `library_items` (kind `sheet` = admin only: url + note "ده إيه"; kind `creative` = team can view and add/edit own: url + name + niche). Niche filter chips + search. Code at the end of `core.js` (`viewLibrary`, `LIB`), CSS `.lib-*`.
 - Finance: per client billing (SAR/EGP/USD), schedules, paid/late, monthly summary, FX rates.
 - Every plan form has "+ خانة جديدة" (custom named fields); Zyad asked for this everywhere.
 

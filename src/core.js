@@ -109,6 +109,7 @@ const ICONS = {
   today:'<path d="M4 6h16M4 12h10M4 18h7"/><circle cx="18" cy="17" r="3"/>',
   clients:'<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M8 14h3"/>',
   review:'<path d="M5 12l4 4L19 6"/>',
+  library:'<path d="M4 4h4v16H4zM10 4h4v16h-4z"/><path d="M16.5 4.5l3.8 1-3.9 14.6-3.8-1z"/>',
   finance:'<rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18M16 15h2"/>',
   settings:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>'
 };
@@ -124,7 +125,7 @@ function render(){
   if (ui.tab === "team") { ui.tab = "settings"; ui.stab = "team"; }
   if (!isAdmin() && (ui.tab === "review" || ui.tab === "finance")) ui.tab = "today";
   const pending = isAdmin() ? reviewCount() : 0;
-  const tabs = isAdmin() ? [["today","Today"],["clients","Clients"],["review","Review"],["finance","Finance"],["settings","Settings"]] : [["today","My Tasks"],["clients","Clients"],["settings","Settings"]];
+  const tabs = isAdmin() ? [["today","Today"],["clients","Clients"],["library","Library"],["review","Review"],["finance","Finance"],["settings","Settings"]] : [["today","My Tasks"],["clients","Clients"],["library","Library"],["settings","Settings"]];
   const cur = ui.tab === "client" ? "clients" : ui.tab;
   const act = clients.filter(c => c.status !== "paused").sort((a,b) => (a.is_test - b.is_test) || a.name.localeCompare(b.name, "ar"));
   $("#tabs").innerHTML = tabs.map(([k,l]) => `<button data-tab="${k}" class="${cur === k ? "active" : ""}">${ico(k === "today" ? "today" : k)}<span>${l}</span>${k === "review" && pending ? `<span class="nb">${pending}</span>` : ""}</button>` +
@@ -135,6 +136,7 @@ function render(){
   else if (ui.tab === "clients") v.innerHTML = viewClients();
   else if (ui.tab === "review") v.innerHTML = viewReview();
   else if (ui.tab === "settings") v.innerHTML = viewSettings();
+  else if (ui.tab === "library") v.innerHTML = viewLibrary();
   else if (ui.tab === "finance" && isAdmin()) v.innerHTML = viewFinance();
   else v.innerHTML = viewToday();
 }
@@ -3379,3 +3381,66 @@ async function ofToDesign(cid, id){
     await loadStrat(cid, true); toast("اتعملت فكرة تصميم ✓ عدّل فيها في Design ideas");
   } catch(e){ toast("ماتعملتش: " + (e.message || e)); }
 }
+
+
+/* ================= Library (Sheets + Creative library) =================
+   table library_items: kind 'sheet' (admin only) | 'creative' (team can view + add own). */
+let LIB = null, LIBload = null;
+function loadLib(force){
+  if (LIBload && !force) return LIBload;
+  LIBload = (async () => { try { LIB = await q(sb.from("library_items").select("*").order("created_at", { ascending:false }).limit(3000), "lib"); } catch(e){ LIB = []; toast("مقدرتش أجيب المكتبة: " + (e.message || e)); } render(); })();
+  return LIBload;
+}
+const libCanEdit = it => isAdmin() || (it.kind === "creative" && it.created_by === me.id);
+function libSrc(u){
+  const h = (String(u).match(/^https?:\/\/([^\/?#]+)/i) || [])[1] || ""; const d = h.replace(/^www\./, "").toLowerCase();
+  const map = [["docs.google.com/spreadsheets","Google Sheets"],["tiktok","TikTok"],["instagram","Instagram"],["facebook.com/ads/library","Meta Ad Library"],["facebook","Facebook"],["fb.watch","Facebook"],["snapchat","Snapchat"],["youtu","YouTube"],["drive.google","Drive"],["docs.google","Google Docs"],["pinterest","Pinterest"],["behance","Behance"],["x.com","X"],["twitter","X"],["canva","Canva"],["figma","Figma"],["dropbox","Dropbox"]];
+  const full = String(u).toLowerCase(); for (const [k, l] of map) if (full.includes(k)) return l; return d || "لينك";
+}
+function viewLibrary(){
+  if (!LIB) { loadLib(); return pageHead("Library", "") + `<div class="card empty">بيحمّل…</div>`; }
+  if (!isAdmin()) ui.libTab = "creative"; else if (!ui.libTab) ui.libTab = "sheet";
+  const k = ui.libTab, qs = (ui.libQ || "").trim().toLowerCase();
+  const all = LIB.filter(x => x.kind === k);
+  const niches = [...new Set(LIB.filter(x => x.kind === "creative" && x.niche).map(x => x.niche.trim()))].sort((a,b) => a.localeCompare(b, "ar"));
+  if (ui.libNiche && !niches.includes(ui.libNiche)) ui.libNiche = "";
+  const list = all.filter(x => (k !== "creative" || !ui.libNiche || (x.niche||"").trim() === ui.libNiche) && (!qs || [x.url, x.name, x.note, x.niche].join(" ").toLowerCase().includes(qs)));
+  const tabs = isAdmin() ? `<div class="stabs"><button class="${k === "sheet" ? "on" : ""}" onclick="ui.libTab='sheet';ui.libQ='';render()">Sheets <span class="tiny muted">${LIB.filter(x => x.kind === "sheet").length}</span></button><button class="${k === "creative" ? "on" : ""}" onclick="ui.libTab='creative';ui.libQ='';render()">Creative library <span class="tiny muted">${LIB.filter(x => x.kind === "creative").length}</span></button></div>` : "";
+  const add = k === "sheet"
+    ? `<div class="lib-add"><input class="inp" id="lbU" placeholder="لينك الشيت" dir="ltr"><input class="inp" id="lbN" placeholder="ده إيه؟ (مثلاً: ستراكشر Search لعميل X)" dir="auto" onkeydown="if(event.key==='Enter')libAdd()"><button class="btn primary" onclick="libAdd()">+ ضيف</button></div>`
+    : `<div class="lib-add c"><input class="inp" id="lbU" placeholder="لينك الكرييتف" dir="ltr"><input class="inp" id="lbN" placeholder="الاسم" dir="auto"><input class="inp" id="lbH" placeholder="النيتش (مثلاً: عطور)" dir="auto" list="lbNiches" value="${esc(ui.libNiche || "")}" onkeydown="if(event.key==='Enter')libAdd()"><datalist id="lbNiches">${niches.map(n => `<option value="${esc(n)}">`).join("")}</datalist><button class="btn primary" onclick="libAdd()">+ ضيف</button></div>`;
+  const chips = k === "creative" && niches.length ? `<div class="lib-chips"><button class="${!ui.libNiche ? "on" : ""}" onclick="ui.libNiche='';render()">الكل <span>${all.length}</span></button>${niches.map(n => `<button class="${ui.libNiche === n ? "on" : ""}" onclick="ui.libNiche='${esc(jsq(n))}';render()">${esc(n)} <span>${all.filter(x => (x.niche||"").trim() === n).length}</span></button>`).join("")}</div>` : "";
+  const row = it => `<div class="lib-row"><a class="lib-open" href="${esc(normUrl(it.url))}" target="_blank" rel="noopener">فتح ↗</a>
+      <div class="lib-main">${k === "creative" ? `<b>${esc(it.name || "بدون اسم")}</b>${it.niche ? ` <span class="chip">${esc(it.niche)}</span>` : ""}` : `<b>${esc(it.note || "بدون وصف")}</b>`}
+        <div class="tiny muted"><span class="lib-src">${esc(libSrc(normUrl(it.url)))}</span> · ${fmtShort(keyOf(new Date(it.created_at)))}</div></div>
+      <button class="btn xs ghost" onclick="libCopy('${it.id}')" title="انسخ اللينك">نسخ</button>${libCanEdit(it) ? `<button class="btn xs ghost" onclick="libEdit('${it.id}')">تعديل</button>` : ""}</div>`;
+  const empty = all.length ? `<div class="empty small">مفيش نتايج.</div>` : `<div class="empty small">${k === "sheet" ? "لسه مفيش شيتات. حط اللينك واكتب قدامه ده إيه." : "لسه مفيش كرييتفز. حط اللينك والاسم والنيتش."}</div>`;
+  return pageHead("Library", k === "sheet" ? "كل شيتاتك في مكان واحد. بتظهرلك إنت بس." : "مكتبة كرييتفز للإلهام، متقسمة بالنيتش" + (isAdmin() ? ". الفريق بيشوفها ويقدر يضيف." : "."))
+    + tabs + `<div class="card">${add}</div>` + chips
+    + `<div class="row" style="margin:14px 0 8px"><input class="search" placeholder="دوّر…" value="${esc(ui.libQ || "")}" oninput="ui.libQ=this.value;libRedraw()" id="lbQ"><span class="tiny muted">${list.length} من ${all.length}</span></div>`
+    + `<div class="card lib-list">${list.map(row).join("") || empty}</div>`;
+}
+function libRedraw(){ const pos = $("#lbQ") ? $("#lbQ").selectionStart : null; render(); const i = $("#lbQ"); if (i) { i.focus(); if (pos != null) i.setSelectionRange(pos, pos); } }
+async function libAdd(){
+  const k = ui.libTab, url = ($("#lbU").value || "").trim(), n = ($("#lbN").value || "").trim(), h = $("#lbH") ? $("#lbH").value.trim() : "";
+  if (!url) return toast("حط اللينك"); if (k === "sheet" && !n) return toast("اكتب الشيت ده إيه"); if (k === "creative" && !n) return toast("اكتب اسم الكرييتف"); if (k === "creative" && !h) return toast("اختار أو اكتب النيتش");
+  const row = k === "sheet" ? { kind:k, url, note:n } : { kind:k, url, name:n, niche:h, created_by: me.id };
+  try { await q(sb.from("library_items").insert(row), "libadd"); toast("اتضاف ✓"); await loadLib(true); } catch(e){ toast("ماتضافش: " + (e.message || e)); }
+}
+function libCopy(id){ const it = LIB.find(x => x.id === id); if (!it) return; try { navigator.clipboard.writeText(normUrl(it.url)); toast("اتنسخ ✓"); } catch(e){ toast("مقدرتش أنسخ"); } }
+function libEdit(id){
+  const it = LIB.find(x => x.id === id); if (!it) return; const cr = it.kind === "creative";
+  const niches = [...new Set(LIB.filter(x => x.kind === "creative" && x.niche).map(x => x.niche.trim()))];
+  openModal(`<h2>${cr ? "تعديل الكرييتف" : "تعديل الشيت"}</h2>
+    <label class="f">اللينك</label><input class="inp" id="leU" dir="ltr" value="${esc(it.url)}">
+    ${cr ? `<label class="f">الاسم</label><input class="inp" id="leN" dir="auto" value="${esc(it.name || "")}">
+      <label class="f">النيتش</label><input class="inp" id="leH" dir="auto" list="leNiches" value="${esc(it.niche || "")}"><datalist id="leNiches">${niches.map(n => `<option value="${esc(n)}">`).join("")}</datalist>`
+      : `<label class="f">ده إيه؟</label><input class="inp" id="leN" dir="auto" value="${esc(it.note || "")}">`}
+    <div class="actions"><button class="btn ghost danger" onclick="libDel('${id}')">🗑 امسح</button><span class="spacer"></span><button class="btn" onclick="closeModal()">إلغاء</button><button class="btn primary" onclick="libSave('${id}')">حفظ</button></div>`);
+}
+async function libSave(id){
+  const it = LIB.find(x => x.id === id), url = $("#leU").value.trim(), n = $("#leN").value.trim(); if (!url || !n) return toast("في خانة فاضية");
+  const up = it.kind === "creative" ? { url, name:n, niche: $("#leH").value.trim() || null } : { url, note:n };
+  try { await q(sb.from("library_items").update(up).eq("id", id), "libupd"); closeModal(); toast("اتحفظ ✓"); await loadLib(true); } catch(e){ toast("ماتحفظش: " + (e.message || e)); }
+}
+async function libDel(id){ if (!confirm2("تمسح اللينك ده من المكتبة؟")) return; try { await q(sb.from("library_items").delete().eq("id", id), "libdel"); closeModal(); toast("اتمسح"); await loadLib(true); } catch(e){ toast("ماتمسحش"); } }
