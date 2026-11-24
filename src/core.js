@@ -1065,7 +1065,7 @@ function clientViews(c, see, mp){
   O.push({ k:"deliv", l:"Deliveries", sub: isAdmin() ? "التسليمات اللي اتعملت" : "تسليماتك على العميل" });
   O.push({ k:"tasks", l:"Tasks", sub: isAdmin() ? "كل مهام العميل" : "تاسكاتك على العميل" });
   const P = [];
-  if (canPlan(c.id)) { P.push({ k:"strat", l:"Strategy", sub:"المنافسين · السوشيال · Avatar · الكلمات" }); P.push({ k:"mplan", l:"Media plan", sub:"الميزانية والحملات" }); P.push({ k:"camps", l:"Campaigns", sub:"Search · PMax" }); }
+  if (canPlan(c.id)) { P.push({ k:"strat", l:"Strategy", sub:"المنافسين · السوشيال · الأكونتات · Avatar · الكلمات" }); P.push({ k:"mplan", l:"Media plan", sub:"الميزانية والحملات" }); P.push({ k:"camps", l:"Campaigns", sub:"Search · PMax" }); }
   return { R, O, P };
 }
 function sliceMetric(c, sl, ym){
@@ -2430,12 +2430,12 @@ const ST_AV = [
 ];
 
 function strategyView(c){
-  const edit = canEditPlan(c.id), tab = ["avatar","social","kw","design","motion","shoot","offer"].includes(ui.stTab) ? ui.stTab : "store";
+  const edit = canEditPlan(c.id), tab = ["avatar","social","ads","kw","design","motion","shoot","offer"].includes(ui.stTab) ? ui.stTab : "store";
   const tb = (k, l) => `<button class="${tab === k ? "on" : ""}" onclick="ui.stTab='${k}';saveUi();render()">${l}</button>`;
-  let h = `<div class="cv-head"><div><h2>Strategy</h2><div class="ph-sub">تحليل المتجر والمنافسين والسوشيال والعميل المستهدف وبحث الكلمات وأفكار التصميم والموشن والتصوير والعروض${edit ? "" : " · للعرض بس"}</div></div></div>
-    <div class="st-tabs">${tb("store", "المتجر والمنافسين")}${tb("social", "Social Media")}${tb("avatar", "Customer Avatar")}${tb("kw", "KW research")}${tb("design", "Design ideas")}${tb("motion", "Motion ideas")}${tb("shoot", "Shooting ideas")}${tb("offer", "Offers ideas")}</div>`;
+  let h = `<div class="cv-head"><div><h2>Strategy</h2><div class="ph-sub">تحليل المتجر والمنافسين والسوشيال وأكونتات الإعلانات والعميل المستهدف وبحث الكلمات وأفكار التصميم والموشن والتصوير والعروض${edit ? "" : " · للعرض بس"}</div></div></div>
+    <div class="st-tabs">${tb("store", "المتجر والمنافسين")}${tb("social", "Social Media")}${tb("ads", "Advertising Account Analysis")}${tb("avatar", "Customer Avatar")}${tb("kw", "KW research")}${tb("design", "Design ideas")}${tb("motion", "Motion ideas")}${tb("shoot", "Shooting ideas")}${tb("offer", "Offers ideas")}</div>`;
   if (!(c.id in STR)) { loadStrat(c.id); return h + `<div class="card empty">بيحمّل…</div>`; }
-  return h + (tab === "offer" ? ofView(c, edit) : tab === "shoot" ? shView(c, edit) : tab === "motion" ? moView(c, edit) : tab === "design" ? diView(c, edit) : tab === "kw" ? kwView(c, edit) : tab === "avatar" ? stAvatars(c, edit) : tab === "social" ? stSocial(c, edit) : stStores(c, edit));
+  return h + (tab === "ads" ? adView(c, edit) : tab === "offer" ? ofView(c, edit) : tab === "shoot" ? shView(c, edit) : tab === "motion" ? moView(c, edit) : tab === "design" ? diView(c, edit) : tab === "kw" ? kwView(c, edit) : tab === "avatar" ? stAvatars(c, edit) : tab === "social" ? stSocial(c, edit) : stStores(c, edit));
 }
 /* ---- stores ---- */
 const stSorted = cid => { const L = strOf(cid, "store"); return [...L.filter(x => x.data.self), ...L.filter(x => !x.data.self)]; };
@@ -3380,6 +3380,134 @@ async function ofToDesign(cid, id){
     await q(sb.from("strategy_items").update({ data: { ...d, di: r[0].id }, updated_at: new Date().toISOString() }).eq("id", id), "ofdil");
     await loadStrat(cid, true); toast("اتعملت فكرة تصميم ✓ عدّل فيها في Design ideas");
   } catch(e){ toast("ماتعملتش: " + (e.message || e)); }
+}
+
+/* ---- Advertising Account Analysis (24 Nov 2026): one strategy_items row per ad account the client ran before, kind "ad_account",
+   data = { plat, acc, url, by, from, to, state, cur, goal, spend, res, rev, roas, cpa, cpm, ctr, cvr, freq, track, track_note,
+            structure, best, worst, creative, aud, issues, rate, recs, files, note, extra[] }
+   roas / cpa are worked out from spend + revenue / results when left empty. Summary note kind "ads_note". Ad spend only, no billing. ---- */
+const AD_PLATS = [ ["Meta","FB/IG"], ["Google",""], ["TikTok",""], ["Snapchat",""], ["X",""], ["LinkedIn",""] ];
+const AD_STATE = { on:["شغّال","ok"], off:["واقف","grey"], limit:["عليه قيود","amb"], ban:["مقفول / Banned","bad"] };
+const AD_TRACK = { good:["سليم","ok"], part:["فيه مشاكل","amb"], none:["مفيش تتبع","bad"] };
+const AD_GOALS = ["مشتريات","ليدز","رسايل واتساب","مكالمات","زيارات للموقع","تحميلات تطبيق","وصول / مشاهدات"];
+const AD_BY = ["العميل نفسه","وكالة","فريلانسر","إحنا"];
+const AD_CURS = ["SAR","EGP","USD","AED","KWD","QAR","BHD","IQD"];
+const AD_N = [ { k:"spend", l:"الصرف", m:1 }, { k:"res", l:"النتايج" }, { k:"rev", l:"المبيعات (Revenue)", m:1 }, { k:"roas", l:"ROAS", x:1 }, { k:"cpa", l:"تكلفة النتيجة (CPA)", m:1 },
+  { k:"cpm", l:"CPM", m:1 }, { k:"ctr", l:"CTR", p:1 }, { k:"cvr", l:"Conversion rate", p:1 }, { k:"freq", l:"Frequency" } ];
+const AD_T = [ { k:"structure", l:"الهيكلة", ph:"مثلاً: 3 كامبينات Sales CBO + كامبين Retargeting، أهداف الكامبينات، ABO ولا CBO" },
+  { k:"best", l:"إيه اللي اشتغل", ph:"أحسن كامبينات / أوديانس / كرييتفز وأرقامهم" }, { k:"worst", l:"إيه اللي ماشتغلش", ph:"الهدر، الكامبينات الخسرانة، الأخطاء" },
+  { k:"creative", l:"الكرييتف", ph:"نوع الكرييتف اللي كان شغال: UGC، صور منتج، موشن… وإيه اللي جاب نتيجة" }, { k:"aud", l:"الأوديانس", ph:"Broad، Interests، Lookalike، Retargeting… وإيه اللي كسب" },
+  { k:"issues", l:"مشاكل الحساب", ph:"رفض إعلانات، تقييد، مشاكل دفع، باند" }, { k:"recs", l:"التوصيات", ph:"هنكمل على إيه، وهنغيّر إيه، وأول حاجة هنعملها" } ];
+const adAccs = cid => strOf(cid, "ad_account");
+const adNum = v => { const t = String(v == null ? "" : v).replace(/[٠-٩]/g, d => "٠١٢٣٤٥٦٧٨٩".indexOf(d)).replace(/[,،\s%x×]/gi, ""); const n = parseFloat(t); return isFinite(n) ? n : null; };
+const adCu = (d, c) => { const k = d.cur || (c && c.currency) || "SAR"; return CUR_AR[k] || k; };
+/* the number to show: typed value, or worked out (ROAS = rev / spend, CPA = spend / results) */
+function adVal(d, k){
+  const v = adNum(d[k]); if (v != null) return { v, auto:false };
+  const s = adNum(d.spend), r = adNum(d.rev), n = adNum(d.res);
+  if (k === "roas" && s && r != null) return { v: r / s, auto:true };
+  if (k === "cpa" && s != null && n) return { v: s / n, auto:true };
+  return null;
+}
+function adShow(d, f, c){
+  const o = adVal(d, f.k); if (!o) return "";
+  const n = o.v, txt = f.m ? money("", n, adCu(d, c), n % 1 ? 2 : 0) : f.x ? `<bdi dir="ltr"><b class="num">${fmt2(n)}x</b></bdi>` : f.p ? `<bdi dir="ltr"><b class="num">${+n.toFixed(2)}%</b></bdi>` : `<bdi dir="ltr"><b class="num">${n % 1 ? fmt2(n) : fmt(n)}</b></bdi>`;
+  return txt + (o.auto ? ` <span class="tiny muted" title="محسوبة من الأرقام اللي فوق">(محسوبة)</span>` : "");
+}
+const adPer = d => d.from || d.to ? `<span dir="auto">${d.from ? fmtShort(d.from) : "…"} ← ${d.to ? fmtShort(d.to) : "…"}</span>` : "";
+const adChip = (map, k) => map[k] ? `<span class="chip ${map[k][1]}">${map[k][0]}</span>` : "";
+const adPIc = p => { const k = String(p || "").toLowerCase(); const s = /meta|face|insta/.test(k) ? ["mt","M"] : /google/.test(k) ? ["gg","G"] : /tik/.test(k) ? ["tt","TT"] : /snap/.test(k) ? ["snap","SC"] : /^x$|twitter/.test(k) ? ["x","X"] : /linked/.test(k) ? ["li","in"] : ["", (p || "?").slice(0, 2)]; return `<span class="soc-ic ${s[0]}">${esc(s[1])}</span>`; };
+function adView(c, edit){
+  const L = adAccs(c.id), mode = ui.adMode === "table" ? "table" : "cards";
+  const note = strOf(c.id, "ads_note")[0], text = (note && note.data.text) || "";
+  if (!L.length) return `<div class="mp-empty"><h3>لسه ماحللتش أكونتات الإعلانات</h3><p class="small muted">ضيف كل منصة العميل اتعلن عليها قبل كده (Meta، Google، TikTok، Snapchat…): الفترة، الصرف والنتايج، الـ ROAS والـ CPA، التتبع، الهيكلة، إيه اللي اشتغل وإيه اللي ماشتغلش، والتوصيات. وبعدين قارن المنصات في جدول واحد.</p>
+    ${edit ? `<div class="row" style="justify-content:center;margin-top:10px"><button class="btn primary" onclick="openAdAcc('${c.id}')">+ أول منصة</button></div>` : ""}</div>`;
+  /* totals: spend / revenue / results per currency */
+  const T = {}; L.forEach(x => { const k = x.data.cur || c.currency || "SAR", t = T[k] = T[k] || { s:0, r:0, n:0, hs:0, hr:0 }; const s = adNum(x.data.spend), r = adNum(x.data.rev), n = adNum(x.data.res); if (s != null) { t.s += s; t.hs = 1; } if (r != null) { t.r += r; t.hr = 1; } if (n != null) t.n += n; });
+  const tot = Object.entries(T).filter(([, t]) => t.hs || t.hr).map(([k, t]) => `<div class="ad-tot"><span class="tiny muted">إجمالي الصرف${Object.keys(T).length > 1 ? ` (${esc(k)})` : ""}</span><b>${t.hs ? money("", t.s, CUR_AR[k] || k, 0) : "—"}</b>${t.hr ? `<span class="tiny">مبيعات ${money("", t.r, CUR_AR[k] || k, 0)}${t.hs && t.s ? ` · ROAS <bdi dir="ltr"><b>${fmt2(t.r / t.s)}x</b></bdi>` : ""}</span>` : t.n ? `<span class="tiny">${fmt(t.n)} نتيجة${t.s ? ` · CPA ${money("", t.s / t.n, CUR_AR[k] || k, 2)}` : ""}</span>` : ""}</div>`).join("");
+  let h = `<div class="row" style="margin:0 0 12px;gap:6px;flex-wrap:wrap"><div class="st-seg"><button class="${mode === "cards" ? "on" : ""}" onclick="ui.adMode='cards';saveUi();render()">كروت</button><button class="${mode === "table" ? "on" : ""}" onclick="ui.adMode='table';saveUi();render()">جدول مقارنة</button></div>
+    <span class="tiny muted">${L.length} ${L.length === 1 ? "منصة" : L.length < 11 ? "منصات" : "منصة"}</span><span class="spacer"></span>${edit ? `<button class="btn sm primary" onclick="openAdAcc('${c.id}')">+ منصة</button>` : ""}</div>`;
+  if (tot) h += `<div class="ad-tots">${tot}</div>`;
+  if (mode === "table") {
+    const cell = v => v || `<span class="muted">—</span>`;
+    const rows = [
+      ["الأكونت", x => x.data.acc ? `<span dir="auto">${esc(x.data.acc)}</span>` : ""], ["مين كان شغال", x => x.data.by ? `<span dir="auto">${esc(x.data.by)}</span>` : ""],
+      ["الفترة", x => adPer(x.data)], ["الحالة", x => adChip(AD_STATE, x.data.state)], ["الهدف", x => x.data.goal ? `<span dir="auto">${esc(x.data.goal)}</span>` : ""],
+      ...AD_N.map(f => [f.l, x => adShow(x.data, f, c)]), ["التتبع", x => adChip(AD_TRACK, x.data.track) + (x.data.track_note ? `<div class="tiny" dir="auto">${esc(x.data.track_note)}</div>` : "")],
+      ["التقييم", x => adChip(ST_RATE, x.data.rate)], ...AD_T.map(f => [f.l, x => x.data[f.k] ? `<span dir="auto">${esc(x.data[f.k])}</span>` : ""])
+    ];
+    const lbs = [...new Set(L.flatMap(x => (x.data.extra || []).map(e => e.label).filter(Boolean)))];
+    h += `<div class="st-tbl"><table><thead><tr><th></th>${L.map(x => `<th>${adPIc(x.data.plat)} <b dir="auto">${esc(x.data.plat || "—")}</b>${x.data.url ? ` <a href="${esc(normUrl(x.data.url))}" target="_blank" rel="noopener" class="tiny">فتح ↗</a>` : ""}</th>`).join("")}</tr></thead><tbody>
+      ${rows.filter(([, fn]) => L.some(x => fn(x))).map(([l, fn]) => `<tr><th>${l}</th>${L.map(x => `<td>${cell(fn(x))}</td>`).join("")}</tr>`).join("")}
+      ${lbs.map(lb => `<tr><th dir="auto">${esc(lb)}</th>${L.map(x => { const e = (x.data.extra || []).find(e => e.label === lb); return `<td>${e && e.value ? `<span dir="auto">${esc(e.value)}</span>` : `<span class="muted">—</span>`}</td>`; }).join("")}</tr>`).join("")}
+      </tbody></table></div>`;
+  } else {
+    h += `<div class="st-grid">${L.map(x => adCard(c, x, edit)).join("")}${edit ? `<button class="st-addc" onclick="openAdAcc('${c.id}')">+ منصة جديدة</button>` : ""}</div>`;
+  }
+  if (edit || text) h += `<div class="st-sum"><label class="f" style="margin-top:0">الخلاصة <span class="tiny muted">(أحسن منصة، فين الهدر، وهنبدأ بإيه)</span></label>
+    <textarea class="inp" dir="auto" rows="4" ${edit ? "" : "readonly"} placeholder="مثلاً: Snapchat كان أرخص CPA بس الـ ROAS ضعيف، وMeta الـ Pixel فيه مشكلة في حدث Purchase. نبدأ بإصلاح التتبع وبعدين نعيد تست الكرييتفز" onchange="saveStratNote('${c.id}',this.value,'ads_note')">${esc(text)}</textarea></div>`;
+  return h;
+}
+function adCard(c, x, edit){
+  const d = x.data, row = (l, v) => v ? `<div class="st-f"><span>${l}</span><div>${v}</div></div>` : "";
+  const tx = v => v ? `<span dir="auto" style="white-space:pre-wrap">${esc(v)}</span>` : "";
+  const nums = AD_N.map(f => [f, adShow(d, f, c)]).filter(([, v]) => v);
+  const sub = [d.acc ? `<span dir="auto">${esc(d.acc)}</span>` : "", d.by ? `<span dir="auto">${esc(d.by)}</span>` : "", adPer(d)].filter(Boolean).join(" · ");
+  return `<div class="st-card ad-card">
+    <div class="st-ch"><div style="flex:1;min-width:0">${adPIc(d.plat)} <b dir="auto">${esc(d.plat || "منصة")}</b>${d.url ? ` <a href="${esc(normUrl(d.url))}" target="_blank" rel="noopener" class="tiny">فتح الأكونت ↗</a>` : ""}${sub ? `<div class="tiny muted">${sub}</div>` : ""}</div>
+      <div class="row" style="gap:4px">${adChip(AD_STATE, d.state)}${d.rate && ST_RATE[d.rate] ? `<span class="chip ${ST_RATE[d.rate][1]}" title="تقييم الأكونت">${ST_RATE[d.rate][0]}</span>` : ""}</div></div>
+    ${d.goal ? `<div class="row" style="gap:4px"><span class="st-tag" dir="auto">🎯 ${esc(d.goal)}</span></div>` : ""}
+    ${nums.length ? `<div class="st-rates ad-nums">${nums.map(([f, v]) => `<span><i>${f.l}</i>${v}</span>`).join("")}</div>` : ""}
+    <div class="st-body">
+      ${row("التتبع", [adChip(AD_TRACK, d.track), tx(d.track_note)].filter(Boolean).join(" "))}
+      ${AD_T.map(f => row(f.l, tx(d[f.k]))).join("")}
+      ${row("ريبورت / سكرينات", d.files ? `<a href="${esc(normUrl(d.files))}" target="_blank" rel="noopener">فتح ↗</a>` : "")}
+      ${row("ملاحظات", tx(d.note))}
+      ${(d.extra || []).filter(e => e.value).map(e => row(`<span dir="auto">${esc(e.label || "خانة")}</span>`, tx(e.value))).join("")}
+    </div>
+    ${edit ? `<div class="row st-act"><button class="btn xs" onclick="openAdAcc('${c.id}','${x.id}')">✏️ تعديل</button><span class="spacer"></span><button class="btn xs ghost" onclick="delStrat('${c.id}','${x.id}')">🗑 مسح</button></div>` : ""}</div>`;
+}
+function openAdAcc(cid, id){
+  const c = clientById(cid), x = id ? adAccs(cid).find(s => s.id === id) : null, d = x ? x.data : { cur: c.currency || "SAR" };
+  const inp = (k, ph, ltr, list) => `<input class="inp" id="ad_${k}" dir="${ltr ? "ltr" : "auto"}" value="${esc(d[k] == null ? "" : d[k])}" placeholder="${ph || ""}"${list ? ` list="${list}"` : ""}>`;
+  const num = (f) => `<div><label class="f">${f.l}${f.k === "roas" || f.k === "cpa" ? ` <span class="tiny muted">(سيبها فاضية تتحسب)</span>` : ""}</label><input class="inp" id="ad_${f.k}" dir="ltr" inputmode="decimal" value="${esc(d[f.k] == null ? "" : d[f.k])}" placeholder="${f.p ? "%" : f.x ? "x" : ""}"></div>`;
+  const pick = (k, map) => `<div class="seg-pick">${Object.entries(map).map(([o, [l]]) => `<label><input type="radio" name="ad_${k}" value="${o}" ${d[k] === o ? "checked" : ""}><span>${l}</span></label>`).join("")}<label><input type="radio" name="ad_${k}" value="" ${!d[k] ? "checked" : ""}><span>مش محدد</span></label></div>`;
+  const curs = [...new Set([...(d.cur ? [d.cur] : []), ...AD_CURS])];
+  openModal(`<h2>${x ? "تعديل تحليل الأكونت" : "تحليل أكونت إعلانات"}</h2>
+    <div class="mp-form st-form">
+      <div class="st-sec">الأساسيات</div>
+      <label class="f">المنصة</label><input class="inp" id="ad_plat" dir="auto" list="adPlats" value="${esc(d.plat || "")}" placeholder="اختار أو اكتب" autofocus><datalist id="adPlats">${AD_PLATS.map(p => `<option value="${esc(p[0])}">`).join("")}</datalist>
+      <div class="two"><div><label class="f">اسم / ID الأكونت</label>${inp("acc", "مثلاً: Store Ads 2025 أو 123-456-7890")}</div><div><label class="f">لينك الأكونت</label>${inp("url", "https://…", 1)}</div></div>
+      <div class="two"><div><label class="f">مين كان شغال عليه</label>${inp("by", "اختار أو اكتب اسم الوكالة", 0, "adBy")}<datalist id="adBy">${AD_BY.map(a => `<option value="${esc(a)}">`).join("")}</datalist></div>
+        <div><label class="f">الهدف</label>${inp("goal", "اختار أو اكتب", 0, "adGoals")}<datalist id="adGoals">${AD_GOALS.map(a => `<option value="${esc(a)}">`).join("")}</datalist></div></div>
+      <div class="two"><div><label class="f">الفترة اللي حللتها: من</label><input class="inp" type="date" id="ad_from" value="${esc(d.from || "")}"></div><div><label class="f">لحد</label><input class="inp" type="date" id="ad_to" value="${esc(d.to || "")}"></div></div>
+      <label class="f">حالة الأكونت</label>${pick("state", AD_STATE)}
+      <div class="st-sec">الأرقام <span class="tiny muted" style="font-weight:400">(اكتب اللي موجود بس)</span></div>
+      <label class="f">العملة</label><select class="inp" id="ad_cur">${curs.map(k => `<option value="${k}" ${k === (d.cur || c.currency || "SAR") ? "selected" : ""}>${k}${CUR_AR[k] ? " · " + CUR_AR[k] : ""}</option>`).join("")}</select>
+      <div class="two">${num(AD_N[0])}${num(AD_N[1])}</div><div class="two">${num(AD_N[2])}${num(AD_N[3])}</div><div class="two">${num(AD_N[4])}${num(AD_N[5])}</div><div class="two">${num(AD_N[6])}${num(AD_N[7])}</div><div class="two">${num(AD_N[8])}<div></div></div>
+      <div class="st-sec">التتبع</div>
+      ${pick("track", AD_TRACK)}
+      <textarea class="inp" id="ad_track_note" dir="auto" rows="2" placeholder="مثلاً: Pixel شغال بس مفيش Conversion API، وحدث Purchase بيتسجل مرتين" style="margin-top:6px">${esc(d.track_note || "")}</textarea>
+      <div class="st-sec">التحليل</div>
+      ${AD_T.map(f => `<label class="f">${f.l}</label><textarea class="inp" id="ad_${f.k}" dir="auto" rows="2" placeholder="${esc(f.ph)}">${esc(d[f.k] || "")}</textarea>`).join("")}
+      <label class="f">تقييمك للأكونت</label>${pick("rate", ST_RATE)}
+      <label class="f">لينك ريبورت أو سكرينات</label>${inp("files", "لينك Drive أو شيت", 1)}
+      <label class="f">ملاحظات</label><textarea class="inp" id="ad_note" dir="auto" rows="2" placeholder="أي حاجة تانية">${esc(d.note || "")}</textarea>
+      <div id="adExtra" class="dyn" style="margin-top:10px">${(d.extra || []).map(extraRow).join("")}</div>
+      <button type="button" class="dyn-add" onclick="dynAdd('adExtra', extraRow({}), true)">+ خانة جديدة <span class="tiny muted">(تسمّيها زي ما تحب)</span></button>
+    </div>
+    <div class="actions"><span class="spacer"></span><button class="btn" onclick="closeModal()">إلغاء</button><button class="btn primary" onclick="saveAdAcc('${cid}','${id || ""}')">حفظ</button></div>`, true);
+}
+async function saveAdAcc(cid, id){
+  const g = k => ($("#ad_" + k) ? $("#ad_" + k).value.trim() : ""), r = k => (document.querySelector(`input[name="ad_${k}"]:checked`) || {}).value || "";
+  const d = { plat: g("plat"), acc: g("acc"), url: g("url"), by: g("by"), goal: g("goal"), from: g("from"), to: g("to"), state: r("state"), cur: g("cur"),
+    track: r("track"), track_note: g("track_note"), rate: r("rate"), files: g("files"), note: g("note"), extra: dynRead("adExtra", ["label","value"]).filter(e => e.label || e.value) };
+  for (const f of AD_N) { const v = g(f.k); if (v && adNum(v) == null) return toast(`«${f.l}» لازم يبقى رقم`); d[f.k] = v; }
+  AD_T.forEach(f => d[f.k] = g(f.k));
+  if (!d.plat) return toast("اختار المنصة");
+  if (d.from && d.to && d.to < d.from) return toast("يوم النهاية قبل يوم البداية");
+  const old = id ? ((adAccs(cid).find(s => s.id === id) || {}).data || {}) : {};
+  await stSave(cid, id, "ad_account", { ...old, ...d });
 }
 
 
