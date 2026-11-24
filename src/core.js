@@ -2432,7 +2432,7 @@ const ST_AV = [
 function strategyView(c){
   const edit = canEditPlan(c.id), tab = ["avatar","social","ads","kw","design","motion","shoot","offer"].includes(ui.stTab) ? ui.stTab : "store";
   const tb = (k, l) => `<button class="${tab === k ? "on" : ""}" onclick="ui.stTab='${k}';saveUi();render()">${l}</button>`;
-  let h = `<div class="cv-head"><div><h2>Strategy</h2><div class="ph-sub">تحليل المتجر والمنافسين والسوشيال وأكونتات الإعلانات والعميل المستهدف وبحث الكلمات وأفكار التصميم والموشن والتصوير والعروض${edit ? "" : " · للعرض بس"}</div></div></div>
+  let h = `<div class="cv-head"><div><h2>Strategy</h2><div class="ph-sub">تحليل المتجر والمنافسين والسوشيال وأكونتات الإعلانات والعميل المستهدف وبحث الكلمات وأفكار التصميم والموشن والتصوير والعروض${edit ? "" : " · للعرض بس"}</div></div><button class="btn sm" onclick="openStratExport('${c.id}')" title="كل الاستراتيجي في ملف PDF بهويتك، صفحات عرضية زي البريزنتيشن">⬇ Export PDF</button></div>
     <div class="st-tabs">${tb("store", "المتجر والمنافسين")}${tb("social", "Social Media")}${tb("ads", "Advertising Account Analysis")}${tb("avatar", "Customer Avatar")}${tb("kw", "KW research")}${tb("design", "Design ideas")}${tb("motion", "Motion ideas")}${tb("shoot", "Shooting ideas")}${tb("offer", "Offers ideas")}</div>`;
   if (!(c.id in STR)) { loadStrat(c.id); return h + `<div class="card empty">بيحمّل…</div>`; }
   return h + (tab === "ads" ? adView(c, edit) : tab === "offer" ? ofView(c, edit) : tab === "shoot" ? shView(c, edit) : tab === "motion" ? moView(c, edit) : tab === "design" ? diView(c, edit) : tab === "kw" ? kwView(c, edit) : tab === "avatar" ? stAvatars(c, edit) : tab === "social" ? stSocial(c, edit) : stStores(c, edit));
@@ -3572,3 +3572,189 @@ async function libSave(id){
   try { await q(sb.from("library_items").update(up).eq("id", id), "libupd"); closeModal(); toast("اتحفظ ✓"); await loadLib(true); } catch(e){ toast("ماتحفظش: " + (e.message || e)); }
 }
 async function libDel(id){ if (!confirm2("تمسح اللينك ده من المكتبة؟")) return; try { await q(sb.from("library_items").delete().eq("id", id), "libdel"); closeModal(); toast("اتمسح"); await loadLib(true); } catch(e){ toast("ماتمسحش"); } }
+
+/* ================= Strategy → branded PDF / presentation (25 Nov 2026) =================
+   openStratExport(cid): pick the tabs to include; exportStratPdf(cid, keys): opens a print window with
+   A4-landscape slides (same look as the Media plan PDF). Pages are chunked; any page that still overflows
+   is shrunk to fit by the script inside the print window. No task / finance data goes in. */
+const SX_SECS = [
+  ["store", "المتجر والمنافسين", "Store & Competitors", cid => strOf(cid, "store").length],
+  ["social", "Social Media", "Social Media", cid => strOf(cid, "store").filter(x => ST_SOC.some(p => stSocOf(x.data, p.k))).length],
+  ["ads", "Advertising Account Analysis", "Ad Accounts", cid => strOf(cid, "ad_account").length],
+  ["avatar", "Customer Avatar", "Customer Avatar", cid => strOf(cid, "avatar").length],
+  ["kw", "KW research", "Keyword Research", cid => strOf(cid, "kw_group").length],
+  ["design", "Design ideas", "Design Ideas", cid => strOf(cid, "design_idea").length],
+  ["motion", "Motion ideas", "Motion Ideas", cid => strOf(cid, "motion_idea").length],
+  ["shoot", "Shooting ideas", "Shooting Ideas", cid => strOf(cid, "shoot_idea").length],
+  ["offer", "Offers ideas", "Offers Ideas", cid => strOf(cid, "offer_idea").length]
+];
+async function openStratExport(cid){
+  if (!(cid in STR)) await loadStrat(cid);
+  const L = SX_SECS.map(s => [s, s[3](cid)]);
+  if (!L.some(([, n]) => n)) return toast("الاستراتيجي فاضي، ضيف حاجة الأول");
+  openModal(`<h2>Export الاستراتيجي</h2><p class="small muted" style="margin:0 0 10px">هيطلع ملف بهويتك، صفحات عرضية زي البريزنتيشن. اختار التابات اللي عايزها، وبعدين اختار «Save as PDF» من نافذة الطباعة.</p>
+    <div class="sx-list">${L.map(([s, n]) => `<label class="sx-it${n ? "" : " off"}"><input type="checkbox" name="sxSec" value="${s[0]}" ${n ? "checked" : "disabled"}><span>${s[1]}</span><span class="tiny muted">${n ? n : "فاضي"}</span></label>`).join("")}</div>
+    <div class="row" style="margin-top:14px;gap:8px"><button class="btn sm ghost" onclick="document.querySelectorAll('input[name=sxSec]:not(:disabled)').forEach(i=>i.checked=!i.checked)">عكس الاختيار</button><span class="spacer"></span><button class="btn" onclick="closeModal()">إلغاء</button><button class="btn primary" onclick="const k=[...document.querySelectorAll('input[name=sxSec]:checked')].map(i=>i.value);if(!k.length)return toast('اختار تاب واحد على الأقل');closeModal();exportStratPdf('${cid}',k)">⬇ اطلع PDF</button></div>`);
+}
+function exportStratPdf(cid, keys){
+  const c = clientById(cid), win = window.open("", "_blank"); if (!win) return toast("المتصفح منع الصفحة، اسمح بالـ Pop-ups للسيستم");
+  keys = keys || SX_SECS.filter(s => s[3](cid)).map(s => s[0]);
+  const E = x => esc(x == null ? "" : String(x)), has = v => !(v == null || v === "" || (Array.isArray(v) && !v.length));
+  const chunk = (a, n) => { const r = []; for (let i = 0; i < a.length; i += n) r.push(a.slice(i, i + n)); return r; };
+  const T = v => `<span dir="auto">${E(v)}</span>`, url = (v, s) => `<a href="${E(normUrl(v))}" dir="ltr">${E(s || String(v).replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, ""))}</a>`;
+  const ch = (map, k) => map[k] ? `<span class="chip ${map[k][1]}">${map[k][0]}</span>` : "";
+  const tags = a => (a || []).filter(Boolean).map(t => `<span class="tag">${E(t)}</span>`).join("");
+  const row = (l, v, raw) => has(v) ? `<div class="fr"><span>${l}</span><div>${raw ? v : `<span class="pre" dir="auto">${E(v)}</span>`}</div></div>` : "";
+  const extra = a => (a || []).filter(e => e && has(e.value)).map(e => row(E(e.label || "خانة"), e.value)).join("");
+  const note = k => { const n = strOf(cid, k)[0]; return (n && n.data.text) || ""; };
+  const logo = c.logo_url ? `<img class="clogo" src="${E(c.logo_url)}">` : `<div class="clogo ph">${E((c.name || "?").slice(0,1))}</div>`;
+  const dt = new Date().toLocaleDateString("ar-EG", { day:"numeric", month:"long", year:"numeric" });
+  let pg = 0, sn = 0, html = "";
+  const toc = [];
+  const page = (sec, t, body, cls) => { html += `<section class="pg${cls ? " " + cls : ""}"><div class="hd"><div><div class="eb">${String(sn).padStart(2,"0")} / ${sec}</div><h1>${t}</h1></div>${logo}</div><div class="bd">${body}</div><div class="foot">${ZLOCK(false)}<span>${E(c.name)} · Strategy · <span class="num">${++pg + 1}</span></span></div></section>`; };
+  const divider = (en, ar, sub) => { sn++; toc.push([sn, ar, en]); html += `<section class="pg dark dv"><div><div class="eb">${String(sn).padStart(2,"0")}</div><h1 class="big">${ar}</h1><div class="sub2">${en}${sub ? " · " + sub : ""}</div></div><div class="cvf">${ZLOCK(true)}<span>${E(c.name)}</span></div></section>`; pg++; };
+  const noteCard = (t, v) => v ? `<div class="card hlc"><div class="ct">${t}</div><div class="pre big2" dir="auto">${E(v)}</div></div>` : "";
+  const ideaImgs = d => { const I = (d.insp || []).filter(i => i && (i.img || i.url)); const im = I.filter(i => i.img || isImgUrl(i.url)).slice(0, 4), ln = I.filter(i => !(i.img || isImgUrl(i.url)) && i.url);
+    return (im.length ? `<div class="imgs">${im.map(i => `<img src="${E(i.img || i.url)}">`).join("")}</div>` : "") + (ln.length ? row("الإلهام", ln.map(i => url(i.url)).join("<br>"), 1) : ""); };
+  const sizes = d => tags((d.sizes || []).map(s => String(s))), plats = d => tags(d.plats);
+  const stores = stSorted(cid);
+  const body = [];
+
+  for (const k of keys) {
+    if (k === "store" && stores.length) {
+      divider("Store & Competitors", "المتجر والمنافسين", `${stores.length - (stores.some(x => x.data.self) ? 1 : 0)} منافس`);
+      const short = ST_F.filter(f => ["platform","speed","uiux","img","desc","price","cmp","best","pay","inst"].includes(f.k));
+      for (const S of chunk(stores, 5)) {
+        const F = short.filter(f => S.some(x => stVal(f, x.data)));
+        page("Store & Competitors", "مقارنة سريعة", `<table class="tb cmp"><thead><tr><th></th>${S.map(x => `<th class="${x.data.self ? "me" : ""}"><b dir="auto">${E(x.data.name || "—")}</b>${x.data.self ? ` <span class="me-b">متجرنا</span>` : ""}${x.data.url ? `<div class="u">${url(x.data.url)}</div>` : ""}</th>`).join("")}</tr></thead><tbody>${F.map(f => `<tr><th>${f.l}</th>${S.map(x => `<td class="${x.data.self ? "me" : ""}">${f.k === "cmp" && x.data.self ? "—" : f.t === "url" ? (x.data[f.k] ? url(x.data[f.k]) : "—") : stVal(f, x.data) || "—"}</td>`).join("")}</tr>`).join("")}</tbody></table>`);
+      }
+      const long = ST_F.filter(f => ["products","offers","strengths","weak"].includes(f.k));
+      for (const S of chunk(stores.filter(x => long.some(f => has(x.data[f.k])) || (x.data.extra || []).some(e => has(e.value))), 3))
+        page("Store & Competitors", "تحليل كل متجر", `<div class="g3">${S.map(x => `<div class="card${x.data.self ? " me" : ""}"><div class="ch"><b dir="auto">${E(x.data.name || "—")}</b>${x.data.self ? `<span class="me-b">متجرنا</span>` : ch(ST_CMP, x.data.cmp)}</div>${long.map(f => row(f.l, x.data[f.k])).join("")}${extra(x.data.extra)}</div>`).join("")}</div>`);
+      if (note("store_note")) page("Store & Competitors", "الخلاصة والفرص", noteCard("إيه اللي طلعنا بيه من التحليل", note("store_note")));
+    }
+    if (k === "social") {
+      const S0 = stores.filter(x => ST_SOC.some(p => stSocOf(x.data, p.k)));
+      if (!S0.length) continue;
+      divider("Social Media", "السوشيال ميديا", "المتجر والمنافسين على كل منصة");
+      for (const S of chunk(S0, 5)) {
+        const P = ST_SOC.filter(p => S.some(x => stSocOf(x.data, p.k)));
+        const cell = (x, p) => { const v = stSocOf(x.data, p.k); if (!v) return "—"; if (v.has === false) return `<span class="mu">مش موجود</span>`;
+          return `${v.fol ? `<b class="num" dir="ltr">${stFol(v)}</b> <span class="mu">متابع</span>` : ""}${ST_ENG[v.eng] ? `<div><span class="mu">التفاعل</span> ${ch(ST_ENG, v.eng)}</div>` : ""}${(v.media || []).length ? `<div>${tags(v.media)}${v.pct ? ` <span class="mu">${E(v.pct)}%</span>` : ""}</div>` : ""}${v.note ? `<div class="sm" dir="auto">${E(v.note)}</div>` : ""}${v.url ? `<div class="u">${url(v.url, "الحساب ↗")}</div>` : ""}`; };
+        const tot = x => ST_SOC.reduce((a, p) => { const v = stSocOf(x.data, p.k); return a + (v && v.has !== false ? stNum(v.fol) : 0); }, 0);
+        const ex = [...new Set(S.flatMap(x => (x.data.social_extra || []).map(e => e.label).filter(Boolean)))];
+        page("Social Media", "الحسابات والمتابعين", `<table class="tb cmp"><thead><tr><th></th>${S.map(x => `<th class="${x.data.self ? "me" : ""}"><b dir="auto">${E(x.data.name || "—")}</b>${x.data.self ? ` <span class="me-b">متجرنا</span>` : ""}</th>`).join("")}</tr></thead><tbody>${P.map(p => `<tr><th><span class="soc ${p.k}">${p.s}</span> ${p.l}</th>${S.map(x => `<td class="${x.data.self ? "me" : ""}">${cell(x, p)}</td>`).join("")}</tr>`).join("")}${ex.map(lb => `<tr><th dir="auto">${E(lb)}</th>${S.map(x => { const e = (x.data.social_extra || []).find(e => e.label === lb); return `<td class="${x.data.self ? "me" : ""}">${e && e.value ? T(e.value) : "—"}</td>`; }).join("")}</tr>`).join("")}<tr class="tot"><th>إجمالي المتابعين</th>${S.map(x => `<td class="${x.data.self ? "me" : ""}"><b class="num" dir="ltr">${stFmt(tot(x)) || "—"}</b></td>`).join("")}</tr></tbody></table>`);
+      }
+      if (note("social_note")) page("Social Media", "الخلاصة", noteCard("ملاحظات السوشيال", note("social_note")));
+    }
+    if (k === "ads") {
+      const A = strOf(cid, "ad_account"); if (!A.length) continue;
+      divider("Ad Accounts", "تحليل أكونتات الإعلانات", `${A.length} ${A.length === 1 ? "أكونت" : "أكونتات"}`);
+      const nv = (d, f) => { const o = adVal(d, f.k); if (!o) return "—"; const n = o.v; return (f.m ? `<b class="num">${(+n).toLocaleString("en-US", { maximumFractionDigits: n % 1 ? 2 : 0 })}</b> <span class="mu">${E(adCu(d, c))}</span>` : f.x ? `<b class="num" dir="ltr">${fmt2(n)}x</b>` : f.p ? `<b class="num" dir="ltr">${+n.toFixed(2)}%</b>` : `<b class="num">${n % 1 ? fmt2(n) : fmt(n)}</b>`) + (o.auto ? ` <span class="mu">(محسوبة)</span>` : ""); };
+      const head = d => `${E(d.plat || "—")}${d.acc ? `<div class="mu" dir="auto">${E(d.acc)}</div>` : ""}`;
+      for (const S of chunk(A, 5)) {
+        const N = AD_N.filter(f => S.some(x => adVal(x.data, f.k)));
+        page("Ad Accounts", "الأرقام جنب بعض", `<table class="tb cmp"><thead><tr><th></th>${S.map(x => `<th>${head(x.data)}</th>`).join("")}</tr></thead><tbody>
+          <tr><th>الحالة</th>${S.map(x => `<td>${ch(AD_STATE, x.data.state) || "—"}</td>`).join("")}</tr>
+          ${S.some(x => x.data.by) ? `<tr><th>كان شغال عليه</th>${S.map(x => `<td>${x.data.by ? T(x.data.by) : "—"}</td>`).join("")}</tr>` : ""}
+          ${S.some(x => x.data.goal) ? `<tr><th>الهدف</th>${S.map(x => `<td>${x.data.goal ? T(x.data.goal) : "—"}</td>`).join("")}</tr>` : ""}
+          ${S.some(x => x.data.from || x.data.to) ? `<tr><th>الفترة</th>${S.map(x => `<td>${adPer(x.data) || "—"}</td>`).join("")}</tr>` : ""}
+          ${N.map(f => `<tr><th>${f.l}</th>${S.map(x => `<td>${nv(x.data, f)}</td>`).join("")}</tr>`).join("")}
+          ${S.some(x => x.data.track) ? `<tr><th>التتبع</th>${S.map(x => `<td>${ch(AD_TRACK, x.data.track) || "—"}${x.data.track_note ? `<div class="sm" dir="auto">${E(x.data.track_note)}</div>` : ""}</td>`).join("")}</tr>` : ""}
+          ${S.some(x => x.data.rate) ? `<tr><th>التقييم</th>${S.map(x => `<td>${x.data.rate ? T(x.data.rate) : "—"}</td>`).join("")}</tr>` : ""}</tbody></table>`);
+      }
+      for (const x of A) { const d = x.data, R = AD_T.filter(f => has(d[f.k]));
+        if (!R.length && !(d.extra || []).some(e => has(e.value)) && !d.note && !d.files) continue;
+        const half = Math.ceil(R.length / 2);
+        page("Ad Accounts", `${adPIc(d.plat).replace(/soc-ic/, "soc")} ${E(d.plat || "أكونت")} <span class="hb">${d.acc ? E(d.acc) : ""}</span>`, `<div class="g2"><div class="card">${R.slice(0, half).map(f => row(f.l, d[f.k])).join("")}</div><div class="card">${R.slice(half).map(f => row(f.l, d[f.k])).join("")}${extra(d.extra)}${row("ملاحظات", d.note)}${d.files ? row("ريبورت / سكرينات", url(d.files), 1) : ""}</div></div>`);
+      }
+      if (note("ads_note")) page("Ad Accounts", "الخلاصة", noteCard("خلاصة تحليل الأكونتات", note("ads_note")));
+    }
+    if (k === "avatar") {
+      const A = strOf(cid, "avatar"); if (!A.length) continue;
+      divider("Customer Avatar", "العميل المستهدف", `${A.length} Avatar`);
+      for (const S of chunk(A, 2)) page("Customer Avatar", "مين العميل اللي بنكلّمه", `<div class="g2">${S.map(x => { const d = x.data;
+        return `<div class="card"><div class="ch"><span class="av">${E((d.name || "؟").trim().charAt(0))}</span><div style="flex:1"><b dir="auto">${E(d.name || "Avatar")}</b><div class="mu">${[d.gender, d.age, d.region].filter(Boolean).map(E).join(" · ")}</div></div></div>${ST_AV.map(f => has(d[f.k]) ? row(f.l, Array.isArray(d[f.k]) ? tags(d[f.k]) : d[f.k], Array.isArray(d[f.k])) : "").join("")}${extra(d.extra)}</div>`; }).join("")}</div>`);
+    }
+    if (k === "kw") {
+      const G = kwGroups(cid); if (!G.length) continue;
+      const all = G.flatMap(g => g.data.kws || []), cu = cur(c) || "SAR";
+      divider("Keyword Research", "بحث الكلمات", `${G.length} مجموعة · ${all.length} كلمة · ${stFmt(kwSum(all)) || "—"} بحث/شهر`);
+      const cols = KW_COLS.filter(f => all.some(k => has(k[f.k])));
+      const blocks = G.flatMap(g => { const K = g.data.kws || []; const parts = chunk(K.length ? K : [null], 16);
+        return parts.map((P, i) => ({ g, P, first: i === 0, n: P.filter(Boolean).length + 3 })); });
+      let cur2 = [], load = 0; const pages = [];
+      blocks.forEach(b => { if (load + b.n > 22 && cur2.length) { pages.push(cur2); cur2 = []; load = 0; } cur2.push(b); load += b.n; }); if (cur2.length) pages.push(cur2);
+      for (const P of pages) page("Keyword Research", "مجموعات الكلمات", P.map(b => { const d = b.g.data, K = d.kws || [];
+        return `<div class="kw"><div class="ch"><b dir="auto">${E(d.name || "مجموعة")}${b.first ? "" : " <span class='mu'>(تكملة)</span>"}</b><span class="mu">${K.length} كلمة${kwSum(K) ? ` · <bdi dir="ltr">${stFmt(kwSum(K))}</bdi> بحث/شهر` : ""}</span></div>${b.P.filter(Boolean).length ? `<table class="tb"><thead><tr><th>الكلمة</th>${cols.map(f => `<th>${f.l}${f.k === "low" || f.k === "high" ? ` <span class="mu">(${E(CUR_AR[cu] || cu)})</span>` : ""}</th>`).join("")}</tr></thead><tbody>${b.P.filter(Boolean).map(w => `<tr><td dir="auto"><b>${E(w.t)}</b></td>${cols.map(f => `<td>${f.k === "comp" ? (ch(KW_COMP, kwComp(w.comp)) || E(w.comp || "—")) : `<span class="num" dir="ltr">${E(w[f.k] || "—")}</span>`}</td>`).join("")}</tr>`).join("")}</tbody></table>` : ""}${b.first && d.note ? `<div class="sm" dir="auto">${E(d.note)}</div>` : ""}</div>`; }).join(""));
+      if (note("kw_note")) page("Keyword Research", "الخلاصة", noteCard("ملاحظات بحث الكلمات", note("kw_note")));
+    }
+    if (k === "design") {
+      const A = diIdeas(cid); if (!A.length) continue;
+      divider("Design Ideas", "أفكار التصميم", `${A.length} ${A.length === 1 ? "فكرة" : "أفكار"}`);
+      for (const S of chunk(A, 3)) page("Design Ideas", "أفكار التصميم", `<div class="g3">${S.map(x => { const d = x.data;
+        return `<div class="card idea"><div class="ch"><b dir="auto">${E(d.title || "فكرة")}</b></div>${d.angle ? `<div class="mu">${E(d.angle)}</div>` : ""}${d.tagline ? `<div class="tl" dir="auto">${E(d.tagline)}</div>` : ""}${row("Ad copy", d.copy)}${row("المقاسات", sizes(d), 1)}${row("المنصات", plats(d), 1)}${d.lp ? row("اللاندنج", url(d.lp, decodeURIComponent(String(d.lp)).replace(/^https?:\/\/(www\.)?/, "").slice(0, 60)), 1) : ""}${ideaImgs(d)}${row("ملاحظات", d.note)}${extra(d.extra)}</div>`; }).join("")}</div>`);
+    }
+    if (k === "motion") {
+      const A = moIdeas(cid); if (!A.length) continue;
+      divider("Motion Ideas", "أفكار الموشن والفيديو", `${A.length} ${A.length === 1 ? "فكرة" : "أفكار"}`);
+      for (const S of chunk(A, 2)) page("Motion Ideas", "أفكار الموشن", `<div class="g2">${S.map(x => { const d = x.data;
+        return `<div class="card idea"><div class="ch"><b dir="auto">${E(d.title || "فكرة")}</b>${d.dur ? `<span class="pill num">${E(d.dur)}</span>` : ""}</div>${d.type ? `<div class="mu">${E(d.type)}</div>` : ""}${row("الفكرة", d.idea)}${row("التعديلات", d.edits)}${row("النص على الشاشة", d.ost)}${row("المزيكا", d.music)}${row("Voice-over", d.vo === "yes" ? (d.vo_text || "أيوه") : d.vo === "no" ? "لأ" : "")}${row("CTA", d.cta)}${row("المقاسات", sizes(d), 1)}${row("المنصات", plats(d), 1)}${ideaImgs(d)}${row("ملاحظات", d.note)}${extra(d.extra)}</div>`; }).join("")}</div>`);
+    }
+    if (k === "shoot") {
+      const A = shIdeas(cid); if (!A.length) continue;
+      divider("Shooting Ideas", "أفكار التصوير والسكريبتات", `${A.length} ${A.length === 1 ? "فكرة" : "أفكار"}`);
+      for (const S of chunk(A, 2)) page("Shooting Ideas", "أفكار التصوير", `<div class="g2">${S.map(x => { const d = x.data, sc = (d.scenes || []).filter(s => s && (s.shot || s.say || s.sec)), tt = sc.reduce((a, s) => a + (parseFloat(s.sec) || 0), 0);
+        return `<div class="card idea"><div class="ch"><b dir="auto">${E(d.title || "فكرة")}</b>${d.dur || tt ? `<span class="pill num">${E(d.dur || tt + "s")}</span>` : ""}</div>${d.type ? `<div class="mu">${E(d.type)}</div>` : ""}${row("الفكرة", d.idea)}${row("الهوك", d.hook)}${sc.length ? `<table class="tb sc"><thead><tr><th>#</th><th>اللقطة</th><th>بيتقال إيه</th><th>ث</th></tr></thead><tbody>${sc.map((s, i) => `<tr><td class="num">${i + 1}</td><td dir="auto">${E(s.shot || "")}</td><td dir="auto">${E(s.say || "")}</td><td class="num">${E(s.sec || "")}</td></tr>`).join("")}</tbody></table>` : ""}${row("السكريبت", d.script)}${row("CTA", d.cta)}${row("المكان", d.loc)}${row("مين بيظهر", d.cast)}${row("الأدوات", d.props)}${row("المقاسات", sizes(d), 1)}${row("المنصات", plats(d), 1)}${ideaImgs(d)}${row("ملاحظات", d.note)}${extra(d.extra)}</div>`; }).join("")}</div>`);
+    }
+    if (k === "offer") {
+      const A = strOf(cid, "offer_idea").slice().sort((a, b) => String(a.data.from || "9").localeCompare(String(b.data.from || "9"))); if (!A.length) continue;
+      divider("Offers Ideas", "أفكار العروض", `${A.length} ${A.length === 1 ? "عرض" : "عروض"}`);
+      for (const S of chunk(A, 10)) page("Offers Ideas", "العروض على بعض", `<table class="tb"><thead><tr><th>العرض</th><th>النوع</th><th>القيمة</th><th>المناسبة</th><th>الفترة</th><th>الحالة</th></tr></thead><tbody>${S.map(x => { const d = x.data, s = ofSt(d.status); return `<tr><td dir="auto"><b>${E(d.title || "—")}</b></td><td dir="auto">${E(d.type || "—")}</td><td dir="auto">${E(d.value || "—")}</td><td dir="auto">${E(d.occ || "—")}</td><td>${ofDates(d) || "—"}</td><td><span class="chip ${s[2]}">${s[1]}</span></td></tr>`; }).join("")}</tbody></table>`);
+      for (const S of chunk(A.filter(x => ["products","code","cond","why","note"].some(f => has(x.data[f])) || (x.data.extra || []).some(e => has(e.value))), 3))
+        page("Offers Ideas", "تفاصيل العروض", `<div class="g3">${S.map(x => { const d = x.data;
+          return `<div class="card idea"><div class="ch"><b dir="auto">${E(d.title || "عرض")}</b>${d.value ? `<span class="pill">${E(d.value)}</span>` : ""}</div>${d.type ? `<div class="mu">${E(d.type)}${d.occ ? " · " + E(d.occ) : ""}</div>` : ""}${row("المنتجات", d.products)}${row("الكوبون", d.code)}${row("الشروط", d.cond)}${row("ليه العرض ده", d.why)}${row("المنصات", plats(d), 1)}${row("ملاحظات", d.note)}${extra(d.extra)}</div>`; }).join("")}</div>`);
+      if (note("offer_note")) page("Offers Ideas", "ملاحظات عامة", noteCard("ملاحظات العروض", note("offer_note")));
+    }
+  }
+  if (!toc.length) { win.close(); return toast("التابات اللي اخترتها فاضية"); }
+  const cover = `<section class="pg dark"><div class="cv">${logo}<div class="eb">STRATEGY</div><h1 class="big">الاستراتيجية</h1><div class="sub">${E(c.name)}</div><div class="sub2">${E(dt)}</div></div><div class="cvf">${ZLOCK(true)}<span>إعداد: زياد إبراهيم — Performance Media Buyer</span></div></section>`;
+  const tocPg = `<section class="pg"><div class="hd"><div><div class="eb">CONTENTS</div><h1>المحتوى</h1></div>${logo}</div><div class="bd"><div class="toc">${toc.map(([n, ar, en]) => `<div class="ti"><span class="num">${String(n).padStart(2,"0")}</span><b>${ar}</b><i>${en}</i></div>`).join("")}</div></div><div class="foot">${ZLOCK(false)}<span>${E(c.name)} · Strategy · <span class="num">1</span></span></div></section>`;
+  const css = `@page{size:A4 landscape;margin:0}*{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+body{margin:0;background:#888;font-family:Tajawal,sans-serif;color:#111a1f}.num,.eb{font-family:'IBM Plex Mono',monospace}
+.pg{width:297mm;height:210mm;background:#f5f4ef;margin:0 auto 10px;padding:12mm 15mm 20mm;position:relative;overflow:hidden;page-break-after:always;break-after:page;display:flex;flex-direction:column}
+.pg.dark{background:#0e1418;color:#eef1ec;justify-content:space-between;padding:14mm 16mm}
+@media print{body{background:none}.pg{margin:0}}
+.lock{display:flex;align-items:center;gap:8px}.lock b{display:block;font-size:14px}.lock span{font-size:10px;color:#535e67;letter-spacing:.04em}.dark .lock span{color:#9aa6a0}
+.cv{margin-top:16mm}.cv .clogo{width:30mm;height:30mm;margin-bottom:10mm}.eb{color:#0b5d57;font-size:12px;letter-spacing:.14em}.dark .eb{color:#3fc1a9;font-size:14px;letter-spacing:.2em}.big{font-size:64px;margin:4px 0 8px;line-height:1.15}.sub{font-size:28px;font-weight:700}.sub2{font-size:17px;color:#9aa6a0;margin-top:6px}
+.dv>div:first-child{margin-top:auto;margin-bottom:auto}.dv .eb{font-size:40px;color:#c8f04a}
+.cvf{display:flex;flex-direction:row-reverse;justify-content:space-between;align-items:center;font-size:13px;color:#9aa6a0}
+.hd{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6mm;flex:none}.hd h1{font-size:28px;margin:2px 0 0;display:flex;align-items:center;gap:10px}.hb{font-size:15px;color:#535e67;font-weight:500}
+.bd{flex:1;min-height:0;overflow:hidden;font-size:calc(13px * var(--z,1))}.bd.fit{zoom:var(--z)}
+.clogo{width:16mm;height:16mm;border-radius:10px;object-fit:contain;background:#fff;border:1px solid #d6d4cb;padding:4px}.clogo.ph{display:flex;align-items:center;justify-content:center;font-size:26px;font-weight:800;color:#0b5d57}
+.foot{position:absolute;bottom:7mm;left:15mm;right:15mm;display:flex;justify-content:space-between;align-items:center;font-size:12px;color:#535e67;flex-direction:row-reverse}
+.card{background:#fff;border:1px solid #d6d4cb;border-radius:12px;padding:12px 14px;break-inside:avoid}.card.me{border:2px solid #0b5d57}.ct{font-weight:700;margin-bottom:8px;font-size:15px}
+.hlc{border-inline-start:6px solid #c8f04a}.big2{font-size:16px;line-height:1.85}
+.ch{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:4px}.ch b{font-size:16px}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:start}.g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;align-items:start}
+.fr{display:grid;grid-template-columns:24mm 1fr;gap:8px;padding:5px 0;border-top:1px dashed #e3e1d8}.fr>span{color:#535e67;font-size:.88em}.fr>div{word-break:break-word;min-width:0}.pre{white-space:pre-wrap;line-height:1.65}
+a{color:#0b5d57;text-decoration:none;word-break:break-all}.u{font-size:.85em;font-family:'IBM Plex Mono',monospace}
+.mu{color:#535e67;font-size:.88em;font-weight:400}.sm{font-size:.88em;color:#33404a;margin-top:2px}
+.tag,.st-tag{display:inline-block;background:#f0efe8;border:1px solid #e3e1d8;border-radius:99px;padding:0 8px;margin:1px 2px;font-size:.88em}
+.pill{background:#c8f04a;border-radius:6px;padding:1px 8px;font-size:12px;font-weight:700;white-space:nowrap}.me-b{background:#0b5d57;color:#fff;border-radius:99px;padding:1px 8px;font-size:11px;font-weight:500}
+.chip{display:inline-block;border-radius:99px;padding:1px 9px;font-size:.85em;white-space:nowrap}.chip.ok{background:#dcebe7;color:#0b5d57}.chip.amb{background:#fff1cc;color:#8a6100}.chip.bad,.chip.warn{background:#fbe0dd;color:#a5281b}.chip.grey{background:#eee;color:#535e67}.chip.rp{background:#e5e3f7;color:#4b3fa0}
+.tb{width:100%;border-collapse:collapse;background:#fff;border-radius:12px;overflow:hidden;border:1px solid #d6d4cb}.tb th{text-align:right;color:#535e67;font-weight:500;font-size:.9em;border-bottom:1px solid #d6d4cb;padding:7px 8px;background:#fbfaf6;vertical-align:top}.tb td{padding:7px 8px;border-bottom:1px solid #eeede7;vertical-align:top}
+.cmp thead th{color:#111a1f;font-size:1em}.cmp tbody th{width:30mm}.cmp td.me,.cmp th.me{background:#eef6f3}.tot td,.tot th{background:#f5f4ef;font-weight:700}
+.soc{display:inline-flex;min-width:22px;height:20px;padding:0 4px;border-radius:6px;align-items:center;justify-content:center;color:#fff;font-size:10px;font-weight:800;font-family:'IBM Plex Mono',monospace;background:#111a1f;vertical-align:middle}.soc.ig{background:#c13584}.soc.tt{background:#111}.soc.snap{background:#f7d600;color:#111}.soc.yt{background:#e00}.soc.mt{background:#1877f2}.soc.gg{background:#4285f4}.soc.li{background:#0a66c2}
+.av{width:34px;height:34px;border-radius:50%;background:#0b5d57;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-weight:800;font-size:16px;flex:none}
+.kw{margin-bottom:10px}.kw .tb{font-size:.92em}
+.tl{background:#0e1418;color:#c8f04a;border-radius:8px;padding:8px 10px;font-weight:700;font-size:1.1em;margin:6px 0}
+.imgs{display:flex;gap:6px;margin:6px 0;flex-wrap:wrap}.imgs img{height:24mm;max-width:40mm;object-fit:cover;border-radius:6px;border:1px solid #e3e1d8}
+.sc{font-size:.88em;margin:6px 0}
+.toc{display:grid;grid-template-columns:1fr 1fr;gap:10px 24px;margin-top:4mm}.ti{display:flex;align-items:baseline;gap:12px;border-bottom:1px solid #d6d4cb;padding:10px 0}.ti .num{color:#0b5d57;font-size:22px;font-weight:600}.ti b{font-size:20px}.ti i{font-style:normal;color:#535e67;font-size:13px;margin-inline-start:auto;font-family:'IBM Plex Mono',monospace}
+.bar{position:fixed;top:10px;left:10px;z-index:9;display:flex;gap:6px}.bar button{font:inherit;padding:8px 14px;border-radius:8px;border:0;background:#0b5d57;color:#fff;cursor:pointer}@media print{.bar{display:none}}`;
+  const fit = `function fit(){document.querySelectorAll('.bd').forEach(b=>{let z=1;b.style.setProperty('--z',1);while(b.scrollHeight>b.clientHeight+2&&z>.6){z-=.04;b.style.setProperty('--z',z.toFixed(2));}if(b.scrollHeight>b.clientHeight+2){b.classList.add('fit');}})}`;
+  win.document.write(`<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>Strategy — ${E(c.name)}</title><link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet"><style>${css}</style></head><body><div class="bar"><button onclick="print()">⬇ حفظ PDF</button></div>${cover}${tocPg}${html}<script>${fit}
+Promise.all([document.fonts?document.fonts.ready:0,...[...document.images].map(i=>i.complete?0:new Promise(r=>{i.onload=i.onerror=r}))]).then(()=>{fit();setTimeout(()=>print(),500)})<\/script></body></html>`);
+  win.document.close();
+}
