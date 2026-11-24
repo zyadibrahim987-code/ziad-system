@@ -1358,6 +1358,7 @@ function clientViews(c, see, mp){
   }
   if (canFiles(c.id)) O.push({ k:"files", l:"Files", sub:"لينكات وملفات العميل" });
   if (isAdmin()) O.push({ k:"visa", l:"Visa", sub:"بيانات الكروت · ليك انت بس" });
+  if (isAdmin()) O.push({ k:"access", l:"Access", sub:"إيميلات وباسووردات · ليك انت بس" });
   O.push({ k:"notes", l:"Notes", sub: isAdmin() ? "التأخيرات والمشاكل بالتاريخ" : "ملاحظاتك على العميل" });
   O.push({ k:"deliv", l:"Deliveries", sub: isAdmin() ? "التسليمات اللي اتعملت" : "تسليماتك على العميل" });
   O.push({ k:"tasks", l:"Tasks", sub: isAdmin() ? "كل مهام العميل" : "تاسكاتك على العميل" });
@@ -1377,7 +1378,7 @@ function clientBody(c, ym, see, mp){
   let k = ui.cv[c.id]; if (!all.some(v => v.k === k)) k = (R[0] || O[0]).k;
   const v = all.find(x => x.k === k);
   const item = x => `<button class="${x.k === k ? "on" : ""}" onclick="ui.cv=ui.cv||{};ui.cv['${c.id}']='${x.k}';ui.selDay=null;saveUi();render()">
-      ${x.av ? avatar(x.av, 22) : `<span class="cv-ic">${x.k === "total" ? "Σ" : x.k === "files" ? "⌗" : x.k === "deliv" ? "↗" : x.k === "mplan" ? "▤" : x.k === "camps" ? "◎" : x.k === "strat" ? "◈" : x.k === "notes" ? "✎" : x.k === "visa" ? "▭" : "✓"}</span>`}
+      ${x.av ? avatar(x.av, 22) : `<span class="cv-ic">${x.k === "total" ? "Σ" : x.k === "files" ? "⌗" : x.k === "deliv" ? "↗" : x.k === "mplan" ? "▤" : x.k === "camps" ? "◎" : x.k === "strat" ? "◈" : x.k === "notes" ? "✎" : x.k === "visa" ? "▭" : x.k === "access" ? "⚿" : "✓"}</span>`}
       <span class="cv-t"><b>${esc(x.l)}</b><span>${esc(x.sub)}</span></span>
       ${R.includes(x) ? `<span class="cv-m">${sliceMetric(c, x.sl, ym)}</span>` : ""}</button>`;
   const nav = `<nav class="cnav">${R.length ? `<div class="cnav-l">Results</div>${R.map(item).join("")}` : ""}${P.length ? `<div class="cnav-l">Plan</div>${P.map(item).join("")}` : ""}<div class="cnav-l">Client</div>${O.map(item).join("")}</nav>`;
@@ -1398,6 +1399,7 @@ function clientPanel(c, ym, v, see, mp){
   if (v.k === "camps") return campaignsView(c);
   if (v.k === "notes") return clientNotesView(c);
   if (v.k === "visa") return isAdmin() ? visaView(c) : "";
+  if (v.k === "access") return isAdmin() ? accessView(c) : "";
   if (v.k === "deliv") return head("Deliveries", "كل اللي اتسلّم على العميل ده: اللينكات والملفات، مين سلّمها وإمتى") + delivBlock(c);
   if (v.k === "tasks") {
     const ct = isAdmin() ? tasks.filter(t => t.clientId === c.id) : tasks.filter(t => t.clientId === c.id && t.assigneeId === me.id);
@@ -2607,7 +2609,7 @@ async function loadVault(){ try { const r = await q(sb.from("app_settings").sele
 async function loadCards(cid, force){ if (CARDS[cid] && !force) return; try { const rows = await q(sb.from("client_cards").select("*").eq("client_id", cid).order("created_at"), "cards"); CARDS[cid] = rows.map(r => ({ ...r, dec: null })); if (VKEY) await decCards(cid); } catch(e){ CARDS[cid] = []; toast("مقدرتش أجيب الكروت: " + (e.message || e)); } render(); }
 async function decCards(cid){ for (const r of CARDS[cid] || []) { try { r.dec = await vDec(VKEY, r.enc); } catch(e){ r.dec = { err:true }; } } }
 function vTouch(){ clearTimeout(VLOCKT); VLOCKT = setTimeout(() => vLock(true), 15 * 60 * 1000); }
-function vLock(auto){ VKEY = null; VSHOW = {}; Object.values(CARDS).forEach(l => l.forEach(r => r.dec = null)); clearTimeout(VLOCKT); render(); if (auto) toast("الفيزا اتقفلت لوحدها بعد 15 دقيقة 🔒"); }
+function vLock(auto){ VKEY = null; VSHOW = {}; Object.values(CARDS).forEach(l => l.forEach(r => r.dec = null)); Object.values(ACC).forEach(l => l.forEach(r => r.dec = null)); ASHOW = {}; clearTimeout(VLOCKT); render(); if (auto) toast("الفيزا اتقفلت لوحدها بعد 15 دقيقة 🔒"); }
 function visaView(c){
   let h = `<div class="cv-head"><div><h2>Visa</h2><div class="ph-sub">كروت العميل · ليك انت بس، الفريق مش بيشوفها</div></div>${VKEY ? `<div class="row" style="gap:6px"><button class="btn sm ghost" onclick="vLock()">🔒 اقفل</button><button class="btn sm primary" onclick="openCard('${c.id}')">+ فيزا</button></div>` : ""}</div>`;
   if (VAULT === undefined) { loadVault(); return h + `<div class="card empty">بيحمّل…</div>`; }
@@ -2644,19 +2646,21 @@ async function vSetup(){
   try { await q(sb.from("app_settings").upsert({ k:"card_vault", v:{ salt, check }, updated_at: new Date().toISOString() }), "vset"); VAULT = { salt, check }; VKEY = key; toast("اتعملت ✓ الفيزا مفتوحة دلوقتي"); render(); } catch(e){ toast("ماتحفظتش: " + (e.message || e)); }
 }
 async function vUnlock(cid){
-  const p = $("#vpU").value; if (!p) return; try { const key = await vDerive(p, VAULT.salt); await vDec(key, VAULT.check); VKEY = key; for (const k in CARDS) await decCards(k); vTouch(); render(); }
+  const p = $("#vpU").value; if (!p) return; try { const key = await vDerive(p, VAULT.salt); await vDec(key, VAULT.check); VKEY = key; for (const k in CARDS) await decCards(k); for (const k in ACC) await decAcc(k); vTouch(); render(); }
   catch(e){ toast("كلمة السر غلط"); $("#vpU").value = ""; $("#vpU").focus(); }
 }
-function vForgot(){ openModal(`<h2>نسيت كلمة سر الفيزا؟</h2><p class="small">مفيش طريقة ترجّعها، لأن الكروت متشفّرة بيها ومحدش غيرك يعرفها. تقدر تعمل كلمة سر جديدة، بس <b>كل الكروت المتسجلة عند كل العملاء هتتمسح</b> وهتحتاج تدخلها تاني.</p><div class="actions"><span class="spacer"></span><button class="btn" onclick="closeModal()">لا، هفتكرها</button><button class="btn danger" onclick="vReset()">امسح الكروت واعمل كلمة جديدة</button></div>`); }
-async function vReset(){ try { await q(sb.from("client_cards").delete().not("id", "is", null), "vrc"); await q(sb.from("app_settings").delete().eq("k", "card_vault"), "vrv"); VAULT = null; VKEY = null; CARDS = {}; closeModal(); toast("اتمسحت، اعمل كلمة سر جديدة"); render(); } catch(e){ toast("ماتمسحتش: " + (e.message || e)); } }
+function vForgot(){ openModal(`<h2>نسيت كلمة سر الفيزا؟</h2><p class="small">مفيش طريقة ترجّعها، لأن الكروت متشفّرة بيها ومحدش غيرك يعرفها. تقدر تعمل كلمة سر جديدة، بس <b>كل الكروت والـ Access المتسجلين عند كل العملاء هيتمسحوا</b> وهتحتاج تدخلها تاني.</p><div class="actions"><span class="spacer"></span><button class="btn" onclick="closeModal()">لا، هفتكرها</button><button class="btn danger" onclick="vReset()">امسح الكروت واعمل كلمة جديدة</button></div>`); }
+async function vReset(){ try { await q(sb.from("client_cards").delete().not("id", "is", null), "vrc"); await q(sb.from("client_access").delete().not("id", "is", null), "vra"); ACC = {}; await q(sb.from("app_settings").delete().eq("k", "card_vault"), "vrv"); VAULT = null; VKEY = null; CARDS = {}; closeModal(); toast("اتمسحت، اعمل كلمة سر جديدة"); render(); } catch(e){ toast("ماتمسحتش: " + (e.message || e)); } }
 function vChangePass(cid){ openModal(`<h2>غيّر كلمة سر الفيزا</h2><label class="f">كلمة السر الجديدة</label><input class="inp" type="password" id="vn1" autocomplete="new-password"><label class="f">اكتبها تاني</label><input class="inp" type="password" id="vn2" autocomplete="new-password"><div class="actions"><span class="spacer"></span><button class="btn" onclick="closeModal()">إلغاء</button><button class="btn primary" onclick="vDoChange()">غيّر</button></div>`); }
 async function vDoChange(){
   const a = $("#vn1").value, b = $("#vn2").value; if (a.length < 8) return toast("8 حروف على الأقل"); if (a !== b) return toast("الكلمتين مش زي بعض");
   try { const all = await q(sb.from("client_cards").select("*"), "vall"); const plain = []; for (const r of all) plain.push([r, await vDec(VKEY, r.enc)]);
     const salt = b64(crypto.getRandomValues(new Uint8Array(16))), key = await vDerive(a, salt);
     for (const [r, d] of plain) await q(sb.from("client_cards").update({ enc: await vEnc(key, d), updated_at: new Date().toISOString() }).eq("id", r.id), "vre");
+    const allA = await q(sb.from("client_access").select("*"), "aall"); const plainA = []; for (const r of allA) plainA.push([r, await vDec(VKEY, r.enc)]);
+    for (const [r, d] of plainA) await q(sb.from("client_access").update({ enc: await vEnc(key, d), updated_at: new Date().toISOString() }).eq("id", r.id), "are");
     await q(sb.from("app_settings").upsert({ k:"card_vault", v:{ salt, check: await vEnc(key, { ok:"zyad-vault" }) }, updated_at: new Date().toISOString() }), "vset2");
-    VAULT = { salt }; VKEY = key; await loadVault(); CARDS = {}; closeModal(); toast("اتغيّرت ✓"); render();
+    VAULT = { salt }; VKEY = key; await loadVault(); CARDS = {}; ACC = {}; closeModal(); toast("اتغيّرت ✓"); render();
   } catch(e){ toast("ماتغيّرتش: " + (e.message || e)); }
 }
 function openCard(cid, id){
@@ -2682,6 +2686,86 @@ async function saveCard(cid, id){
 }
 function delCard(cid, id){ openModal(`<h2>تمسح الفيزا دي؟</h2><div class="actions"><span class="spacer"></span><button class="btn" onclick="closeModal()">لا</button><button class="btn danger" onclick="doDelCard('${cid}','${id}')">امسح</button></div>`); }
 async function doDelCard(cid, id){ try { await q(sb.from("client_cards").delete().eq("id", id), "cdel"); closeModal(); toast("اتمسحت"); await loadCards(cid, true); } catch(e){ toast("ماتمسحتش"); } }
+
+/* ================= Access vault (admin only): logins per client, encrypted with the same Visa passphrase ================= */
+let ACC = {}, ASHOW = {}, AFORM = null;
+const ACC_K = {
+  salla:  { l:"سلة", ic:"🛒", sub:"دخول لوحة تحكم سلة", u:"الإيميل أو رقم الجوال", url:"https://s.salla.sa/login" },
+  social: { l:"منصات السوشيال والإعلانات", ic:"📱", sub:"Meta · TikTok · Snapchat · Google…", u:"الإيميل أو اليوزر" },
+  email:  { l:"إيميلات", ic:"✉️", sub:"إيميل وباسوورد", u:"الإيميل" },
+  other:  { l:"حاجات تانية", ic:"🔑", sub:"أي حاجة ليها دخول", u:"الإيميل أو اليوزر" }
+};
+const ACC_PLAT = ["Meta (Facebook / Instagram)", "Instagram", "TikTok", "Snapchat", "X (Twitter)", "YouTube", "Google Ads", "Google Merchant Center", "Google Analytics", "LinkedIn", "Pinterest", "Shopify", "Zid", "Other"];
+async function loadAcc(cid, force){ if (ACC[cid] && !force) return; try { const rows = await q(sb.from("client_access").select("*").eq("client_id", cid).order("sort").order("created_at"), "acc"); ACC[cid] = rows.map(r => ({ ...r, dec: null })); if (VKEY) await decAcc(cid); } catch(e){ ACC[cid] = []; toast("مقدرتش أجيب الـ Access: " + (e.message || e)); } render(); }
+async function decAcc(cid){ for (const r of ACC[cid] || []) { try { r.dec = await vDec(VKEY, r.enc); } catch(e){ r.dec = { err:true }; } } }
+function accTitle(r){ const d = r.dec || {}; return r.kind === "salla" ? "سلة" + (r.label ? " · " + r.label : "") : r.kind === "social" ? (d.plat === "Other" ? (d.name || "منصة") : (d.plat || "منصة")) + (r.label ? " · " + r.label : "") : (r.kind === "email" ? (r.label || d.user || "إيميل") : (d.name || r.label || "دخول")); }
+function accessView(c){
+  const add = k => `openAcc('${c.id}',null,'${k}')`;
+  let h = `<div class="cv-head"><div><h2>Access</h2><div class="ph-sub">دخول سلة والمنصات والإيميلات · ليك انت بس، الفريق مش بيشوفها</div></div>${VKEY ? `<div class="row" style="gap:6px"><button class="btn sm ghost" onclick="vLock()">🔒 اقفل</button><button class="btn sm primary" onclick="${add("social")}">+ Access</button></div>` : ""}</div>`;
+  if (VAULT === undefined) { loadVault(); return h + `<div class="card empty">بيحمّل…</div>`; }
+  if (!VAULT) return h + `<div class="vbox"><h3>اعمل كلمة سر للخزنة</h3><p class="small muted">الإيميلات والباسووردات بتتشفّر بكلمة السر دي قبل ما تتحفظ (نفس كلمة سر الفيزا). خليها غير باسورد السيستم واحفظها عندك، <b>لو نسيتها البيانات مش هترجع</b>.</p>
+    <label class="f">كلمة السر (8 حروف على الأقل)</label><input class="inp" type="password" id="vp1" autocomplete="new-password">
+    <label class="f">اكتبها تاني</label><input class="inp" type="password" id="vp2" autocomplete="new-password" onkeydown="if(event.key==='Enter')vSetup()">
+    <button class="btn primary" style="margin-top:12px" onclick="vSetup()">احفظ كلمة السر</button></div>`;
+  if (!ACC[c.id]) { loadAcc(c.id); return h + `<div class="card empty">بيحمّل…</div>`; }
+  const list = ACC[c.id];
+  if (!VKEY) return h + `<div class="vbox"><h3>🔒 الـ Access مقفول</h3><p class="small muted">اكتب كلمة سر الفيزا (نفس الخزنة) علشان تشوف الإيميلات والباسووردات. بيتقفل لوحده بعد 15 دقيقة.</p>
+    <input class="inp" type="password" id="vpU" autocomplete="current-password" placeholder="كلمة سر الخزنة" onkeydown="if(event.key==='Enter')vUnlock('${c.id}')"><div class="row" style="margin-top:10px;gap:8px"><button class="btn primary" onclick="vUnlock('${c.id}')">افتح</button><span class="spacer"></span><a href="#" class="tiny muted" onclick="vForgot();return false">نسيت كلمة السر؟</a></div>
+    ${list.length ? `<div class="tiny muted" style="margin-top:12px">${list.length} دخول متسجل</div>` : ""}</div>`;
+  vTouch();
+  const quick = `<div class="acc-quick">${Object.entries(ACC_K).map(([k, t]) => `<button class="acc-q" onclick="${add(k)}"><span>${t.ic}</span><b>+ ${k === "salla" ? "دخول سلة" : k === "social" ? "منصة سوشيال" : k === "email" ? "إيميل وباسوورد" : "حاجة تانية"}</b><small>${t.sub}</small></button>`).join("")}</div>`;
+  if (!list.length) return h + `<div class="mp-empty"><h3>مفيش Access لسه</h3><p class="small muted">ضيف دخول سلة، وحسابات المنصات، وإيميلات العميل. كله بيتشفّر قبل ما يتحفظ.</p></div>` + quick;
+  let body = "";
+  for (const [k, t] of Object.entries(ACC_K)) { const g = list.filter(r => (ACC_K[r.kind] ? r.kind : "other") === k); if (!g.length) continue;
+    body += `<div class="acc-sec"><div class="acc-sh">${t.ic} ${t.l} <span class="tiny muted">${g.length}</span><span class="spacer"></span><button class="btn xs ghost" onclick="${add(k)}">+ ضيف</button></div><div class="acc-grid">${g.map(r => accCard(c, r)).join("")}</div></div>`; }
+  return h + body + quick + `<div class="tiny muted" style="margin-top:10px">🔒 كل البيانات متشفّرة بكلمة سر الخزنة (نفس الفيزا).</div>`;
+}
+function accCard(c, r){
+  const d = r.dec || {}, sh = ASHOW[r.id];
+  if (d.err) return `<div class="acc-card"><b>${esc(r.label || "دخول")}</b><div class="small">مقدرتش أفك ده بكلمة السر دي.</div></div>`;
+  const cp = (v, l) => v ? `<button class="vcp acc-cp" title="انسخ ${l}" onclick="event.stopPropagation();vCopy('${btoa(unescape(encodeURIComponent(v)))}','${l}')">⧉</button>` : "";
+  const line = (l, v, secret) => v ? `<div class="acc-l"><span class="acc-lb">${esc(l)}</span><span class="acc-v" dir="ltr">${secret && !sh ? "••••••••" : esc(v)}</span>${cp(v, l)}</div>` : "";
+  const url = d.url || (r.kind === "salla" ? ACC_K.salla.url : "");
+  return `<div class="acc-card">
+    <div class="acc-top"><b dir="auto">${esc(accTitle(r))}</b>${url ? `<a class="btn xs" href="${esc(/^https?:/i.test(url) ? url : "https://" + url)}" target="_blank" rel="noopener">افتح ↗</a>` : ""}</div>
+    ${line(ACC_K[r.kind] ? ACC_K[r.kind].u : "اليوزر", d.user)}
+    ${line("الباسوورد", d.pass, true)}
+    ${(d.extra || []).map(x => line(x.label || "خانة", x.value, x.secret)).join("")}
+    ${d.note ? `<div class="small muted" dir="auto" style="margin-top:6px;white-space:pre-wrap">${esc(d.note)}</div>` : ""}
+    <div class="row" style="gap:6px;margin-top:10px">${d.pass || (d.extra || []).some(x => x.secret) ? `<button class="btn xs" onclick="ASHOW['${r.id}']=!ASHOW['${r.id}'];render()">${sh ? "🙈 اخفي" : "👁 اظهر"}</button>` : ""}<button class="btn xs ghost" onclick="openAcc('${c.id}','${r.id}')">✏️ تعديل</button><span class="spacer"></span><button class="btn xs ghost" onclick="delAcc('${c.id}','${r.id}')">🗑</button></div></div>`;
+}
+function openAcc(cid, id, kind){
+  const r = id ? ACC[cid].find(x => x.id === id) : null, d = (r && r.dec) || {};
+  AFORM = { cid, id, kind: r ? r.kind : (kind || "social"), extra: JSON.parse(JSON.stringify(d.extra || [])) };
+  const k = AFORM.kind;
+  openModal(`<h2>${id ? "تعديل" : "Access جديد"} · ${esc(clientById(cid).name)}</h2>
+    <label class="f">النوع</label><select class="inp" id="acK" onchange="accKind(this.value)">${Object.entries(ACC_K).map(([kk, t]) => `<option value="${kk}" ${kk === k ? "selected" : ""}>${t.ic} ${kk === "salla" ? "سلة" : kk === "social" ? "منصة سوشيال / إعلانات" : kk === "email" ? "إيميل" : "حاجة تانية"}</option>`).join("")}</select>
+    <div id="acPlatW" style="display:${k === "social" ? "block" : "none"}"><label class="f">المنصة</label><select class="inp" id="acP" onchange="$('#acNW').style.display=this.value==='Other'?'block':'none'">${ACC_PLAT.map(p => `<option ${p === (d.plat || "Meta (Facebook / Instagram)") ? "selected" : ""}>${p}</option>`).join("")}</select></div>
+    <div id="acNW" style="display:${k === "other" || (k === "social" && d.plat === "Other") ? "block" : "none"}"><label class="f">اسمها</label><input class="inp" id="acN" dir="auto" value="${esc(d.name || "")}" placeholder="مثلاً: Shopify · هوستنجر · Canva"></div>
+    <label class="f">اسمها عندك <span class="tiny muted">(اختياري)</span></label><input class="inp" id="acL" dir="auto" value="${esc((r && r.label) || "")}" placeholder="مثلاً: أكونت الإعلانات · إيميل المتجر">
+    <label class="f" id="acUL">${esc((ACC_K[k] || ACC_K.other).u)}</label><input class="inp" id="acU" dir="ltr" value="${esc(d.user || "")}" autocomplete="off">
+    <label class="f">الباسوورد</label><div class="row" style="gap:6px"><input class="inp" id="acW" dir="ltr" type="password" value="${esc(d.pass || "")}" autocomplete="new-password" style="flex:1"><button class="btn sm" type="button" onclick="const i=$('#acW');i.type=i.type==='password'?'text':'password'">👁</button></div>
+    <label class="f">لينك الدخول <span class="tiny muted">(اختياري)</span></label><input class="inp" id="acR" dir="ltr" value="${esc(d.url || "")}" placeholder="${k === "salla" ? ACC_K.salla.url : "https://"}">
+    <div id="acX"></div><button class="btn xs ghost" style="margin-top:8px" onclick="accXRead();AFORM.extra.push({label:'',value:'',secret:false});accXDraw()">+ خانة جديدة</button>
+    <label class="f">ملاحظة <span class="tiny muted">(اختياري)</span></label><textarea class="inp" id="acT" dir="auto" rows="2" placeholder="مثلاً: الكود بيجي على جوال العميل · Business Manager ID">${esc(d.note || "")}</textarea>
+    <p class="tiny muted" style="margin:8px 0 0">🔒 بيتشفّر بكلمة سر الخزنة قبل ما يتحفظ.</p>
+    <div class="actions"><span class="spacer"></span><button class="btn" onclick="closeModal()">إلغاء</button><button class="btn primary" onclick="saveAcc()">حفظ</button></div>`);
+  accXDraw();
+}
+function accKind(k){ AFORM.kind = k; $("#acPlatW").style.display = k === "social" ? "block" : "none"; $("#acNW").style.display = k === "other" || (k === "social" && $("#acP").value === "Other") ? "block" : "none"; $("#acUL").textContent = (ACC_K[k] || ACC_K.other).u; }
+function accXDraw(){ $("#acX").innerHTML = AFORM.extra.map((x, i) => `<div class="row acc-xr" style="gap:6px;margin-top:8px"><input class="inp" data-x="l" dir="auto" value="${esc(x.label)}" placeholder="اسم الخانة (مثلاً: كود 2FA)" style="flex:1"><input class="inp" data-x="v" dir="ltr" type="${x.secret ? "password" : "text"}" value="${esc(x.value)}" placeholder="القيمة" style="flex:1.3"><label class="tiny" title="سرّية"><input type="checkbox" data-x="s" ${x.secret ? "checked" : ""}> سرّية</label><button class="btn xs ghost" onclick="accXRead();AFORM.extra.splice(${i},1);accXDraw()">✕</button></div>`).join(""); }
+function accXRead(){ AFORM.extra = [...document.querySelectorAll("#acX .acc-xr")].map(el => ({ label: el.querySelector('[data-x=l]').value.trim(), value: el.querySelector('[data-x=v]').value, secret: el.querySelector('[data-x=s]').checked })); }
+async function saveAcc(){
+  if (!VKEY) { closeModal(); return toast("الخزنة اتقفلت، افتحها تاني"); }
+  accXRead(); const { cid, id } = AFORM, kind = $("#acK").value;
+  const d = { plat: kind === "social" ? $("#acP").value : "", name: $("#acN").value.trim(), user: $("#acU").value.trim(), pass: $("#acW").value, url: $("#acR").value.trim(), note: $("#acT").value.trim(), extra: AFORM.extra.filter(x => x.label || x.value) };
+  if (kind === "other" && !d.name) return toast("اكتب اسمها");
+  if (!d.user && !d.pass && !d.extra.length) return toast("اكتب الإيميل/اليوزر أو الباسوورد");
+  const row = { client_id: cid, kind, label: $("#acL").value.trim() || null, enc: await vEnc(VKEY, d), updated_at: new Date().toISOString() };
+  try { if (id) await q(sb.from("client_access").update(row).eq("id", id), "aupd"); else await q(sb.from("client_access").insert(row), "ains"); closeModal(); toast("اتحفظ ✓"); await loadAcc(cid, true); } catch(e){ toast("ماتحفظش: " + (e.message || e)); }
+}
+function delAcc(cid, id){ openModal(`<h2>تمسح الدخول ده؟</h2><p class="small muted">مش هيرجع تاني.</p><div class="actions"><span class="spacer"></span><button class="btn" onclick="closeModal()">لا</button><button class="btn danger" onclick="doDelAcc('${cid}','${id}')">امسح</button></div>`); }
+async function doDelAcc(cid, id){ try { await q(sb.from("client_access").delete().eq("id", id), "adel"); closeModal(); toast("اتمسح"); await loadAcc(cid, true); } catch(e){ toast("ماتمسحش"); } }
 
 /* overview strip for team members who can see the whole client (e.g. CMO following with Zyad) */
 function clientOverview(c, ym, rows, prev){
