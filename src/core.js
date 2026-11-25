@@ -301,7 +301,7 @@ async function markReviewed(cid, d, by){ try { await q(sb.from("metrics").update
 /* ================= Team (admin) ================= */
 function viewTeam(){
   const team = profiles.filter(p => p.id !== me.id);
-  let h = `<div class="row" style="margin-bottom:12px"><h2>الفريق والصلاحيات</h2><span class="small muted">${team.length} من 6</span><span class="spacer"></span><button class="btn primary sm" onclick="openInvite()">+ ضيف عضو</button></div>`;
+  let h = `<div class="row" style="margin-bottom:12px"><h2>الفريق والصلاحيات</h2><span class="small muted">${team.length} عضو</span><span class="spacer"></span><button class="btn primary sm" onclick="openInvite()">+ ضيف عضو</button></div>`;
   if (!team.length) return h + `<div class="card empty">لسه مفيش حد في الفريق. دوس "ضيف عضو"، واعمله يوزر وباسورد تبعتهمله.</div>`;
   h += `<p class="small muted" style="margin:-4px 0 12px">تحت كل واحد: هو شغال على أنهي عملاء، وبيعمل إيه ويشوف إيه في كل عميل. أي علامة تغيّرها بتتحفظ على طول.</p>`;
   h += `<div class="card" style="padding:4px 16px">${team.map(p => { const cs = members.filter(m => m.user_id === p.id); return `<div class="tm-block"><div class="trow" style="border:0">${avatar(p.id, 34)}<div style="flex:1;min-width:0"><div><b>${esc(p.name || p.email)}</b> <span class="chip grey">${esc(p.job || "—")}</span>${!p.active ? ` <span class="chip warn">متوقف</span>` : ""}</div>
@@ -328,7 +328,6 @@ async function doInvite(){
   if (!name) { $("#ivErr").textContent = "اكتب الاسم"; return; }
   if (!/^[a-z0-9._-]{3,40}$/.test(username)) { $("#ivErr").textContent = ERR_AR.bad_username; return; }
   if (password.length < 8) { $("#ivErr").textContent = ERR_AR.short_password; return; }
-  if (profiles.length >= 7) { $("#ivErr").textContent = "الفريق وصل 6 أعضاء"; return; }
   $("#ivBtn").disabled = true; $("#ivBtn").textContent = "⏳ بيعمل الحساب…";
   try { const r = await callInvite({ action:"create", username, password, name, job }); await loadAll(); render(); showCreds(name, username, password, r && r.id); }
   catch(e){ $("#ivErr").textContent = ERR_AR[e.message] || ("ماتعملش: " + e.message); $("#ivBtn").disabled = false; $("#ivBtn").textContent = "اعمل الحساب"; }
